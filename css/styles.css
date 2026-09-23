@@ -2366,3 +2366,108 @@ a.compare-btn{text-decoration:none}
   text-decoration:underline;
   text-underline-offset:2px;
 }
+
+/* ==========================================================================
+   STEP 4 — richer catalogue & discovery
+   Additive only: nothing here changes the existing design language. The new
+   catalogue has longer names, longer KSh prices and a category · subcategory
+   line on every card, so these rules give that content room to wrap.
+   ========================================================================== */
+
+/* --- card category line now reads "Category · Subcategory" ---------------- */
+.card-top .store{
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.store-sub{
+  font-weight:500;
+  letter-spacing:.02em;
+  text-transform:none;
+  color:var(--muted-2);
+}
+
+/* --- KSh prices are wider than the old demo figures ---------------------- */
+.price-row{flex-wrap:wrap;row-gap:4px}
+.price{overflow-wrap:anywhere}
+.meta-item{overflow-wrap:anywhere}
+
+/* --- detail page: long provider names and price ranges ------------------- */
+.detail-price-row{flex-wrap:wrap;row-gap:6px}
+.detail-price{overflow-wrap:anywhere}
+
+/* --- subcategory filter group (reuses the existing filter styling) ------- */
+.filter-options .check-label{overflow-wrap:anywhere}
+.check-count{flex:0 0 auto}
+
+/* --- comparison: longer spec values in the stacked (mobile) view --------- */
+.cmp-stack-card dt,
+.cmp-stack-card dd{overflow-wrap:anywhere}
+
+/* --- deal cards and the detail offer box carry the offer's own headline --- */
+.offer-headline{
+  margin:8px 0 0;
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  line-height:1.4;
+}
+.deal-headline{
+  margin:6px 0 0;
+  font-size:14px;
+  font-weight:700;
+  color:var(--text-2);
+}
+
+/* --- price framing: the demo price is stated as illustrative -------------- */
+.price-note{
+  font-size:10.5px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted-2);
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:3px 8px;
+}
+.visual-count{
+  font-size:11px;
+  color:#94A3B8;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+  padding:4px 8px;
+  border-radius:999px;
+}
+
+/* --- explicit demo marker on the detail identity row ---------------------- */
+.demo-tag{
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  font-size:10.5px;
+}
+
+/* --- long demo names, provider names and spec values ----------------------
+   The richer catalogue has longer, more realistic strings, so every place a
+   name, provider or specification value is printed gets a wrapping safety net.
+   Values wrap at spaces as normal; this only prevents a single long token from
+   pushing a card wider than its column. */
+.panel-text,
+.panel-title,
+.seller-card strong,
+.deal-terms strong,
+.deal-headline,
+.offer-headline,
+.guide-card h3,
+.guide-question,
+.check-label,
+.suggest-text,
+.empty h3,
+.highlight-list li,
+.cmp-picker-meta,
+.cmp-picker-name,
+.cmp-picker-tags,
+.tray-label,
+.detail-lead,
+.spec-list dt{
+  overflow-wrap:anywhere;
+}
