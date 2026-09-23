@@ -972,11 +972,15 @@ window.PV = Object.assign(window.PV || {}, (function () {
         .filter((t) => isPopular(t.tag) || t.tag === activeTag)
         .sort((a, b) => popular.indexOf(a.tag) - popular.indexOf(b.tag));
       const rest = all.filter((t) => ordered.indexOf(t) === -1);
+      /* The store normalises tag counts to { tag, label, count }; the fallbacks
+         keep a malformed row from ever rendering an empty label or
+         "undefined" — a missing count simply shows no number. */
       const tagRadio = (t) =>
         '<label class="check"><input type="radio" name="f-tag" value="' + esc(t.tag) + '"' +
         (activeTag === t.tag ? ' checked' : '') + ' />' +
-        '<span class="check-label">' + esc(t.label) + '</span>' +
-        '<span class="check-count">' + t.count + '</span></label>';
+        '<span class="check-label">' + esc(t.label || S.tagLabel(t.tag)) + '</span>' +
+        (typeof t.count === 'number' ? '<span class="check-count">' + t.count + '</span>' : '') +
+        '</label>';
 
       html +=
         '<div class="filter-group">' +
@@ -986,6 +990,8 @@ window.PV = Object.assign(window.PV || {}, (function () {
         '<span class="check-label">All tags</span></label>' +
         ordered.map(tagRadio).join('') +
         '</div>' +
+        (all.length ? '' :
+          '<p class="filter-note">No tags are published in this catalogue yet.</p>') +
         (rest.length
           ? '<details class="filter-more"><summary>More tags (' + rest.length + ')</summary>' +
             '<div class="filter-options">' + rest.map(tagRadio).join('') + '</div></details>'
