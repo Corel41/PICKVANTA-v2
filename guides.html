@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="PickVanta guides: what to check before comparing and choosing products, services and deals." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Guides | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head">
+      <div class="shell">
+        <div class="page-head-grid">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Guides · Learn first</div>
+            <h1>Guides</h1>
+            <p class="page-lead">
+              Practical buying and discovery guides. Each one explains what to check before you compare options — so the
+              comparison view is about your priorities, not marketing claims.
+            </p>
+          </div>
+          <div class="page-side">
+            <div class="notice">This stage establishes the guide structure. Outlines are shown; full articles are not written yet.</div>
+          </div>
+        </div>
+
+        <div class="search-wrap wide" id="searchWrap">
+          <form id="searchForm" role="search" aria-label="Search guides">
+            <label for="pageSearch" class="visually-hidden">Search guide topics</label>
+            <div class="search-row">
+              <div class="search-input-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
+                <input id="pageSearch" type="search" placeholder="Search guide topics — e.g. laptop, internet, furniture..." autocomplete="off" aria-autocomplete="list" aria-controls="suggestions" aria-expanded="false" />
+              </div>
+              <button class="search-btn" type="submit">
+                Search
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+            <div class="suggestions" id="suggestions" role="listbox" aria-label="Search suggestions"></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATEGORY FILTER -->
+    <section class="section section-tight" aria-labelledby="guides-cats-title">
+      <div class="shell">
+        <div class="section-head compact">
+          <div>
+            <h2 id="guides-cats-title">Guide topics</h2>
+            <p>Filter guide outlines by the same categories used across PickVanta.</p>
+          </div>
+        </div>
+        <nav class="cat-strip" id="guideCategories" aria-label="Guide categories"></nav>
+      </div>
+    </section>
+
+    <!-- GUIDES -->
+    <section class="section section-tight" aria-labelledby="guides-list-title">
+      <div class="shell">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <h2 id="guides-list-title" class="toolbar-title">All guides</h2>
+            <p class="results-meta" id="guideMeta"></p>
+          </div>
+          <div class="toolbar-right">
+            <a class="btn-secondary" href="discover.html">Start discovering</a>
+          </div>
+        </div>
+
+        <div class="guides-grid grid-3" id="guideGrid"></div>
+        <div id="guideEmpty" hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/guides.js"></script>
+</body>
+</html>

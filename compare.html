@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="Compare up to three options side by side on PickVanta. See which rows differ and decide which option matters to you." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Compare | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head">
+      <div class="shell">
+        <div class="page-head-grid">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Compare · Side by side</div>
+            <h1>Compare</h1>
+            <p class="page-lead">
+              Put up to three options side by side and see exactly which values differ. PickVanta does not score or rank options
+              and does not declare a winner — the decision stays with you.
+            </p>
+          </div>
+          <div class="page-side">
+            <div class="notice">Comparison uses the demo dataset only. Selections live in your browser for this session — no account, no server.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="shell">
+      <div id="compareNotice"></div>
+    </div>
+
+    <!-- SLOTS -->
+    <section class="section section-tight" aria-labelledby="slots-title">
+      <div class="shell">
+        <div class="section-head compact">
+          <div>
+            <h2 id="slots-title">Your options</h2>
+            <p>Choose a record for each slot. Any product or service in the demo dataset can be compared.</p>
+          </div>
+        </div>
+        <div class="cmp-pickers" id="comparePickers"></div>
+      </div>
+    </section>
+
+    <!-- MATRIX -->
+    <section class="section section-tight" aria-labelledby="matrix-title">
+      <div class="shell">
+        <div class="section-head compact">
+          <div>
+            <h2 id="matrix-title">What differs</h2>
+            <p>Rows where the demo values are not identical are marked “Differs”. Attributes come from the records themselves, so other categories can expose other rows.</p>
+          </div>
+        </div>
+
+        <div class="cmp-tools" id="compareTools"></div>
+        <div id="compareMatrix"></div>
+      </div>
+    </section>
+
+    <!-- QUICK ADD -->
+    <section class="section section-tight" aria-labelledby="suggest-title">
+      <div class="shell">
+        <div class="panel" id="compareSuggest" aria-labelledby="suggest-title"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/compare.js"></script>
+</body>
+</html>
