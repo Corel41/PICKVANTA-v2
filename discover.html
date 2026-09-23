@@ -123,9 +123,12 @@
   <footer id="siteFooter"></footer>
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/data.js"></script>
+  <!-- Runtime configuration: demo by default, or the public Supabase URL and
+       anon key for the live catalogue. Never contains a secret. -->
+  <script src="js/config.js"></script>
   <script src="js/domain.js"></script>
-  <!-- Data-access layer: the only module that reads the catalogue source -->
+  <!-- Data-access layer: the only module that talks to the catalogue source
+       (the bundled demonstration data, or the read-only Supabase API) -->
   <script src="js/store.js"></script>
   <script src="js/core.js"></script>
   <script src="js/listing.js"></script>

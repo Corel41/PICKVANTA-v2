@@ -24,28 +24,13 @@ PV.util.ready(function () {
   const searchInput = U.$('#pageSearch');
   if (searchInput && state.q) searchInput.value = state.q;
 
-  /* Guides are searched locally with the same rules as the item search:
-     title, question, summary, category and the outline topics. */
-  function matches(guide) {
-    if (state.category !== 'all' && guide.category !== state.category) return false;
-    if (!state.q) return true;
-    const hay = [guide.title, guide.question || '', guide.summary, U.categoryLabel(guide.category), guide.sections.map(function (s) { return s.title; }).join(' ')]
-      .join(' ')
-      .toLowerCase();
-    const tokens = hay.split(/[^a-z0-9]+/).filter(Boolean);
-    return state.q
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean)
-      .every(function (term) {
-        return hay.indexOf(term) !== -1 || tokens.some(function (t) { return t.indexOf(term) === 0; });
-      });
-  }
-
-  function renderCats() {
+  /* Guides are filtered by the data layer (PV.store.queryGuides) so the search
+     rules stay in one place: title, question, summary, category and the
+     outline topics. */
+  function renderCats(list) {
     if (!strip) return;
     const cats = PV.store.categories().filter(function (c) {
-      return PV.store.guides().some(function (g) { return g.category === c.slug; });
+      return list.some(function (g) { return g.category === c.slug; });
     });
     strip.innerHTML =
       '<a class="cat-pill' + (state.category === 'all' ? ' is-active' : '') + '" href="guides.html">All guides</a>' +
@@ -55,9 +40,8 @@ PV.util.ready(function () {
       }).join('');
   }
 
-  function render() {
-    const list = PV.store.guides().filter(matches);
-    renderCats();
+  function renderList(list) {
+    renderCats(list);
 
     if (meta) {
       meta.textContent = list.length
@@ -75,7 +59,8 @@ PV.util.ready(function () {
           title: state.q ? 'No matches found' : 'No guides in this category yet',
           text: state.q
             ? 'No guide outline matches “' + state.q + '”. Try a shorter topic, or browse all guides.'
-            : 'This category has no guide outlines in the demo set yet. Try another category.',
+            : 'This category has no guide outlines in ' +
+              (PV.store.catalogue().live ? 'the catalogue' : 'the demo set') + ' yet. Try another category.',
           suggestLabel: 'Jump to a category:',
           suggestions: PV.store.categories().slice(0, 4).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: 'guides.html?category=' + c.slug };
@@ -94,6 +79,33 @@ PV.util.ready(function () {
     grid.hidden = false;
     if (empty) empty.hidden = true;
     grid.innerHTML = list.map(function (guide) { return PV.card.guide(guide); }).join('');
+  }
+
+  /* One request per render: the guides, then the listings they mention (each
+     guide card names the records it discusses). */
+  let renderToken = 0;
+
+  function render() {
+    const token = ++renderToken;
+    PV.store.init().then(function () {
+      return PV.store.queryGuides(state).then(function (list) {
+        if (token !== renderToken) return;
+        return PV.store.warmGuideListings(list).then(function () {
+          if (token !== renderToken) return;
+          renderList(list);
+        });
+      });
+    }).catch(function (err) {
+      if (token !== renderToken) return;
+      grid.hidden = false;
+      if (empty) empty.hidden = true;
+      grid.innerHTML = PV.card.error({
+        detail: err && err.message ? err.message : '',
+        actions: [{ label: 'Browse Discover', href: 'discover.html' }]
+      });
+      if (meta) meta.textContent = 'Could not load guide outlines';
+      PV.ui.announce("We couldn't load these options right now.");
+    });
   }
 
   if (form) {

@@ -2,7 +2,7 @@
    PickVanta — Detail view (detail.html?id=…)
    One reusable detail template for any record type: product, service or an
    item that carries an offer. Nothing on this page is item-specific — every
-   block is driven by the record from js/data.js.
+   block is driven by the record the data layer returns for the id in the URL.
    ========================================================================== */
 PV.util.ready(function () {
   const U = PV.util;
@@ -10,34 +10,80 @@ PV.util.ready(function () {
 
   const host = U.$('#detail');
   const crumb = U.$('#crumb');
-  const id = U.params().get('id');
-  const record = id ? PV.store.item(id) : null;
+  /* Records are addressed by their stable id; ?slug= is accepted so a readable
+     link keeps working too. */
+  const id = U.params().get('id') || U.params().get('slug') || '';
 
   if (!host) return;
 
-  if (!record) {
+  /* One request at a time: if a newer load starts, the older response is
+     discarded instead of being painted over it. */
+  let token = 0;
+
+  function crumbTrail(trail) {
+    if (!crumb) return;
+    crumb.innerHTML =
+      '<a href="index.html">Home</a><span aria-hidden="true">/</span>' +
+      '<a href="discover.html">Discover</a><span aria-hidden="true">/</span>' +
+      (trail
+        ? '<a href="discover.html?category=' + U.esc(trail.category) + '">' + U.esc(U.categoryLabel(trail.category)) + '</a>' +
+          '<span aria-hidden="true">/</span><span>' + U.esc(trail.name) + '</span>'
+        : '<span>Not found</span>');
+  }
+
+  function loading() {
+    document.title = 'Loading… | PickVanta';
+    crumbTrail(null);
+    host.innerHTML = '<div class="shell">' + PV.card.loading({
+      title: 'Loading this option…',
+      text: 'Fetching the record from the catalogue.'
+    }) + '</div>';
+  }
+
+  function failure(err) {
+    document.title = 'Could not load | PickVanta';
+    crumbTrail(null);
+    host.innerHTML = '<div class="shell">' + PV.card.error({
+      detail: err && err.message ? err.message : '',
+      actions: [
+        { label: 'Go to Discover', href: 'discover.html' },
+        { label: 'See demo deals', href: 'deals.html' }
+      ]
+    }) + '</div>';
+    PV.ui.announce("We couldn't load these options right now.");
+    if (host.getAttribute('data-retry-bound')) return;
+    host.setAttribute('data-retry-bound', '1');
+    host.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-state-action="retry"]')) return;
+      PV.ui.announce('Trying again…');
+      PV.store.reload().then(load, failure);
+    });
+  }
+
+  function notFound() {
     document.title = 'Item not found | PickVanta';
-    if (crumb) {
-      crumb.innerHTML =
-        '<a href="index.html">Home</a><span aria-hidden="true">/</span>' +
-        '<a href="discover.html">Discover</a><span aria-hidden="true">/</span><span>Not found</span>';
-    }
+    crumbTrail(null);
     host.innerHTML =
       '<div class="shell">' +
       PV.card.empty({
         icon: '🧭',
         level: 1,
-        title: 'That item is not in the demo dataset',
-        text: 'The link may be old, or the item id is not part of this stage’s demo content. Browse Discover to pick another option.',
+        title: 'That item is not in ' + PV.store.catalogue().phrase,
+        text: PV.store.catalogue().live
+          ? 'The link may be old, or the item is no longer published. Browse Discover to pick another option.'
+          : 'The link may be old, or the item id is not part of this stage’s demo content. Browse Discover to pick another option.',
         actions: [
           { label: 'Go to Discover', href: 'discover.html' },
           { label: 'See demo deals', href: 'deals.html' }
         ]
       }) +
       '</div>';
-    return;
   }
 
+  /* Everything below renders one record — and nothing else. Optional fields
+     (brand, offer, sections, seller) are simply skipped when a record has no
+     value for them, so a sparse record still renders. */
+  function render(record, relatedMatches) {
   document.title = record.name + ' | PickVanta';
 
   const availability = U.availabilityInfo(record.availability);
@@ -49,17 +95,10 @@ PV.util.ready(function () {
   const currency = record.currency || U.defaultCurrency();
   const considerationGroups = PV.store.considerations(record);
   const goodToKnowNotes = PV.store.goodToKnow(record);
-  const relatedMatches = PV.store.related(record, 4);
   const related = relatedMatches.map(function (m) { return m.record; });
 
   /* ------------------------------------------------------------- crumbs */
-  if (crumb) {
-    crumb.innerHTML =
-      '<a href="index.html">Home</a><span aria-hidden="true">/</span>' +
-      '<a href="discover.html">Discover</a><span aria-hidden="true">/</span>' +
-      '<a href="discover.html?category=' + U.esc(record.category) + '">' + U.esc(U.categoryLabel(record.category)) + '</a>' +
-      '<span aria-hidden="true">/</span><span>' + U.esc(record.name) + '</span>';
-  }
+  crumbTrail(record);
 
   /* --------------------------------------------- grouped specifications */
   function attributeSections() {
@@ -124,7 +163,7 @@ PV.util.ready(function () {
   }
 
   /* --------------------------------------------------- compare shortcuts */
-  const similar = PV.store.related(record, 3)
+  const similar = relatedMatches
     .map(function (m) { return m.record; })
     .filter(function (i) { return i.category === record.category; });
   const compareIds = [record.id].concat(similar.slice(0, 2).map(function (i) { return i.id; }));
@@ -146,7 +185,9 @@ PV.util.ready(function () {
               '<span class="type-flag">' + U.esc(U.typeLabel(record.type)) + '</span>' +
               (offer ? '<span class="discount">-' + offer.discountPercent + '% · Demo</span>' : record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + ' flag-right">' + U.esc(record.badge.label) + '</span>' : '') +
             '</div>' +
-            '<p class="media-note">Image placeholder — demo records use a colour tile until real media exists.</p>' +
+            '<p class="media-note">Image placeholder — ' +
+              (PV.store.catalogue().live ? 'records without media use' : 'demo records use') +
+              ' a colour tile until real media exists.</p>' +
           '</div>' +
 
           '<div class="detail-info">' +
@@ -169,7 +210,7 @@ PV.util.ready(function () {
             '</div>' +
 
             '<dl class="detail-facts">' +
-              '<div><dt><span class="fact-icon" aria-hidden="true">🏬</span>Seller / provider</dt><dd>' + U.esc(U.sellerLabel(record)) + (record.seller && record.seller.verified ? ' <span class="verified">✓ verified (demo)</span>' : '') + ' <small>· ' + U.esc(record.seller ? record.seller.type : 'seller') + '</small></dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🏬</span>Seller / provider</dt><dd>' + U.esc(U.sellerLabel(record)) + (record.seller && record.seller.verificationStatus === 'demo-verified' ? ' <span class="verified">✓ demo verification status</span>' : '') + ' <small>· ' + U.esc(record.seller ? record.seller.type : 'seller') + '</small></dd></div>' +
               (record.brand ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Brand</dt><dd>' + U.esc(record.brand) + '</dd></div>' : '') +
               '<div><dt><span class="fact-icon" aria-hidden="true">📍</span>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>' + U.esc(U.typeLabel(record.type)) + (record.subcategory ? ' <small>· ' + U.esc(record.subcategory) + '</small>' : '') + '</dd></div>' +
@@ -367,8 +408,32 @@ PV.util.ready(function () {
   }
 
   /* Remember this visit for the "Recently viewed on this device" list. */
-  PV.recent.add(record.id);
+  PV.recent.add(record.id, record);
 
   PV.ui.syncCompareButtons();
   PV.ui.renderTray();
+  }
+
+  /* The record and its related options are fetched through the data layer; the
+     page knows nothing about where they come from. */
+  function load() {
+    const current = ++token;
+    loading();
+    PV.store.getListing(id).then(function (record) {
+      if (current !== token) return null;
+      if (!record) {
+        notFound();
+        return null;
+      }
+      return PV.store.getRelatedListings(record.id, 4).then(function (matches) {
+        if (current !== token) return null;
+        render(record, matches);
+        return null;
+      });
+    }).catch(function (err) {
+      if (current === token) failure(err);
+    });
+  }
+
+  load();
 });

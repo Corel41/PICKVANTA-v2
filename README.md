@@ -1,8 +1,12 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 7 — domain model: the catalogue now has an explicit, validated data contract (`js/domain.js`) and a data-access boundary (`js/store.js`) that the pages talk to. This is the structure a real API and database will serve later; neither is built yet.
-No database, no backend, no accounts, no payments, no external services, no live pricing.
+**Stage:** Step 8 — the catalogue lives in a real database. PostgreSQL (on Supabase)
+holds the tables, relationships and constraints; Row Level Security exposes published
+records to anonymous readers and nothing else; `js/store.js` reads it through the
+read-only data API. The interface, the domain contract (`js/domain.js`) and the data
+access boundary are unchanged in shape — the source behind them is not.
+No accounts, no seller area, no payments, no browser writes, no live pricing.
 
 ---
 
@@ -19,12 +23,13 @@ No database, no backend, no accounts, no payments, no external services, no live
 
 ## PickVanta Domain Model
 
-Step 7 gives the project one explicit data contract. Every record the interface sees
-has been normalised and validated by `js/domain.js` and handed over by `js/store.js`;
-no page, card or controller knows how the record is stored. Today the source is the
-demo file `js/data.js`. Tomorrow the same contract can be served by an API backed by a
-database — **that backend, database, authentication, seller area and payment flow are
-not implemented in this stage**, and this section documents the contract only.
+Step 7 gave the project one explicit data contract, and Step 8 serves it from a real
+database. Every record the interface sees has been normalised and validated by
+`js/domain.js` and handed over by `js/store.js`; no page, card or controller knows how
+the record is stored — or whether it came from PostgreSQL over the read-only API or from
+the bundled demonstration catalogue. **Authentication, seller accounts, a write path and
+payments are still not implemented**, and this section documents the contract they will
+have to satisfy.
 
 ### Entities and relationships
 
@@ -96,10 +101,10 @@ them on load, keeps what is usable, refuses what is not, and records everything 
   to a warning instead of an exception — **one malformed record can never break the
   catalogue**, and the interface keeps rendering the records that are valid.
 
-### API contract (documented, not implemented)
+### API contract (implemented, read-only)
 
-A future API must satisfy these operations without any change to the pages or
-controllers. They all exist today in `js/store.js` over the demo source:
+These operations are what the interface uses. They are implemented in `js/store.js`
+over both sources, so no page or controller had to change when the database arrived:
 
 | Operation | Returns |
 | --------- | ------- |
@@ -114,10 +119,11 @@ controllers. They all exist today in `js/store.js` over the demo source:
 | `getListingsBySeller(id)` | everything one provider publishes here |
 
 Every listing-returning call uses the same envelope the interface has used since
-Step 6 — `{ ok, items, total, page, pageSize, hasNext, hasPrev, error }` — so paging can
-arrive with the API without touching a controller. Replacing the source is one call:
-`PV.store.use(adapter)`, where an adapter supplies `catalogue()` (and optionally
-`meta()`); `js/store.js` is the only file that mentions `js/data.js`.
+Step 6 — `{ ok, items, total, page, pageSize, hasNext, hasPrev, error }` — and every
+record is normalised by `js/domain.js` before it reaches a card, whichever source it
+came from. The source is one of two adapters inside `js/store.js` (a Supabase REST
+adapter, or the bundled demonstration catalogue); `js/store.js` is the only file that
+knows which, and `js/data.js` is mentioned nowhere else.
 
 ### The demo dataset behind the model
 
@@ -130,7 +136,7 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Step 7)
+### Current (Step 8)
 
 ```
 page (HTML)
@@ -141,43 +147,130 @@ data access layer (js/store.js)      ← the only module that knows where record
    ↓
 domain model (js/domain.js)          ← canonical shapes, vocabularies, normalisers, validators
    ↓
-demo data source (js/data.js)
+one of two adapters (both inside js/store.js):
+  • Supabase adapter — read-only REST calls, published rows only  →  PostgreSQL on Supabase
+  • demo adapter     — the bundled demonstration catalogue in js/data.js, loaded on demand
 ```
 
 The interface layer (`js/core.js`) renders what the data layer returns and owns
 browser-local user state (compare selection, recently viewed). No page reads
-`js/data.js` directly, and no page knows which fields the file happens to use.
+`js/data.js`, no page issues a network request, and no page knows which source answered.
+The comparison selection and the recently-viewed list stay in the browser: the database
+is the catalogue, not a place for personal state.
 
-### Future (when the backend arrives)
+### Where the data comes from
 
+| Mode | Source | When it is used |
+| ---- | ------ | --------------- |
+| `demo` (default) | `js/data.js`, loaded on demand by the demo adapter | No project configured. Everything is labelled as a demonstration. |
+| `api` | Supabase REST (PostgREST) with the public anon key | A project is configured (`js/config.js` or a local override). |
+| fallback `demo` | `js/data.js` again | Only when `onFailure: 'demo'` **and** the live catalogue could not be reached. The page says so in a visible notice (`#fallbackNotice`). |
+| fallback `error` (default) | none | The page shows its normal error state with a retry control. A real outage is never disguised as a demo. |
+
+The two adapters implement the same interface, so the pages are identical in both modes;
+`PV.store.source()`, `PV.store.fallbackActive()` and `PV.store.catalogue()` are how the
+copy knows which one is answering (a live page never calls live data a demo, and a page
+that fell back always labels the demonstration catalogue).
+
+### Not in this stage
+
+Writes of any kind, accounts, authentication, seller or admin areas, dashboards,
+payments. The database is read-only for the browser: seller management is a later stage
+and will need authentication first.
+
+## Database (Supabase / PostgreSQL)
+
+The catalogue is data, not markup: eight tables with real keys and constraints, a
+maintained search column, Row Level Security and three read-only functions. Nothing in
+the browser can write to it.
+
+| Table | Holds | Relationships |
+| ----- | ----- | ------------- |
+| `categories` | the eight categories (`id`, `slug`, `name`, `description`, `icon`, `position`, `status`) | referenced by `subcategories`, `listings`, `guides` |
+| `subcategories` | 37 subcategories | `category_id → categories(id)`, on delete cascade; at most one parent each |
+| `sellers` | 45 demonstration providers (`name`, `slug`, `type`, `description`, location, `verification_status`, `status`) | referenced by `listings` and `deals` |
+| `listings` | 51 products and services: explicit `type`, name, slug, pricing (`price_amount`/`price_min`/`price_max`, `currency`, `price_type`), structured location, `tags text[]`, `highlights`, `specifications jsonb`, `images jsonb`, `availability`, `status`, timestamps | `category_id`, `subcategory_id`, `seller_id`; a subcategory must belong to the same category (constraint) |
+| `deals` | 19 offers. An offer is never a product of its own | `listing_id → listings(id)` **not null**, on delete cascade; `seller_id` optional |
+| `guides` | 10 guide outlines with their sections (`content jsonb`), `tags`, `level`, `read_time`, `cta`, `status` | `category_id → categories(id)` |
+| `guide_listings` | which listings a guide discusses — a real many-to-many table (`guide_id`, `listing_id`, `position`) | composite primary key; both sides cascade |
+| `catalogue_settings` | 15 curated configuration rows (`key`, `value jsonb`): homepage selections, price bands, sort options, compare groups, considerations, good-to-know notes, needs, popular tags, version notice | none — it is configuration, served by the data API |
+
+JSON is used only where a value genuinely is a document (specification rows, image
+entries, guide sections, `service_area text[]`, settings values). Every relationship
+that is a relationship is a foreign key; there is no record that stores an array of ids
+in place of a join table, and no column holds HTML or a pre-formatted price.
+
+### Applying the schema and the seed
+
+```bash
+# in the Supabase dashboard → SQL editor, run in this order:
+db/migrations/0001_catalogue.sql     # tables, constraints, indexes, triggers, RLS, functions
+db/seed/0001_catalogue.sql           # the catalogue, upserted by primary key
+
+# or from a terminal with a connection string (never committed):
+psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql -f db/seed/0001_catalogue.sql
 ```
-page (HTML)
-   ↓
-controller
-   ↓
-data access layer (js/store.js)
-   ↓
-domain model (js/domain.js)
-   ↓
-API
-   ↓
-database
+
+Both files are idempotent: re-running the migration replaces triggers, policies and
+functions, and the seed upserts. `db/seed/0001_catalogue.sql` is **generated** — edit
+`js/data.js` and regenerate it rather than hand-editing the SQL:
+
+```bash
+node db/scripts/build-seed.js           # rewrite the seed from the current catalogue
+node db/scripts/build-seed.js --check   # fail if the seed no longer matches (used before commits)
 ```
 
-`js/store.js` already exposes the shape an API needs: the documented operations above,
-the `{ ok, items, total, page, pageSize, hasNext, hasPrev, error }` envelope, and an
-adapter seam (`store.use(adapter)`, `store.source()`, `store.isAsync()`). A backend
-adapter is the only new code; pages, cards, comparison, deals, guides and search keep
-working unchanged. **Step 7 does not implement that API** — there is still no server,
-database, account, dashboard or payment anywhere in this project.
+### Security
+
+* Row Level Security is enabled on every table, and the only policies that exist are
+  `select` policies for `anon` and `authenticated`.
+* A visitor may read a `listings` row only while `status = 'published'`; `deals`,
+  `guides` and `subcategories` are visible under the same rule, and a deal is visible
+  only when its listing is published. Drafts and archived records are unreachable
+  through the API, not merely hidden in JavaScript.
+* There are no insert, update, delete or truncate policies, and those privileges are
+  revoked from `anon` and `authenticated`, so a browser cannot modify the catalogue even
+  with a valid session.
+* The three functions (`catalogue_stats()`, `catalogue_tags()`, `catalogue_facets()`)
+  are `security definer`, `stable`, and return counts only — never rows that a policy
+  would have hidden.
+* The browser only ever holds the public anon key. The service-role key, the database
+  password and the connection string stay out of the repository (see `.gitignore`) and
+  out of the browser. Verified by a scan before this stage was committed.
+
+## Configuration
+
+Everything the frontend needs is in `js/config.js`, which is committed and contains
+public values only:
+
+| Key | Meaning |
+| --- | ------- |
+| `mode` | `'demo'` (default) serves the bundled demonstration catalogue; `'api'` reads the Supabase project |
+| `supabase.url` | the project URL, e.g. `https://YOUR-PROJECT-REF.supabase.co` — public |
+| `supabase.anonKey` | the project's anon (publishable) key — public by design; Row Level Security is what protects the data |
+| `onFailure` | `'error'` (default) shows the error state with a retry control; `'demo'` falls back to the demonstration catalogue and says so on the page |
+| `poolLimit` | how many records a page may pool for compare suggestions and typeahead |
+
+To point the site at a real project, either set the two values in `js/config.js`, or
+keep them out of the file by loading a local override first:
+
+```html
+<script src="js/config.local.js"></script>  <!-- git-ignored, your values -->
+<script src="js/config.js"></script>        <!-- committed defaults -->
+```
+
+`js/config.example.js` is a filled-in template for exactly that file. Never put the
+service-role key, a database password, a JWT secret or a personal access token in any of
+them — those belong to database operations, not to a static site.
 
 ## Frontend structure (`js/`)
 
 | File | Role |
 | ---- | ---- |
-| `data.js` | The demo catalogue only: `taxonomy`, `locations`, `sellers`, `listings`, `offers`, `guides` and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). It is the *source*, not an API the pages use. |
+| `config.js` | Runtime configuration (public values only): which source to use, the Supabase URL and anon key, and the failure policy. Loaded first by every page. `config.example.js` is a template for a local, git-ignored override. |
+| `data.js` | The demonstration catalogue only: `taxonomy`, `locations`, `sellers`, `listings`, `offers`, `guides` and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). Loaded **on demand** by the demo adapter — it is the fallback, not an API the pages use, and no page includes it as a script. |
 | `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. No DOM, no network, no data. |
-| `store.js` | **Data access layer.** Owns the demo adapter, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. No DOM, no network, no user state. |
+| `store.js` | **Data access layer.** Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. The only file in the project that talks to the network. No DOM, no user state. |
 | `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
 | `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
@@ -273,13 +366,23 @@ Opening `index.html` directly from the filesystem also works (no build step, no
 bundler, no dependencies). The site is plain static HTML/CSS/JS, so it deploys to
 Vercel (or any static host) without configuration.
 
+Out of the box the site serves the bundled demonstration catalogue and labels it as
+such — no project, no keys, no network. To read a live catalogue instead: apply the
+schema and seed ([Database](#database-supabase--postgresql)), put your project URL and
+public anon key in `js/config.js` (or a git-ignored `js/config.local.js` loaded before
+it), and set `mode: 'api'`. If the project cannot be reached, the page shows an error
+state and a retry control; set `onFailure: 'demo'` only for development and previews,
+where a fallback is acceptable as long as it is labelled.
+
 ## Deliberately not built in this stage
 
-Accounts, authentication, seller/agent/admin areas, dashboards, database, API,
-payments, checkout, messaging, real seller contact, favourites, notifications,
-subscriptions, affiliate/referral tracking, commissions, recommendation
-algorithm, AI, external product APIs, scraping, live pricing, real-time
-inventory, reviews, ratings, testimonials, sales or popularity statistics.
+Accounts, authentication, seller/agent/admin areas, dashboards, any write path into
+the database, payments, checkout, messaging, real seller contact, favourites,
+notifications, subscriptions, affiliate/referral tracking, commissions, a recommendation
+algorithm, AI, external product APIs, scraping, live pricing, real-time inventory,
+reviews, ratings, testimonials, sales or popularity statistics.
 
-The domain model is the *contract* those pieces will satisfy — it is not an
-implementation of them.
+The database holds the catalogue and nothing about people: no accounts, no sessions, no
+personal data, no seller management. Writing to it (seller listings, status changes) is
+a later stage and needs authentication first — the tables, keys and policies here are
+already shaped for it.

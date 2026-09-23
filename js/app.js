@@ -1,9 +1,9 @@
 /* ==========================================================================
    PickVanta — Home view (index.html)
-   The landing page keeps its existing design. Step 2 only connects it to the
-   rest of the product: real search over the demo dataset, category links into
-   Discover, and previews rendered from the same data layer used by every
-   other view.
+   The landing page keeps its existing design. Everything it previews comes
+   from the catalogue through the data layer (js/store.js) — the homepage holds
+   no records of its own, so it works the same whether the catalogue is served
+   by the demo adapter or by the live read-only API.
    ========================================================================== */
 PV.util.ready(function () {
   const U = PV.util;
@@ -37,113 +37,36 @@ PV.util.ready(function () {
     });
   });
 
-  /* ------------------------------------------------------ hero preview card */
-  /* The three options shown in the hero compare preview come from the same
-     records the Compare page seeds itself with — nothing is hard-coded in the
-     markup. Names are shortened and attribute values trimmed so the small
-     preview keeps its shape whatever the catalogue contains. */
-  const heroList = U.$('#heroCompareList');
-  if (heroList) {
-    const heroIds = PV.store.defaultCompareIds();
-    const heroCount = U.$('#heroOptionCount');
-    if (heroCount) heroCount.textContent = heroIds.length + ' options';
-    heroList.innerHTML = PV.store.items(heroIds).map(function (record) {
-      const facts = (record.specifications || [])
-        .map(function (a) { return String(a.value || '').split(',')[0].trim(); })
-        .filter(function (v) { return v && v.length <= 16; })
-        .slice(0, 3);
-      const shortName = String(record.name || '').split(' — ')[0] || record.name;
-      return (
-        '<div class="option">' +
-        '<div class="option-main">' +
-        '<div class="option-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</div>' +
-        '<div class="option-meta">' +
-        '<div class="option-name">' + U.esc(shortName) + '</div>' +
-        '<div class="option-spec">' + U.esc((record.brand || U.sellerLabel(record)) + ' · ' + U.priceText(record)) + '</div>' +
-        '</div>' +
-        '</div>' +
-        '<div class="option-right"><div class="option-facts">' +
-        facts.map(function (f) { return '<span>' + U.esc(f) + '</span>'; }).join('') +
-        '</div></div>' +
-        '</div>'
-      );
-    }).join('');
-  }
-
-  /* -------------------------------------------------------- category grid */
-  const catHost = U.$('#homeCategories');
-  if (catHost) {
-    catHost.innerHTML = PV.store.categories().map(function (c) {
-      const count = PV.store.byCategory(c.slug).length;
-      return '<a class="category" href="discover.html?category=' + U.esc(c.slug) + '" role="listitem">' +
-        '<div class="cat-icon" aria-hidden="true">' + U.esc(c.icon) + '</div>' +
-        '<strong>' + U.esc(c.label) + '</strong>' +
-        '<span>' + U.esc(c.blurb) + '</span>' +
-        '<span class="cat-count">' + count + ' demo record' + (count === 1 ? '' : 's') + '</span>' +
-        '</a>';
-    }).join('');
-  }
-
-  /* --------------------------------------------------------- deals preview */
-  const dealHost = U.$('#homeDeals');
-  if (dealHost) {
-    const deals = PV.store.home().deals;
-    dealHost.innerHTML = deals.map(function (record) { return PV.card.offer(record); }).join('');
-  }
-
-  /* ------------------------------------------------------ explore by need */
-  /* Each shortcut is a tag filter or a plain search into Discover — the same
-     URL state every other part of the app uses. Nothing is personalised. */
-  const needsHost = U.$('#homeNeeds');
-  if (needsHost) {
-    const needs = PV.store.needs();
-    const groups = [];
-    needs.forEach(function (n) {
-      let g = groups.filter(function (x) { return x.label === n.group; })[0];
-      if (!g) { g = { label: n.group, rows: [] }; groups.push(g); }
-      g.rows.push(n);
-    });
-    needsHost.innerHTML = groups.map(function (g) {
-      return '<div class="need-group">' +
-        '<span class="need-group-label">' + U.esc(g.label) + '</span>' +
-        '<div class="need-chips">' +
-        g.rows.map(function (n) {
-          const href = n.tag
-            ? 'discover.html?tag=' + encodeURIComponent(n.tag)
-            : 'discover.html?q=' + encodeURIComponent(n.q);
-          const meta = n.tag ? 'tag: ' + PV.store.tagLabel(n.tag) : 'search: ' + n.q;
-          return '<a class="chip need-chip" href="' + href + '" title="' + U.esc(meta) + '">' +
-            '<span aria-hidden="true">' + U.esc(n.icon) + '</span> ' + U.esc(n.label) + '</a>';
-        }).join('') +
-        '</div>' +
-        '</div>';
-    }).join('');
-  }
-
   /* ----------------------------------------------------- recently viewed */
+  /* Browser-only: the ids live in this device's storage and the records are
+     resolved through the data layer like everything else. */
   const recentHost = U.$('#homeRecent');
   const recentSection = U.$('#recent');
   const recentClear = U.$('#recentClear');
 
   function renderRecent() {
     if (!recentHost || !recentSection) return;
-    const items = PV.recent.items();
-    if (!items.length) {
+    PV.recent.hydrate().then(function (items) {
+      if (!items.length) {
+        recentSection.hidden = true;
+        recentHost.innerHTML = '';
+        return;
+      }
+      recentSection.hidden = false;
+      recentHost.innerHTML = items.map(function (record) {
+        return '<a class="recent-item" href="' + U.esc(PV.hrefDetail(record.id)) + '">' +
+          '<span class="recent-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</span>' +
+          '<span class="recent-text">' +
+            '<strong>' + U.esc(record.name) + '</strong>' +
+            '<small>' + U.esc(U.typeLabel(record.type)) + ' · ' + U.esc(U.categoryLabel(record.category)) + ' · ' + U.esc(U.priceText(record)) + '</small>' +
+          '</span>' +
+          '<span class="recent-arrow" aria-hidden="true">→</span>' +
+          '</a>';
+      }).join('');
+    }).catch(function () {
       recentSection.hidden = true;
       recentHost.innerHTML = '';
-      return;
-    }
-    recentSection.hidden = false;
-    recentHost.innerHTML = items.map(function (record) {
-      return '<a class="recent-item" href="' + U.esc(PV.hrefDetail(record.id)) + '">' +
-        '<span class="recent-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</span>' +
-        '<span class="recent-text">' +
-          '<strong>' + U.esc(record.name) + '</strong>' +
-          '<small>' + U.esc(U.typeLabel(record.type)) + ' · ' + U.esc(U.categoryLabel(record.category)) + ' · ' + U.esc(U.priceText(record)) + '</small>' +
-        '</span>' +
-        '<span class="recent-arrow" aria-hidden="true">→</span>' +
-        '</a>';
-    }).join('');
+    });
   }
 
   if (recentClear) {
@@ -153,27 +76,10 @@ PV.util.ready(function () {
       recentSection.hidden = true;
     });
   }
-  renderRecent();
-  PV.onRecentChange(renderRecent);
-
-  /* ------------------------------------------------------ discover preview */
-  const discoverHost = U.$('#homeDiscover');
-  if (discoverHost) {
-    /* A curated slice — spread across categories and price bands — so the
-       homepage stays a shop window and the full catalogue stays in Discover. */
-    const featured = PV.store.home().featured;
-    discoverHost.innerHTML = featured.map(function (record) { return PV.card.item(record); }).join('');
-  }
-
-  /* ------------------------------------------------------- guides preview */
-  const guideHost = U.$('#homeGuides');
-  if (guideHost) {
-    guideHost.innerHTML = PV.store.home().guides.map(function (guide) { return PV.card.guide(guide); }).join('');
-  }
 
   /* ---------------------------------------------- live compare state on home */
-  /* If the visitor has already picked options, the homepage reflects it so the
-     journey continues instead of restarting. */
+  /* Compare selection is browser-side, so this section never waits for the
+     catalogue: it only reflects what the visitor already picked. */
   const ctaSide = U.$('.compare-cta-side');
   function renderCompareState() {
     const count = PV.compare.count();
@@ -196,20 +102,174 @@ PV.util.ready(function () {
   renderCompareState();
   PV.onCompareChange(renderCompareState);
 
-  /* The homepage previews are a small slice of the demo dataset. */
-  const countHost = U.$('#homeDatasetNote');
-  if (countHost) {
-    const items = PV.store.all();
-    const cities = [];
-    items.forEach(function (i) {
-      const c = i.location && i.location.city;
-      if (c && ['Online', 'Nationwide'].indexOf(c) === -1 && cities.indexOf(c) === -1) cities.push(c);
+  /* ======================================================================
+     Catalogue previews
+     ----------------------------------------------------------------------
+     Every preview below is rendered from the catalogue, so the page waits for
+     the data layer first. If the catalogue cannot be reached the preview
+     sections show one honest error state with a retry action — the homepage is
+     never left half-built, and a real failure is never hidden.
+     ====================================================================== */
+  const previewHosts = ['#homeDiscover', '#homeCategories', '#homeDeals', '#homeGuides'];
+
+  function previewFailure(err) {
+    const card = PV.card.error({
+      detail: err && err.message ? err.message : '',
+      actions: [
+        { label: 'Open Discover', href: 'discover.html' },
+        { label: 'Open Guides', href: 'guides.html' }
+      ]
     });
-    countHost.textContent =
-      PV.store.all().length + ' demo records, ' + PV.store.deals().length + ' demo offers and ' +
-      PV.store.guides().length + ' guide outlines are included in this build — covering ' +
-      PV.store.categories().length + ' categories, ' + PV.store.subcategories('all').length + ' subcategories and ' +
-      cities.length + ' demo locations. Everything is invented demonstration content: no real sellers, no real prices, ' +
-      'no live availability.';
+    previewHosts.forEach(function (selector) {
+      const host = U.$(selector);
+      if (host) host.innerHTML = card;
+    });
+    PV.ui.announce("We couldn't load the catalogue just now.");
   }
+
+  function renderCatalogue() {
+    /* ---------------------------------------------------- hero preview card */
+    /* The three options shown in the hero compare preview come from the same
+       records the Compare page seeds itself with — nothing is hard-coded in the
+       markup. Names are shortened and attribute values trimmed so the small
+       preview keeps its shape whatever the catalogue contains. */
+    const heroList = U.$('#heroCompareList');
+    if (heroList) {
+      const heroIds = PV.store.defaultCompareIds();
+      const heroCount = U.$('#heroOptionCount');
+      if (heroCount) heroCount.textContent = heroIds.length + ' options';
+      PV.store.hydrate(heroIds).then(function (heroRecords) {
+        heroList.innerHTML = heroRecords.map(function (record) {
+          const facts = (record.specifications || [])
+            .map(function (a) { return String(a.value || '').split(',')[0].trim(); })
+            .filter(function (v) { return v && v.length <= 16; })
+            .slice(0, 3);
+          const shortName = String(record.name || '').split(' — ')[0] || record.name;
+          return (
+            '<div class="option">' +
+            '<div class="option-main">' +
+            '<div class="option-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</div>' +
+            '<div class="option-meta">' +
+            '<div class="option-name">' + U.esc(shortName) + '</div>' +
+            '<div class="option-spec">' + U.esc((record.brand || U.sellerLabel(record)) + ' · ' + U.priceText(record)) + '</div>' +
+            '</div>' +
+            '</div>' +
+            '<div class="option-right"><div class="option-facts">' +
+            facts.map(function (f) { return '<span>' + U.esc(f) + '</span>'; }).join('') +
+            '</div></div>' +
+            '</div>'
+          );
+        }).join('');
+      }).catch(function () {
+        /* the hero card is decorative — an empty list is better than an error */
+        heroList.innerHTML = '';
+      });
+    }
+
+    /* ------------------------------------------------------ category grid */
+    const catHost = U.$('#homeCategories');
+    if (catHost) {
+      const counts = PV.store.facets();
+      catHost.innerHTML = PV.store.categories().map(function (c) {
+        const count = counts.category[c.slug] || 0;
+        return '<a class="category" href="discover.html?category=' + U.esc(c.slug) + '" role="listitem">' +
+          '<div class="cat-icon" aria-hidden="true">' + U.esc(c.icon) + '</div>' +
+          '<strong>' + U.esc(c.label) + '</strong>' +
+          '<span>' + U.esc(c.blurb) + '</span>' +
+          '<span class="cat-count">' + count + ' demo record' + (count === 1 ? '' : 's') + '</span>' +
+          '</a>';
+      }).join('');
+    }
+
+    /* ------------------------------------------------------- deals preview */
+    const dealHost = U.$('#homeDeals');
+    if (dealHost) {
+      PV.store.home().then(function (home) {
+        dealHost.innerHTML = home.deals.map(function (record) { return PV.card.offer(record); }).join('');
+      }).catch(previewFailure);
+    }
+
+    /* ---------------------------------------------------- explore by need */
+    /* Each shortcut is a tag filter or a plain search into Discover — the same
+       URL state every other part of the app uses. Nothing is personalised. */
+    const needsHost = U.$('#homeNeeds');
+    if (needsHost) {
+      const needs = PV.store.needs();
+      const groups = [];
+      needs.forEach(function (n) {
+        let g = groups.filter(function (x) { return x.label === n.group; })[0];
+        if (!g) { g = { label: n.group, rows: [] }; groups.push(g); }
+        g.rows.push(n);
+      });
+      needsHost.innerHTML = groups.map(function (g) {
+        return '<div class="need-group">' +
+          '<span class="need-group-label">' + U.esc(g.label) + '</span>' +
+          '<div class="need-chips">' +
+          g.rows.map(function (n) {
+            const href = n.tag
+              ? 'discover.html?tag=' + encodeURIComponent(n.tag)
+              : 'discover.html?q=' + encodeURIComponent(n.q);
+            const meta = n.tag ? 'tag: ' + PV.store.tagLabel(n.tag) : 'search: ' + n.q;
+            return '<a class="chip need-chip" href="' + href + '" title="' + U.esc(meta) + '">' +
+              '<span aria-hidden="true">' + U.esc(n.icon) + '</span> ' + U.esc(n.label) + '</a>';
+          }).join('') +
+          '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    /* ---------------------------------------------------- discover preview */
+    const discoverHost = U.$('#homeDiscover');
+    if (discoverHost) {
+      /* A curated slice — spread across categories and price bands — so the
+         homepage stays a shop window and the full catalogue stays in Discover. */
+      PV.store.home().then(function (home) {
+        discoverHost.innerHTML = home.featured.map(function (record) { return PV.card.item(record); }).join('');
+      }).catch(previewFailure);
+    }
+
+    /* ----------------------------------------------------- guides preview */
+    const guideHost = U.$('#homeGuides');
+    if (guideHost) {
+      PV.store.home().then(function (home) {
+        guideHost.innerHTML = home.guides.map(function (guide) { return PV.card.guide(guide); }).join('');
+      }).catch(previewFailure);
+    }
+
+    /* The homepage previews are a small slice of the whole catalogue, so the
+       note under them reports the dataset's own counters. */
+    const countHost = U.$('#homeDatasetNote');
+    if (countHost) {
+      const stats = PV.store.stats();
+      const cities = (stats.locationCities || []).filter(function (c) { return ['Online', 'Nationwide'].indexOf(c) === -1; });
+      /* The count is about the catalogue; the wording says where it came from,
+         so a live page never describes the published catalogue as a demo. The
+         records themselves stay demonstration content in both modes. */
+      const cat = PV.store.catalogue();
+      countHost.textContent =
+        stats.listings + ' records, ' + stats.offers + ' offers and ' +
+        stats.guides + ' guide outlines ' +
+        (cat.live ? 'are served from the published catalogue' : 'are included in the bundled demonstration catalogue') +
+        ' — covering ' +
+        stats.categories + ' categories, ' + stats.subcategories + ' subcategories and ' +
+        cities.length + ' locations. Every record is demonstration content: no real sellers, no real prices, ' +
+        'no live availability.';
+    }
+  }
+
+  /* Retry: the error state asks the data layer again (a single reload, so a
+     failed start-up is not retried forever). */
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('[data-state-action="retry"]')) return;
+    const host = previewHosts.filter(function (selector) { return e.target.closest(selector); })[0];
+    if (!host) return;
+    PV.ui.announce('Trying again…');
+    PV.store.reload().then(renderCatalogue, previewFailure);
+  });
+
+  PV.store.init().then(renderCatalogue, previewFailure);
+
+  /* Recently viewed lives on this device only, so it is rendered in parallel. */
+  renderRecent();
+  PV.onRecentChange(renderRecent);
 });

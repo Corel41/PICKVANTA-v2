@@ -14,7 +14,11 @@ PV.util.ready(function () {
   const suggestHost = U.$('#compareSuggest');
   const noticeHost = U.$('#compareNotice');
 
-  const ALL = PV.store.all();
+  /* The picker pool and the quick picks come from one catalogue request; the
+     records themselves are resolved through the data layer, never read from a
+     page-local copy. */
+  let ALL = [];
+  let byId = new Map();
   let diffsOnly = false;
   let seededTitle = false;
   /* Compare focus: which areas the visitor asked to have emphasised. It only
@@ -22,28 +26,38 @@ PV.util.ready(function () {
   let focusAreas = [];
 
   /* ------------------------------------------------------------- selection */
-  const fromUrl = (U.params().get('ids') || '')
+  /* The link's own state is read once, at load: the URL is rewritten as soon as
+     a selection exists (so it can be shared), and reading it later would make
+     the page mistake its own writing for the visitor's link. Whether the ids
+     still exist in the catalogue is decided after the data layer has answered
+     (see seedSelection below). */
+  const linkIds = (U.params().get('ids') || '')
     .split(',')
     .map(function (s) { return s.trim(); })
-    .filter(function (id) { return !!PV.store.item(id); })
+    .filter(Boolean)
     .slice(0, MAX);
+  const linkHadIds = U.params().has('ids');
 
-  if (fromUrl.length) {
-    PV.compare.set(fromUrl);
-  } else if (U.params().has('ids')) {
-    /* a link carried ids that are not in the demo dataset — show the empty
-       state rather than silently substituting other options */
-    PV.compare.set([]);
-  } else if (!PV.compare.count()) {
-    PV.compare.set(PV.store.defaultCompareIds());
-    seededTitle = true;
+  function seedSelection() {
+    if (linkIds.length) {
+      PV.compare.set(linkIds);
+    } else if (linkHadIds) {
+      /* a link carried ids that are not in the catalogue — show the empty
+         state rather than silently substituting other options */
+      PV.compare.set([]);
+    } else if (!PV.compare.count()) {
+      PV.compare.set(PV.store.defaultCompareIds());
+      seededTitle = true;
+    }
   }
 
   function ids() {
     return PV.compare.ids();
   }
   function items() {
-    return PV.store.items(ids());
+    return ids()
+      .map(function (id) { return byId.get(id) || PV.store.item(id) || null; })
+      .filter(Boolean);
   }
 
   /* ----------------------------------------------------------- row builder */
@@ -200,7 +214,7 @@ PV.util.ready(function () {
     let html = '';
     for (let slot = 0; slot < MAX; slot++) {
       const chosen = current[slot] || '';
-      const record = chosen ? PV.store.item(chosen) : null;
+      const record = chosen ? (byId.get(chosen) || PV.store.item(chosen) || null) : null;
 
       html += '<div class="cmp-picker' + (record ? '' : ' is-empty') + '">';
       html += '<div class="cmp-picker-head"><span class="cmp-slot">Option ' + letters[slot] + '</span>';
@@ -213,7 +227,7 @@ PV.util.ready(function () {
         '<select data-slot="' + slot + '">' +
         '<option value="">' + (slot === 0 ? 'Choose an option…' : 'Add another option…') + '</option>' +
         PV.store.categories().map(function (c) {
-          const inCat = PV.store.byCategory(c.slug);
+          const inCat = ALL.filter(function (i) { return i.category === c.slug; });
           if (!inCat.length) return '';
           return '<optgroup label="' + U.esc(c.label) + '">' +
             inCat.map(function (i) {
@@ -419,7 +433,7 @@ PV.util.ready(function () {
     const letters = ['A', 'B', 'C'];
 
     if (!rows.length) {
-      matrixHost.innerHTML = '<div class="cmp-hint" role="status">These options are identical across every row in the demo dataset. Turn off “Show only differences” to see all rows.</div>';
+      matrixHost.innerHTML = '<div class="cmp-hint" role="status">These options are identical across every row in ' + PV.store.catalogue().phrase + '. Turn off “Show only differences” to see all rows.</div>';
       return;
     }
 
@@ -493,7 +507,7 @@ PV.util.ready(function () {
     matrixHost.innerHTML =
       '<p class="cmp-scroll-hint">Swipe the table sideways to see every option.</p>' +
       '<div class="cmp-scroll" role="region" aria-label="Comparison table" tabindex="0">' +
-      '<table class="cmp-table"><caption class="visually-hidden">Side-by-side comparison of ' + list.length + ' options from the demo dataset</caption>' +
+      '<table class="cmp-table"><caption class="visually-hidden">Side-by-side comparison of ' + list.length + ' options from ' + PV.store.catalogue().phrase + '</caption>' +
       head + body + '</table></div>' +
       stacked +
       '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” only mean the demo values are not identical, and a tinted value is one that no other selected option shares. Every option is shown the same way — PickVanta does not score, rank or recommend any of them.' +
@@ -520,7 +534,7 @@ PV.util.ready(function () {
     const others = ALL.filter(function (i) { return chosen.indexOf(i.id) === -1; }).slice(0, 5);
     if (!others.length) {
       suggestHost.innerHTML = '<h2 class="panel-title" id="suggest-title">Add another option</h2>' +
-        '<p class="panel-text small">Every record in the demo dataset is already in a comparison slot.</p>';
+        '<p class="panel-text small">Every record in ' + PV.store.catalogue().phrase + ' is already in a comparison slot.</p>';
       return;
     }
     if (chosen.length >= MAX) {
@@ -544,7 +558,7 @@ PV.util.ready(function () {
     }
     suggestHost.innerHTML =
       '<h2 class="panel-title" id="suggest-title">Add another option</h2>' +
-      '<p class="panel-text small">Quick picks from the demo dataset. Compare works with any records — not only technology.</p>' +
+      '<p class="panel-text small">Quick picks from ' + PV.store.catalogue().phrase + '. Compare works with any records — not only technology.</p>' +
       '<div class="suggest-list">' +
       others.map(function (i) {
         return '<button type="button" class="suggest-row" data-add-option="' + U.esc(i.id) + '">' +
@@ -584,5 +598,53 @@ PV.util.ready(function () {
     U.updateUrl({ ids: PV.compare.ids().join(',') });
   });
 
-  render();
+  /* ------------------------------------------------------------ start-up */
+  /* Loading → pool → resolved selection → paint. A failure shows an error
+     state with a retry action instead of an empty comparison. */
+  function loading() {
+    if (!matrixHost) return;
+    matrixHost.innerHTML = PV.card.loading({
+      title: 'Loading the comparison…',
+      text: 'Fetching the selected records from the catalogue.'
+    });
+    if (pickersHost) pickersHost.innerHTML = '';
+    if (toolsHost) toolsHost.innerHTML = '';
+    if (suggestHost) suggestHost.innerHTML = '';
+  }
+
+  function failure(err) {
+    if (!matrixHost) return;
+    matrixHost.innerHTML = PV.card.error({
+      detail: err && err.message ? err.message : '',
+      actions: [
+        { label: 'Go to Discover', href: 'discover.html' },
+        { label: 'See demo deals', href: 'deals.html' }
+      ]
+    });
+    PV.ui.announce("We couldn't load these options right now.");
+    if (matrixHost.getAttribute('data-retry-bound')) return;
+    matrixHost.setAttribute('data-retry-bound', '1');
+    matrixHost.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-state-action="retry"]')) return;
+      PV.ui.announce('Trying again…');
+      PV.store.reload().then(boot, failure);
+    });
+  }
+
+  function boot() {
+    loading();
+    return PV.store.init()
+      .then(function () { return PV.store.all(); })
+      .then(function (list) {
+        ALL = list;
+        byId = new Map(list.map(function (i) { return [i.id, i]; }));
+        seedSelection();
+        /* Records named in the link or in this browser's selection are fetched
+           through the data layer; ids that no longer exist are dropped. */
+        return PV.compare.hydrate();
+      })
+      .then(function () { render(); });
+  }
+
+  boot().catch(failure);
 });
