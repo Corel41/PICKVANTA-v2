@@ -263,6 +263,38 @@ keep them out of the file by loading a local override first:
 service-role key, a database password, a JWT secret or a personal access token in any of
 them — those belong to database operations, not to a static site.
 
+### Deploying to Vercel
+
+A static site cannot read Vercel Environment Variables at runtime — Vercel injects them
+into build processes and functions, never into files served to a browser. So the two
+public values are materialised into the same git-ignored override file at build time:
+
+| Vercel setting | Value |
+| --- | --- |
+| `SUPABASE_URL` (environment variable) | your project URL, `https://<project-ref>.supabase.co` |
+| `SUPABASE_ANON_KEY` (environment variable) | the project's **publishable/anon** key — never the service-role key |
+| Environments | Production, Preview and Development |
+| Build command | `node tools/vercel-config.js` (already set in `vercel.json`) |
+
+`tools/vercel-config.js` is a dependency-free Node script and the whole build step:
+
+* reads only `SUPABASE_URL` and `SUPABASE_ANON_KEY` (every other variable, including
+  `SUPABASE_SERVICE_ROLE_KEY`, is ignored);
+* writes `js/config.local.js` — the file every page already loads immediately before
+  `js/config.js` — with the same `window.PV_CONFIG_OVERRIDE` shape local development uses,
+  so the deployment reads the published catalogue from Supabase;
+* if either variable is missing or blank, writes nothing and exits successfully: the
+  deployment stays in the labelled demonstration mode;
+* **fails the build** if a value looks privileged — an `sb_secret_…` key, a service-role
+  key or JWT, a `postgres://` connection string or a direct database address — rather than
+  shipping it to a browser.
+
+Adding or changing either variable requires a **redeploy**: environment variables are
+captured when a deployment is built. Running `node tools/vercel-config.js` locally, with
+no variables set, is the safe way to check the wiring. Nothing about this adds a
+framework, a bundler, a dependency or a runtime: the deployed site is still plain static
+HTML/CSS/JS.
+
 ## Frontend structure (`js/`)
 
 | File | Role |
