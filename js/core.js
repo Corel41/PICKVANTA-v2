@@ -388,32 +388,49 @@ window.PV = Object.assign(window.PV || {}, (function () {
     }
   }
 
-  /* Stored ids are validated against the catalogue on every read, so an id that
-     no longer exists can never render an empty card. */
+  /* Only the shape of the stored value is checked here: whether an id still
+     exists in the catalogue is decided once the data layer has answered (see
+     `hydrate` below), because with the API adapter nothing is known at load
+     time. */
   function readRecent() {
     let stored = [];
     try {
       const parsed = JSON.parse(window.localStorage.getItem(RECENT_KEY) || '[]');
-      if (Array.isArray(parsed)) stored = parsed.filter((id) => typeof id === 'string');
+      if (Array.isArray(parsed)) stored = parsed.filter((id) => typeof id === 'string' && id);
     } catch (e) {
       return [];
     }
-    const clean = stored.filter((id) => !!S.item(id)).slice(0, RECENT_MAX);
-    if (clean.length !== stored.length) {
-      recentIds = clean;
-      persistRecent();
-    }
-    return clean;
+    return stored.slice(0, RECENT_MAX);
+  }
+
+  /* Ids that are no longer in the catalogue are dropped after a fetch, so a
+     deleted record can never render an empty card. */
+  function pruneRecent(known) {
+    const keep = recentIds.filter((id) => known.indexOf(id) !== -1);
+    if (keep.length === recentIds.length) return false;
+    recentIds = keep;
+    persistRecent();
+    return true;
   }
 
   const recent = {
     max: RECENT_MAX,
     ids: () => recentIds.slice(),
+    /** Records the data layer already holds — no request. */
     items: () => S.items(recentIds),
+    /** The stored records, fetched through the data layer when not yet known. */
+    hydrate() {
+      if (!recentIds.length) return Promise.resolve([]);
+      return S.hydrate(recentIds).then((records) => {
+        pruneRecent(records.map((r) => r.id));
+        return records;
+      });
+    },
     count: () => recentIds.length,
     has: (id) => recentIds.indexOf(id) !== -1,
-    add(id) {
-      if (!S.item(id)) return;
+    add(id, record) {
+      const known = record || S.item(id);
+      if (!id || !known) return;
       recentIds = [id].concat(recentIds.filter((x) => x !== id)).slice(0, RECENT_MAX);
       persistRecent();
       recentListeners.forEach((fn) => fn());
@@ -439,10 +456,23 @@ window.PV = Object.assign(window.PV || {}, (function () {
     try {
       const raw = window.localStorage.getItem(COMPARE_KEY);
       const val = raw ? JSON.parse(raw) : [];
-      return Array.isArray(val) ? val.filter((id) => !!S.item(id)).slice(0, COMPARE_MAX) : [];
+      return Array.isArray(val)
+        ? val.filter((id) => typeof id === 'string' && id).slice(0, COMPARE_MAX)
+        : [];
     } catch (e) {
       return [];
     }
+  }
+
+  /* A stored id is only known to be valid once the data layer has answered
+     (the API adapter has no catalogue at load time), so stale ids are dropped
+     after a fetch instead of at read time. */
+  function pruneCompare(known) {
+    const keep = compareIds.filter((id) => known.indexOf(id) !== -1);
+    if (keep.length === compareIds.length) return false;
+    compareIds = keep;
+    writeStore(compareIds);
+    return true;
   }
   function writeStore(ids) {
     try {
@@ -460,17 +490,28 @@ window.PV = Object.assign(window.PV || {}, (function () {
     count: () => compareIds.length,
     has: (id) => compareIds.indexOf(id) !== -1,
     full: () => compareIds.length >= COMPARE_MAX,
-    add(id) {
+    /** The selected records, fetched through the data layer when not yet held. */
+    hydrate() {
+      if (!compareIds.length) return Promise.resolve([]);
+      return S.hydrate(compareIds).then((records) => {
+        if (pruneCompare(records.map((r) => r.id))) changed();
+        return records;
+      });
+    },
+    /* `name` comes from the control that was clicked, so the messages work
+       even before the record has been fetched. */
+    add(id, name) {
+      if (!id) return false;
       const record = S.item(id);
-      if (!record) return false;
+      const label = name || (record ? record.name : 'this option');
       if (compareIds.indexOf(id) !== -1) return true;
       if (compareIds.length >= COMPARE_MAX) {
-        toast('You can compare up to ' + COMPARE_MAX + ' options. Remove one from the tray below to swap it for “' + record.name + '”.');
+        toast('You can compare up to ' + COMPARE_MAX + ' options. Remove one from the tray below to swap it for “' + label + '”.');
         return false;
       }
       compareIds.push(id);
       writeStore(compareIds);
-      announce('Added “' + record.name + '”. ' + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
+      announce('Added “' + label + '”. ' + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
       changed();
       return true;
     },
@@ -481,24 +522,22 @@ window.PV = Object.assign(window.PV || {}, (function () {
       announce((record ? 'Removed “' + record.name + '”. ' : 'Removed an option. ') + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
       changed();
     },
-    toggle(id) {
-      const record = S.item(id);
+    toggle(id, name) {
       if (compare.has(id)) {
         compare.remove(id);
         toast('Removed from comparison. This selection only exists in your browser — nothing is saved on a server.');
-      } else if (compare.add(id)) {
+      } else if (compare.add(id, name)) {
         const left = COMPARE_MAX - compareIds.length;
         toast(
           'Added to comparison (' + compareIds.length + ' of ' + COMPARE_MAX + '). ' +
             (left > 0
               ? 'Add ' + left + ' more option' + (left === 1 ? '' : 's') + ', or open the comparison now.'
-              : 'Tray full — open Compare, or remove an option to swap.') +
-            (record ? '' : '')
+              : 'Tray full — open Compare, or remove an option to swap.')
         );
       }
     },
     set(ids) {
-      compareIds = (ids || []).filter((id) => !!S.item(id)).slice(0, COMPARE_MAX);
+      compareIds = (ids || []).filter((id) => typeof id === 'string' && id).slice(0, COMPARE_MAX);
       writeStore(compareIds);
       changed();
     },
@@ -608,7 +647,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<a href="index.html" class="brand" aria-label="PickVanta home"><span class="brand-mark" aria-hidden="true" style="background:white;color:#0B1220">P</span><span>PickVanta</span></a>' +
       /* The demonstration notice lives in the dataset, not in this template. */
       '<p>Modern discovery, comparison and deals platform. Find, compare, and choose products, services, and deals in one place. ' +
-      esc(S.notice()) + '</p>' +
+      '<span id="footerNotice"></span></p>' +
       '</div>' +
       col('Product', [
         { label: 'Home', href: 'index.html' },
@@ -617,7 +656,8 @@ window.PV = Object.assign(window.PV || {}, (function () {
         { label: 'Compare', href: 'compare.html' },
         { label: 'Guides', href: 'guides.html' }
       ]) +
-      col('Browse', S.categories().slice(0, 5).map((c) => ({ label: c.label, href: 'discover.html?category=' + c.slug }))) +
+      /* Filled from the catalogue once the data layer is ready. */
+      '<div class="footer-col"><h2>Browse</h2><span id="footerBrowse"></span></div>' +
       col('Company', [
         { label: 'Account', later: 'Account' },
         { label: 'Contact', later: 'Contact' },
@@ -625,7 +665,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       ]) +
       '</div>' +
       '<div class="footer-bottom">' +
-      '<p>© 2026 PickVanta. Demo build ' + esc(S.version()) + ' — demonstration data only, no accounts, payments or live pricing.</p>' +
+      '<p>© 2026 PickVanta. <span id="footerBuild">Demo build</span> — no accounts, payments or live pricing.</p>' +
       '<div class="footer-bottom-links">' +
       '<button type="button" class="link-btn" data-later="Privacy">Privacy</button>' +
       '<button type="button" class="link-btn" data-later="Terms">Terms</button>' +
@@ -895,8 +935,12 @@ window.PV = Object.assign(window.PV || {}, (function () {
        category's own subcategories, so it never becomes a wall of options. */
     if (has('subcategory') && active.category && active.category !== 'all') {
       const subs = S.subcategories(active.category);
-      const inCat = S.byCategory(active.category);
-      const countIn = (sub) => inCat.filter((i) => i.subcategory === sub).length;
+      /* Counts come from the data layer's facet totals — the filter panel never
+         needs a copy of the catalogue to draw itself. */
+      const countIn = (sub) => {
+        const c = counts && counts.subcategory ? counts.subcategory[sub] : null;
+        return typeof c === 'number' ? c : 0;
+      };
       html += radioGroup(
         'Subcategory',
         'f-subcategory',
@@ -1021,6 +1065,46 @@ window.PV = Object.assign(window.PV || {}, (function () {
   }
 
   /* --------------------------------------------------------- global wiring */
+  /* The footer names the catalogue (categories, build label, dataset notice).
+     Those come from the data layer, so they are written once it has answered —
+     the chrome itself is painted once and never repainted, which keeps its
+     event handlers intact. */
+  /* A dataset that is not the live one must never be passed off as live. When
+     the data layer falls back from the API to the bundled demonstration
+     catalogue (config.onFailure = 'demo'), the page says so, once, at the top
+     of the content. */
+  function showFallbackNotice() {
+    if ($('#fallbackNotice')) return;
+    const main = $('#main');
+    if (!main) return;
+    const notice = document.createElement('div');
+    notice.className = 'notice warning';
+    notice.id = 'fallbackNotice';
+    notice.setAttribute('role', 'status');
+    notice.textContent =
+      'The live catalogue could not be reached, so the bundled demonstration catalogue is being shown instead. ' +
+      'Every listing, price, seller and offer here is invented demonstration content — nothing on this page is live.';
+    main.insertBefore(notice, main.firstChild);
+  }
+
+  function fillChrome() {
+    const noticeHost = $('#footerNotice');
+    if (noticeHost) noticeHost.textContent = S.notice();
+
+    const buildHost = $('#footerBuild');
+    if (buildHost) {
+      const live = S.source() === 'api' && !S.fallbackActive();
+      buildHost.textContent = (live ? 'Live catalogue build ' : 'Demo build ') + S.version();
+    }
+
+    const browseHost = $('#footerBrowse');
+    if (browseHost) {
+      browseHost.innerHTML = S.categories().slice(0, 5)
+        .map((c) => '<a href="discover.html?category=' + esc(c.slug) + '">' + esc(c.label) + '</a>')
+        .join('');
+    }
+  }
+
   function mountChrome(activePage) {
     bindMediaFallback();
     const headerHost = $('#siteHeader');
@@ -1057,7 +1141,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
         if (target) {
           target.focus();
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          toast('Search the demo dataset — type a product, service, brand or category.');
+          toast('Search ' + S.catalogue().phrase + ' — type a product, service, brand or category.');
         } else {
           window.location.href = 'discover.html?focus=search';
         }
@@ -1080,7 +1164,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       const toggle = e.target.closest('[data-compare-toggle]');
       if (toggle) {
         e.preventDefault();
-        compare.toggle(toggle.getAttribute('data-compare-toggle'));
+        compare.toggle(toggle.getAttribute('data-compare-toggle'), toggle.getAttribute('data-compare-name'));
         return;
       }
       const remove = e.target.closest('[data-tray-remove]');
@@ -1119,6 +1203,23 @@ window.PV = Object.assign(window.PV || {}, (function () {
     renderTray();
     syncCompareButtons();
     document.addEventListener('click', () => syncCompareButtons());
+
+    /* The catalogue arrives asynchronously (the API adapter fetches it), so the
+       chrome is completed and the browser-side selection is re-resolved as soon
+       as the data layer is ready. A failure here is not fatal: the page itself
+       shows the error state and the tray simply stays as it is. */
+    S.init().then(() => {
+      fillChrome();
+      if (S.fallbackActive()) showFallbackNotice();
+      return Promise.all([compare.hydrate(), recent.hydrate()]);
+    }).then(() => {
+      syncCompareButtons();
+      renderTray();
+      compareListeners.forEach((fn) => { try { fn(compare.ids()); } catch (e) {} });
+      recentListeners.forEach((fn) => { try { fn(); } catch (e) {} });
+    }).catch(() => {
+      fillChrome();
+    });
   }
 
   /* ------------------------------------------------------------ url helpers */

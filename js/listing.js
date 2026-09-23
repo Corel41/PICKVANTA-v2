@@ -53,6 +53,52 @@ PV.listing = (function () {
       availability: p.get('availability') || 'all',
       sort: p.get('sort') || 'relevance'
     };
+
+    /* ------------------------------------------------------------ start-up */
+    /* The catalogue can arrive over the network, so the page paints its loading
+       state first and, if the source cannot be reached at all, an honest error
+       state with a retry action — never a blank or half-built page. */
+    let startupRetryBound = false;
+
+    /* Painted before the first request, so a page that has to fetch its records
+       never looks empty while it waits. */
+    function showLoading() {
+      grid.classList.add('is-empty');
+      grid.innerHTML = PV.card.loading({
+        title: 'Loading ' + countLabel + 's…',
+        text: 'Fetching the catalogue from the data layer.'
+      });
+      if (resultsMeta) resultsMeta.textContent = 'Loading…';
+    }
+
+    function showStartupFailure(err) {
+      grid.classList.remove('is-empty');
+      grid.innerHTML = PV.card.error({
+        detail: err && err.message ? err.message : '',
+        actions: [
+          { label: 'Browse Technology', href: cfg.url + '?category=technology' },
+          { label: 'All ' + countLabel + 's', href: cfg.url }
+        ]
+      });
+      if (resultsMeta) resultsMeta.textContent = 'Could not load ' + countLabel + 's';
+      PV.ui.announce("We couldn't load these options right now.");
+      if (startupRetryBound) return;
+      startupRetryBound = true;
+      grid.addEventListener('click', function (e) {
+        if (!e.target.closest('[data-state-action="retry"]')) return;
+        PV.ui.announce('Trying again…');
+        showLoading();
+        PV.store.reload().then(mount, showStartupFailure);
+      });
+    }
+
+    function boot() {
+      showLoading();
+      PV.store.init().then(mount, showStartupFailure);
+    }
+
+    /* ------------------------------------------------------------- render */
+    function mount() {
     if (cfg.filters && state.type !== 'all' && cfg.filters.indexOf('type') === -1) state.type = 'all';
 
     /* An unknown tag is ignored rather than emptying the page — a stale or
@@ -74,23 +120,17 @@ PV.listing = (function () {
     /* --------------------------------------------------------- rendering */
     /* Counts shown next to filter options come from the unfiltered dataset, so
        they describe the catalogue rather than the current result list. */
+    /* Counts come from the data layer's facet totals, so the filter panel does
+       not need the whole catalogue in the browser. */
     function filterCounts() {
-      const counts = { category: {}, type: {}, availability: {} };
-      baseList().forEach(function (i) {
-        counts.category[i.category] = (counts.category[i.category] || 0) + 1;
-        counts.type[i.type] = (counts.type[i.type] || 0) + 1;
-        counts.availability[i.availability] = (counts.availability[i.availability] || 0) + 1;
-      });
-      return counts;
+      return PV.store.facets();
     }
 
-    /** The unfiltered dataset this page lists, fetched through the store. */
-    function baseList() {
-      try {
-        return PV.store.dataset(cfg.dataset);
-      } catch (err) {
-        return [];
-      }
+    /** How many records this page could list in total (unfiltered). */
+    function baseTotal(fallback) {
+      const stats = PV.store.stats();
+      const value = cfg.dataset === 'deals' ? stats.offers : stats.listings;
+      return Number.isFinite(Number(value)) ? Number(value) : (fallback || 0);
     }
 
     /** One call to the data layer; it returns the envelope the UI renders. */
@@ -126,20 +166,28 @@ PV.listing = (function () {
       PV.ui.announce("We couldn't load these options right now.");
     }
 
+    /* One render at a time: a response that arrives after a newer request has
+       been issued is discarded, so filters never flicker back to old results. */
+    let renderToken = 0;
+
     function render() {
-      if (PV.store.isAsync()) {
-        renderLoading();
-        return;
-      }
-      const envelope = queryData();
-      if (!envelope.ok) {
-        renderFailure(envelope);
-        return;
-      }
+      const token = ++renderToken;
+      if (PV.store.isAsync()) renderLoading();
+      queryData().then(function (envelope) {
+        if (token !== renderToken) return;
+        if (!envelope.ok) {
+          renderFailure(envelope);
+          return;
+        }
+        paint(envelope);
+      });
+    }
+
+    function paint(envelope) {
       const list = envelope.items;
       /* The meta line reports the size of the whole dataset, not the number of
          matches — `envelope.total` is the filtered count a paged API would use. */
-      const total = baseList().length;
+      const total = baseTotal(envelope.total);
       const plural = countLabel.slice(-1) === 's' ? '' : 's';
       const isSearch = !!state.q;
       const isNarrowed = isSearch || PV.store.activeFilterCount(state) > 0;
@@ -147,7 +195,10 @@ PV.listing = (function () {
       if (resultsMeta) {
         resultsMeta.textContent = list.length + ' of ' + total + ' ' + countLabel + plural +
           (isSearch ? ' match “' + state.q + '”' : ' shown') +
-          (isNarrowed && !isSearch ? ' (filtered)' : '');
+          (isNarrowed && !isSearch ? ' (filtered)' : '') +
+          /* Say so when a request was capped rather than pretending the list is
+             complete — the visitor can narrow the filters to see the rest. */
+          (envelope.truncated ? ' — showing the first ' + list.length + ' matches' : '');
       }
 
       if (!list.length) {
@@ -163,12 +214,17 @@ PV.listing = (function () {
           ? ['laptop', 'student', 'Nairobi', 'wireless'].map(function (q) { return { label: q, q: q }; })
           : ['student', 'remote-work', 'budget', 'premium', 'nairobi'].map(function (q) { return { label: q, q: q }; });
 
+        const cat = PV.store.catalogue();
+        const nothingPublished = !PV.store.stats().listings;
         grid.innerHTML = PV.card.empty({
           icon: isSearch ? '🔍' : '🧭',
           title: isSearch ? 'No options found' : 'Nothing matches these filters',
-          text: isSearch
-            ? 'Nothing in the demo catalogue matches “' + state.q + '”. Try a shorter term, a related tag, or start from a category.'
-            : 'Every record is filtered out right now. Clear the filters to see all ' + total + ' demo ' + countLabel + plural + ' again.',
+          text: nothingPublished
+            ? 'Nothing has been published in ' + cat.noun + ' yet. Browse the categories below and try again later.'
+            : isSearch
+              ? 'Nothing in ' + cat.noun + ' matches “' + state.q + '”. Try a shorter term, a related tag, or start from a category.'
+              : 'Every record is filtered out right now. Clear the filters to see ' +
+                (cat.live ? 'the whole catalogue again.' : 'all ' + total + ' demo ' + countLabel + plural + ' again.'),
           suggestLabel: 'Popular categories:',
           suggestions: PV.store.categories().slice(0, 6).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: cfg.url + '?category=' + c.slug };
@@ -183,7 +239,9 @@ PV.listing = (function () {
             { label: cfg.page === 'deals' ? 'Start discovering products' : 'See demo deals', href: cfg.page === 'deals' ? 'discover.html' : 'deals.html' },
             { label: 'Browse guides', href: 'guides.html' }
           ],
-          footnote: 'Filters and search run on the demo dataset inside this page — no live listings are queried.'
+          footnote: cat.live
+            ? 'Filters and search run against the published catalogue.'
+            : 'Filters and search run on the demo dataset inside this page — no live listings are queried.'
         });
       } else {
         grid.classList.remove('is-empty');
@@ -392,6 +450,9 @@ PV.listing = (function () {
 
     /* jump-chip quick searches from the homepage can arrive as ?q= */
     render();
+    }
+
+    boot();
   }
 
   return { init: init };
