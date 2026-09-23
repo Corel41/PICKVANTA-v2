@@ -1,2 +1,2 @@
 # PICKVANTA-v2
-Automated sync test - Wed Sep 23 05:26:55 UTC 2026
+PickVanta — Make the smarter pick. Modern discovery and deals platform foundation.
