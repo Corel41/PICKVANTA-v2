@@ -37,6 +37,39 @@ PV.util.ready(function () {
     });
   });
 
+  /* ------------------------------------------------------ hero preview card */
+  /* The three options shown in the hero compare preview come from the same
+     records the Compare page seeds itself with — nothing is hard-coded in the
+     markup. Names are shortened and attribute values trimmed so the small
+     preview keeps its shape whatever the catalogue contains. */
+  const heroList = U.$('#heroCompareList');
+  if (heroList) {
+    const heroIds = window.PICKVANTA_DATA.defaultCompareIds || [];
+    const heroCount = U.$('#heroOptionCount');
+    if (heroCount) heroCount.textContent = heroIds.length + ' options';
+    heroList.innerHTML = PV.data.items(heroIds).map(function (record) {
+      const facts = (record.attributes || [])
+        .map(function (a) { return String(a.value || '').split(',')[0].trim(); })
+        .filter(function (v) { return v && v.length <= 16; })
+        .slice(0, 3);
+      const shortName = String(record.name || '').split(' — ')[0] || record.name;
+      return (
+        '<div class="option">' +
+        '<div class="option-main">' +
+        '<div class="option-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</div>' +
+        '<div class="option-meta">' +
+        '<div class="option-name">' + U.esc(shortName) + '</div>' +
+        '<div class="option-spec">' + U.esc((record.brand || U.sellerLabel(record)) + ' · ' + U.priceText(record)) + '</div>' +
+        '</div>' +
+        '</div>' +
+        '<div class="option-right"><div class="option-facts">' +
+        facts.map(function (f) { return '<span>' + U.esc(f) + '</span>'; }).join('') +
+        '</div></div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
   /* -------------------------------------------------------- category grid */
   const catHost = U.$('#homeCategories');
   if (catHost) {
@@ -54,21 +87,23 @@ PV.util.ready(function () {
   /* --------------------------------------------------------- deals preview */
   const dealHost = U.$('#homeDeals');
   if (dealHost) {
-    const deals = PV.data.deals().slice(0, 3);
+    const deals = PV.data.home().deals;
     dealHost.innerHTML = deals.map(function (record) { return PV.card.deal(record); }).join('');
   }
 
   /* ------------------------------------------------------ discover preview */
   const discoverHost = U.$('#homeDiscover');
   if (discoverHost) {
-    const featured = PV.sort.apply(PV.data.all(), 'relevance').slice(0, 5);
+    /* A curated slice — spread across categories and price bands — so the
+       homepage stays a shop window and the full catalogue stays in Discover. */
+    const featured = PV.data.home().featured;
     discoverHost.innerHTML = featured.map(function (record) { return PV.card.item(record); }).join('');
   }
 
   /* ------------------------------------------------------- guides preview */
   const guideHost = U.$('#homeGuides');
   if (guideHost) {
-    guideHost.innerHTML = PV.data.guides().slice(0, 3).map(function (guide) { return PV.card.guide(guide); }).join('');
+    guideHost.innerHTML = PV.data.home().guides.map(function (guide) { return PV.card.guide(guide); }).join('');
   }
 
   /* ---------------------------------------------- live compare state on home */
@@ -99,8 +134,17 @@ PV.util.ready(function () {
   /* The homepage previews are a small slice of the demo dataset. */
   const countHost = U.$('#homeDatasetNote');
   if (countHost) {
+    const items = PV.data.all();
+    const cities = [];
+    items.forEach(function (i) {
+      const c = i.location && i.location.city;
+      if (c && ['Online', 'Nationwide'].indexOf(c) === -1 && cities.indexOf(c) === -1) cities.push(c);
+    });
     countHost.textContent =
       PV.data.all().length + ' demo records, ' + PV.data.deals().length + ' demo offers and ' +
-      PV.data.guides().length + ' guide outlines are included in this build. Everything is static demonstration content.';
+      PV.data.guides().length + ' guide outlines are included in this build — covering ' +
+      PV.data.categories().length + ' categories, ' + PV.data.subcategories('all').length + ' subcategories and ' +
+      cities.length + ' demo locations. Everything is invented demonstration content: no real sellers, no real prices, ' +
+      'no live availability.';
   }
 });

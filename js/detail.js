@@ -44,7 +44,7 @@ PV.util.ready(function () {
   const dealState = U.dealState(record);
   const saved = U.savings(record);
   const category = PV.data.category(record.category);
-  const currency = (record.price && record.price.currency) || 'USD';
+  const currency = (record.price && record.price.currency) || 'KES';
   const relatedMatches = PV.data.related(record, 4);
   const related = relatedMatches.map(function (m) { return m.record; });
 
@@ -73,7 +73,9 @@ PV.util.ready(function () {
   }
 
   /* --------------------------------------------------- compare shortcuts */
-  const similar = PV.data.related(record, 3).filter(function (i) { return i.category === record.category; });
+  const similar = PV.data.related(record, 3)
+    .map(function (m) { return m.record; })
+    .filter(function (i) { return i.category === record.category; });
   const compareIds = [record.id].concat(similar.slice(0, 2).map(function (i) { return i.id; }));
   const compareHref = 'compare.html?ids=' + encodeURIComponent(compareIds.join(','));
 
@@ -99,6 +101,7 @@ PV.util.ready(function () {
             '<div class="detail-tags">' +
               '<a class="tag-link" href="discover.html?category=' + U.esc(record.category) + '">' + U.esc((category && category.icon) || '') + ' ' + U.esc(U.categoryLabel(record.category)) + '</a>' +
               (record.subcategory ? '<span class="tag-static">' + U.esc(record.subcategory) + '</span>' : '') +
+              '<span class="tag-static demo-tag">Demo listing</span>' +
               (record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + '">' + U.esc(record.badge.label) + '</span>' : '') +
             '</div>' +
 
@@ -107,6 +110,7 @@ PV.util.ready(function () {
 
             '<div class="detail-price-row">' +
               '<span class="detail-price">' + U.esc(U.priceText(record)) + '</span>' +
+              '<span class="price-note">Illustrative demo price</span>' +
               (deal && deal.referencePrice ? '<span class="price-old">' + U.esc(U.money(deal.referencePrice, currency)) + '</span>' : '') +
               (!deal && record.referencePrice ? '<span class="price-old">ref. ' + U.esc(U.money(record.referencePrice, currency)) + '</span>' : '') +
               (saved ? '<span class="save-pill">Save ' + U.esc(saved) + ' (demo)</span>' : '') +
@@ -114,12 +118,23 @@ PV.util.ready(function () {
 
             '<dl class="detail-facts">' +
               '<div><dt><span class="fact-icon" aria-hidden="true">🏬</span>Seller / provider</dt><dd>' + U.esc(U.sellerLabel(record)) + (record.seller && record.seller.verified ? ' <span class="verified">✓ verified (demo)</span>' : '') + ' <small>· ' + U.esc(record.seller ? record.seller.type : 'seller') + '</small></dd></div>' +
+              (record.brand ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Brand</dt><dd>' + U.esc(record.brand) + '</dd></div>' : '') +
               '<div><dt><span class="fact-icon" aria-hidden="true">📍</span>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>' + U.esc(U.typeLabel(record.type)) + (record.subcategory ? ' <small>· ' + U.esc(record.subcategory) + '</small>' : '') + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">🗓</span>Availability</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span> <small>(' + U.esc(status.help) + ')</small></dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.listedAt)) + ' <small>· demo record</small></dd></div>' +
               (record.rating ? '<div><dt><span class="fact-icon" aria-hidden="true">★</span>Demo rating</dt><dd>' + record.rating.value.toFixed(1) + ' <small>from ' + record.rating.count + ' demo reviews</small></dd></div>' : '') +
               (deal && dealState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(dealState.tone) + '">' + U.esc(dealState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
+              /* Services state where they work and how long they take; products
+                 do not get these rows at all. */
+              (function () {
+                const area = (record.attributes || []).find(function (a) { return a.label === 'Service area'; });
+                return area ? '<div><dt><span class="fact-icon" aria-hidden="true">🗺</span>Service area</dt><dd>' + U.esc(area.value) + '</dd></div>' : '';
+              })() +
+              (function () {
+                const turn = (record.attributes || []).find(function (a) { return a.label === 'Turnaround' || a.label === 'Timeline'; });
+                return turn ? '<div><dt><span class="fact-icon" aria-hidden="true">⏱</span>' + U.esc(turn.label) + '</dt><dd>' + U.esc(turn.value) + '</dd></div>' : '';
+              })() +
             '</dl>' +
 
             /* Highlights sit above the actions so they are read before deciding */
@@ -185,10 +200,12 @@ PV.util.ready(function () {
               '<div class="deal-box-main">' +
                 '<span class="deal-flag">Special offer · demo</span>' +
                 '<h2 id="deal-title">Offer attached to ' + U.esc(record.name) + '</h2>' +
+                (deal.headline ? '<p class="deal-headline">' + U.esc(deal.headline) + '</p>' : '') +
                 '<p class="deal-sub">The offer changes the price of this ' + U.esc(record.type) + ' — it is not a separate item.</p>' +
                 '<div class="deal-terms">' +
                   '<div><span>Deal price</span><strong>' + U.esc(U.money(deal.dealPrice, currency)) + (record.price && record.price.unit ? '/' + (U.UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</strong></div>' +
                   '<div><span>Reference price</span><strong>' + U.esc(U.money(deal.referencePrice, currency)) + '</strong></div>' +
+                  '<div><span>Offer type</span><strong>' + U.esc(U.dealKindLabel(deal)) + '</strong></div>' +
                   '<div><span>Discount</span><strong>-' + deal.discountPercent + '%</strong></div>' +
                   '<div><span>Valid from</span><strong>' + U.esc(U.formatDate(deal.validFrom)) + '</strong></div>' +
                   '<div><span>Valid to</span><strong>' + U.esc(U.formatDate(deal.validTo)) + '</strong></div>' +
@@ -238,7 +255,7 @@ PV.util.ready(function () {
           '<div class="shell">' +
             '<div class="section-head"><div>' +
               '<h2 id="rel-title">More in ' + U.esc(U.categoryLabel(record.category)) + '</h2>' +
-              '<p>Simple matches on category, type and topics — not an algorithm, and not a ranking. Each card shows why it appears.</p>' +
+              '<p>Matched on category, type, shared topics, similar price and location — not an algorithm, and not a ranking. Each card shows why it appears.</p>' +
             '</div>' +
             '<a class="link-arrow" href="discover.html?category=' + U.esc(record.category) + '">See all ' + U.esc(U.categoryLabel(record.category)) + ' <span aria-hidden="true">→</span></a>' +
             '</div>' +

@@ -44,19 +44,31 @@ PV.util.ready(function () {
   }
 
   /* ----------------------------------------------------------- row builder */
+  /* Reads a named attribute straight off the record — used for rows such as
+     "Service area" that exist in the data but not on every record type. */
+  function attrValue(record, label) {
+    const found = (record.attributes || []).find(function (a) { return a.label === label; });
+    return found && found.value ? found.value : '—';
+  }
+
   function coreRows(list) {
     const rows = [
       { key: 'type', section: 'Overview', label: 'Type', values: list.map(function (i) { return U.typeLabel(i.type); }) },
-      { key: 'category', label: 'Category', values: list.map(function (i) { return U.categoryLabel(i.category); }) },
-      { key: 'brand', label: 'Brand', values: list.map(function (i) { return i.brand || '—'; }) },
+      { key: 'category', label: 'Category', values: list.map(function (i) {
+          return U.categoryLabel(i.category) + (i.subcategory ? ' · ' + i.subcategory : '');
+        }) },
+      { key: 'brand', label: 'Brand / provider', values: list.map(function (i) {
+          /* Services often have no brand — show the provider instead of a dash. */
+          return i.brand || U.sellerLabel(i) || '—';
+        }) },
       { key: 'price', section: 'Price & offer', label: 'Price', strong: true, values: list.map(function (i) { return U.priceText(i); }) },
       { key: 'reference', label: 'Reference price', values: list.map(function (i) {
           const ref = i.deal && i.deal.referencePrice != null ? i.deal.referencePrice : i.referencePrice;
-          return ref != null ? U.money(ref, (i.price && i.price.currency) || 'USD') : '—';
+          return ref != null ? U.money(ref, (i.price && i.price.currency) || 'KES') : '—';
         }) },
       { key: 'dealPrice', label: 'Deal price (demo)', values: list.map(function (i) {
           return i.deal && i.deal.dealPrice != null
-            ? U.money(i.deal.dealPrice, (i.price && i.price.currency) || 'USD') + (i.price && i.price.unit ? '/' + (U.UNIT_LABEL[i.price.unit] || i.price.unit) : '')
+            ? U.money(i.deal.dealPrice, (i.price && i.price.currency) || 'KES') + (i.price && i.price.unit ? '/' + (U.UNIT_LABEL[i.price.unit] || i.price.unit) : '')
             : '—';
         }) },
       { key: 'offer', label: 'Offer status', values: list.map(function (i) {
@@ -65,6 +77,9 @@ PV.util.ready(function () {
         }) },
       { key: 'seller', section: 'Provider & availability', label: 'Seller / provider', values: list.map(function (i) { return U.sellerLabel(i); }) },
       { key: 'sellerType', label: 'Seller type', values: list.map(function (i) { return (i.seller && i.seller.type) || '—'; }) },
+      /* Service area is only a row when at least one compared record states it,
+         so unrelated rows are never forced into the table. */
+      { key: 'serviceArea', label: 'Service area', values: list.map(function (i) { return attrValue(i, 'Service area'); }) },
       { key: 'location', label: 'Location', values: list.map(function (i) { return U.locationLabel(i); }) },
       { key: 'availability', label: 'Availability', values: list.map(function (i) { return U.statusInfo(i.status).label; }) },
       { key: 'listed', label: 'Listed', values: list.map(function (i) { return U.formatDate(i.listedAt); }) }
@@ -89,7 +104,11 @@ PV.util.ready(function () {
         })
       });
     });
-    return rows;
+    /* A row that is empty for every option carries no information, so it is
+       dropped rather than shown as a column of dashes. */
+    return rows.filter(function (r) {
+      return !r.values.every(function (v) { return String(v).trim() === '—'; });
+    });
   }
 
   /* A row "differs" whenever the demo values are not all identical. A spec that

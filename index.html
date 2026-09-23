@@ -62,7 +62,7 @@
               <button class="chip" data-fill="furniture">Furniture</button>
               <button class="chip" data-fill="internet">Internet providers</button>
               <button class="chip" data-fill="travel">Travel</button>
-              <button class="chip" data-fill="insurance">Insurance</button>
+              <button class="chip" data-fill="detailing">Car detailing</button>
             </div>
           </div>
 
@@ -81,7 +81,7 @@
                   <div class="compare-title">Compare options</div>
                   <div class="compare-sub">No scores, no ranking — demo data</div>
                 </div>
-                <span style="font-size:11px;color:#94A3B8;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);padding:4px 8px;border-radius:999px">3 options</span>
+                <span class="visual-count" id="heroOptionCount">3 options</span>
               </div>
 
               <div class="compare-search" aria-hidden="true">
@@ -89,57 +89,12 @@
                 Wireless headphones · over-ear
               </div>
 
-              <div class="option-list">
-                <div class="option">
-                  <div class="option-main">
-                    <div class="option-icon" aria-hidden="true">🎧</div>
-                    <div class="option-meta">
-                      <div class="option-name">QuietMax 700</div>
-                      <div class="option-spec">QuietMax · $249</div>
-                    </div>
-                  </div>
-                  <div class="option-right">
-                    <div class="option-facts">
-                      <span>ANC</span><span>40h</span><span>253 g</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="option">
-                  <div class="option-main">
-                    <div class="option-icon" aria-hidden="true">✨</div>
-                    <div class="option-meta">
-                      <div class="option-name">AirFlow Studio Pro</div>
-                      <div class="option-spec">AirFlow · $349</div>
-                    </div>
-                  </div>
-                  <div class="option-right">
-                    <div class="option-facts">
-                      <span>ANC</span><span>60h</span><span>268 g</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="option">
-                  <div class="option-main">
-                    <div class="option-icon" aria-hidden="true">🎵</div>
-                    <div class="option-meta">
-                      <div class="option-name">BassWave 700</div>
-                      <div class="option-spec">BassWave · $179</div>
-                    </div>
-                  </div>
-                  <div class="option-right">
-                    <div class="option-facts">
-                      <span>No ANC</span><span>30h</span><span>286 g</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <div class="option-list" id="heroCompareList"></div>
             </div>
 
             <div class="demo-note">
-              Interface preview only: the same three demo headphones, lined up row by row. PickVanta shows what differs — it does not score,
-              rank or declare a winner.
+              Interface preview only: three demo headphones from the catalogue, lined up row by row. Prices and specifications are
+              illustrative demo values — PickVanta shows what differs, and does not score, rank or declare a winner.
             </div>
 
             <div class="floating-stat" aria-hidden="true">

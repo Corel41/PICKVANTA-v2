@@ -39,6 +39,7 @@ PV.listing = (function () {
     const state = {
       q: p.get('q') || '',
       category: p.get('category') || 'all',
+      subcategory: p.get('sub') || 'all',
       type: p.get('type') || 'all',
       band: p.get('band') || 'any',
       location: p.get('location') || 'any',
@@ -46,6 +47,14 @@ PV.listing = (function () {
       sort: p.get('sort') || 'relevance'
     };
     if (cfg.filters && state.type !== 'all' && cfg.filters.indexOf('type') === -1) state.type = 'all';
+
+    /* A subcategory only makes sense together with its category, so a link that
+       carries one without the other is quietly narrowed back to "all". */
+    if (cfg.filters && cfg.filters.indexOf('subcategory') !== -1) {
+      const subOk = state.category !== 'all' &&
+        PV.data.subcategories(state.category).indexOf(state.subcategory) !== -1;
+      if (!subOk) state.subcategory = 'all';
+    }
 
     if (searchInput && state.q) searchInput.value = state.q;
 
@@ -132,6 +141,7 @@ PV.listing = (function () {
       const chips = [];
       if (state.q) chips.push(chip('Search: ' + state.q, 'q'));
       if (state.category !== 'all') chips.push(chip(U.categoryLabel(state.category), 'category'));
+      if (state.subcategory !== 'all') chips.push(chip(state.subcategory, 'subcategory'));
       if (state.type !== 'all') chips.push(chip(U.typeLabel(state.type) + 's', 'type'));
       if (state.band !== 'any') {
         const band = PV.data.priceBands().find(function (b) { return b.code === state.band; });
@@ -173,6 +183,7 @@ PV.listing = (function () {
       if (key === 'reset') {
         state.q = '';
         state.category = 'all';
+        state.subcategory = 'all';
         state.type = 'all';
         state.band = 'any';
         state.location = 'any';
@@ -180,17 +191,21 @@ PV.listing = (function () {
         if (searchInput) searchInput.value = '';
       } else {
         state[key] = value;
+        /* A subcategory belongs to one category, so switching category (or
+           clearing it) drops any subcategory selection with it. */
+        if (key === 'category') state.subcategory = 'all';
       }
       U.updateUrl({
         q: state.q,
         category: state.category,
+        sub: state.subcategory,
         type: state.type,
         band: state.band,
         location: state.location,
         availability: state.availability,
         sort: state.sort
       });
-      if (key === 'reset' || key === 'category' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
+      if (key === 'reset' || key === 'category' || key === 'subcategory' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
         PV.ui.renderFilters(filtersHost, state, cfg.filters, setState, filterCounts());
       }
       renderCategories();
@@ -258,7 +273,7 @@ PV.listing = (function () {
           if (searchInput) searchInput.value = '';
           setState('q', '');
         } else {
-          setState(key, key === 'band' ? 'any' : key === 'location' ? 'any' : key === 'availability' ? 'all' : 'all');
+          setState(key, key === 'band' || key === 'location' ? 'any' : 'all');
         }
       });
     }

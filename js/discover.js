@@ -9,7 +9,7 @@ PV.util.ready(function () {
     page: 'discover',
     url: 'discover.html',
     countLabel: 'option',
-    filters: ['category', 'type', 'band', 'location', 'availability'],
+    filters: ['category', 'subcategory', 'type', 'band', 'location', 'availability'],
     list: function () {
       return PV.data.all();
     },

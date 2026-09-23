@@ -30,13 +30,34 @@ window.PV = (function () {
       .replace(/'/g, '&#39;');
   }
 
+  /* Demo prices are stated in Kenyan Shillings (KES). The other symbols are
+     kept so a record can still be rendered if a currency is added later. */
+  const CURRENCY_SYMBOL = { KES: 'KSh ', EUR: '€', USD: '$', GBP: '£' };
   const money = (amount, currency) => {
     const n = Number(amount);
     if (!isFinite(n)) return '';
-    return (currency === 'EUR' ? '€' : '$') + n.toLocaleString('en-US', { maximumFractionDigits: n % 1 ? 2 : 0 });
+    const code = currency || 'KES';
+    const symbol = CURRENCY_SYMBOL[code] || code + ' ';
+    return symbol + n.toLocaleString('en-US', { maximumFractionDigits: n % 1 ? 2 : 0 });
   };
 
-  const UNIT_LABEL = { month: 'mo', night: 'night', year: 'yr', visit: 'visit' };
+  /* Plain labels for the offer kinds used by the demo deals. Purely wording —
+     the deal stays attached to its product or service. */
+  const DEAL_KIND_LABEL = {
+    percentage: 'Percentage discount',
+    'fixed-price': 'Fixed-price offer',
+    package: 'Service package',
+    bundle: 'Bundle offer',
+    limited: 'Limited-time offer',
+    billing: 'Billing discount',
+    introductory: 'Introductory price'
+  };
+  const dealKindLabel = (deal) => (deal && deal.kind ? DEAL_KIND_LABEL[deal.kind] || 'Demo offer' : 'Demo offer');
+
+  const UNIT_LABEL = {
+    month: 'month', night: 'night', year: 'year', visit: 'visit',
+    session: 'session', lesson: 'lesson', day: 'day', hour: 'hour'
+  };
 
   /** Human price for a record: amount, amount+unit, or a range. */
   function priceText(record) {
@@ -81,8 +102,8 @@ window.PV = (function () {
   function locationLabel(record) {
     const l = record && record.location;
     if (!l) return 'Location not stated';
-    if (l.format === 'online') return 'Online / nationwide';
-    if (l.city === 'Online') return 'Online';
+    if (l.format === 'online' || l.city === 'Online') return 'Online / nationwide';
+    if (l.format === 'nationwide') return 'Nationwide (demo)';
     return l.city + (l.country && l.country !== 'Online' ? ', ' + l.country : '');
   }
 
@@ -109,7 +130,7 @@ window.PV = (function () {
     const deal = record && record.deal;
     if (!deal || deal.dealPrice == null || deal.referencePrice == null) return null;
     const diff = deal.referencePrice - deal.dealPrice;
-    return diff > 0 ? money(diff) : null;
+    return diff > 0 ? money(diff, record.price && record.price.currency) : null;
   }
 
   /* ----------------------------------------------------------- data access */
@@ -128,12 +149,34 @@ window.PV = (function () {
     guide: (id) => D.guides.find((g) => g.id === id) || null,
     categories: () => D.categories.slice(),
     category: (slug) => D.categories.find((c) => c.slug === slug) || null,
-    types: () => D.types.slice(),
-    statuses: () => D.statuses.slice(),
     priceBands: () => D.priceBands.slice(),
     sortOptions: () => D.sortOptions.slice(),
     locationOptions: () => D.locationOptions.slice(),
-    brands: () => [...new Set(D.items.map((i) => i.brand).filter(Boolean))].sort(),
+    /* Subcategories are derived from the records themselves — no second list to
+       keep in sync. Passing a category slug narrows them to that category. */
+    subcategories: (category) => {
+      const seen = [];
+      D.items.forEach((i) => {
+        if (!i.subcategory) return;
+        if (category && category !== 'all' && i.category !== category) return;
+        if (seen.indexOf(i.subcategory) === -1) seen.push(i.subcategory);
+      });
+      return seen.sort((a, b) => a.localeCompare(b));
+    },
+    /* Curated homepage selection. Ids live in the data file so the homepage
+       stays a small, deliberate slice instead of a second catalogue. */
+    home: () => {
+      const pick = (ids, fallback, limit) => {
+        const chosen = (ids || []).length ? data.items(ids) : [];
+        const list = chosen.length ? chosen : fallback();
+        return list.slice(0, limit);
+      };
+      return {
+        featured: pick(D.homeFeaturedIds, () => data.all(), 8),
+        deals: pick(D.homeDealIds, () => data.deals(), 3),
+        guides: pick(D.homeGuideIds, () => data.guides(), 3)
+      };
+    },
     sellers: () => {
       const map = new Map();
       D.items.forEach((i) => {
@@ -180,6 +223,13 @@ window.PV = (function () {
       }
 
       if (item.brand && r.brand === item.brand) { score += 2; reasons.push('same brand'); }
+
+      /* Same service area / town — only for records that name a real town, so
+         "Online" and "Nationwide" records never produce a city match. */
+      const myCity = (item.location && item.location.city) || '';
+      const theirCity = (r.location && r.location.city) || '';
+      const isTown = (c) => !!c && c !== 'Online' && c !== 'Nationwide';
+      if (isTown(myCity) && myCity === theirCity) { score += 1; reasons.push('same area'); }
 
       const theirs = midPrice(r);
       if (mine != null && theirs != null && Math.abs(theirs - mine) / Math.max(mine, 1) <= 0.35) {
@@ -316,6 +366,7 @@ window.PV = (function () {
     if (f.q) out = search(f.q, out);
 
     if (f.category && f.category !== 'all') out = out.filter((i) => i.category === f.category);
+    if (f.subcategory && f.subcategory !== 'all') out = out.filter((i) => i.subcategory === f.subcategory);
     if (f.type && f.type !== 'all') out = out.filter((i) => i.type === f.type);
 
     if (f.band && f.band !== 'any') {
@@ -410,7 +461,9 @@ window.PV = (function () {
       mediaMarkup(record, { deal: !!record.deal }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
-      '<span class="store">' + esc(categoryLabel(record.category)) + '</span>' +
+      '<span class="store">' + esc(categoryLabel(record.category)) +
+      (record.subcategory ? ' <span class="store-sub">· ' + esc(record.subcategory) + '</span>' : '') +
+      '</span>' +
       '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
       '<h3><a href="' + hrefDetail(record.id) + '">' + esc(record.name) + '</a></h3>' +
@@ -453,13 +506,16 @@ window.PV = (function () {
       mediaMarkup(record, { deal: true }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
-      '<span class="store">' + esc(categoryLabel(record.category)) + ' · Offer on a ' + esc(record.type) + '</span>' +
+      '<span class="store">' + esc(categoryLabel(record.category)) +
+      (record.subcategory ? ' <span class="store-sub">· ' + esc(record.subcategory) + '</span>' : '') +
+      '</span>' +
       '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
       '<h3><a href="' + hrefDetail(record.id) + '">' + esc(record.name) + '</a></h3>' +
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
       '<div class="offer-block">' +
       '<span class="offer-flag">Special offer · demo</span>' +
+      (deal.headline ? '<p class="offer-headline">' + esc(deal.headline) + '</p>' : '') +
       '<div class="offer-prices">' +
       '<span class="offer-was">Was <s>' + esc(money(deal.referencePrice, currency)) + unit + '</s></span>' +
       '<span class="offer-now">Now <strong>' + esc(money(deal.dealPrice, currency)) + unit + '</strong></span>' +
@@ -506,7 +562,8 @@ window.PV = (function () {
     const name = record ? record.name : 'this option';
     return (
       '<button type="button" class="small-btn compare-btn" data-compare-toggle="' + esc(id) + '"' +
-      ' data-compare-name="' + esc(name) + '" aria-pressed="false">' +
+      ' data-compare-name="' + esc(name) + '" aria-pressed="false"' +
+      ' aria-label="Add ' + esc(name) + ' to the comparison">' +
       '<span class="cmp-btn-icon" aria-hidden="true">+</span>' +
       '<span class="cmp-btn-label">Compare</span>' +
       '</button>'
@@ -1001,7 +1058,11 @@ window.PV = (function () {
             '<label class="check"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
             (String(active[o.key]) === String(o.value) ? ' checked' : '') +
             ' /><span class="check-label">' + esc(o.label) + '</span>' +
-            (o.value === 'all' || o.value === 'any' ? '' : countFor(kind, o.value)) +
+            (o.value === 'all' || o.value === 'any'
+              ? ''
+              : typeof o.count === 'number'
+              ? '<span class="check-count">' + o.count + '</span>'
+              : countFor(kind, o.value)) +
             '</label>'
         )
         .join('') +
@@ -1012,6 +1073,21 @@ window.PV = (function () {
       html += radioGroup('Category', 'f-category', 'category', [{ key: 'category', value: 'all', label: 'All categories' }].concat(
         D.categories.map((c) => ({ key: 'category', value: c.slug, label: c.icon + '  ' + c.label }))
       ));
+    }
+    /* Subcategory only appears once a category is chosen: it lists that
+       category's own subcategories, so it never becomes a wall of options. */
+    if (has('subcategory') && active.category && active.category !== 'all') {
+      const subs = data.subcategories(active.category);
+      const inCat = D.items.filter((i) => i.category === active.category);
+      const countIn = (sub) => inCat.filter((i) => i.subcategory === sub).length;
+      html += radioGroup(
+        'Subcategory',
+        'f-subcategory',
+        null,
+        [{ key: 'subcategory', value: 'all', label: 'All ' + categoryLabel(active.category) + ' subcategories' }].concat(
+          subs.map((s) => ({ key: 'subcategory', value: s, label: s, count: countIn(s) }))
+        )
+      );
     }
     if (has('type')) {
       html += radioGroup('Type', 'f-type', 'type', [{ key: 'type', value: 'all', label: 'Products & services' }].concat(
@@ -1035,7 +1111,10 @@ window.PV = (function () {
 
     $$('input[type="radio"]', host).forEach((input) => {
       input.addEventListener('change', () => {
-        const key = { 'f-category': 'category', 'f-type': 'type', 'f-band': 'band', 'f-location': 'location', 'f-availability': 'availability' }[input.name];
+        const key = {
+          'f-category': 'category', 'f-subcategory': 'subcategory', 'f-type': 'type',
+          'f-band': 'band', 'f-location': 'location', 'f-availability': 'availability'
+        }[input.name];
         if (key) onChange(key, input.value);
       });
     });
@@ -1054,6 +1133,7 @@ window.PV = (function () {
     const s = state || {};
     let n = 0;
     if (s.category && s.category !== 'all') n++;
+    if (s.subcategory && s.subcategory !== 'all') n++;
     if (s.type && s.type !== 'all') n++;
     if (s.band && s.band !== 'any') n++;
     if (s.location && s.location !== 'any') n++;
@@ -1213,14 +1293,14 @@ window.PV = (function () {
   return {
     util: {
       $, $$, esc, money, priceText, priceValue, formatDate,
-      categoryLabel, statusInfo, typeLabel, locationLabel, sellerLabel, dealState, savings,
+      categoryLabel, statusInfo, typeLabel, locationLabel, sellerLabel, dealState, savings, dealKindLabel,
       params, updateUrl, ready, UNIT_LABEL
     },
     data,
     search: { query: search, suggest },
     filters: { apply: applyFilters, matchesLocation, activeCount: activeFilterCount },
     sort: { apply: applySort },
-    card: { item: cardItem, deal: cardDeal, guide: cardGuide, empty: emptyState, media: mediaMarkup },
+    card: { item: cardItem, deal: cardDeal, guide: cardGuide, empty: emptyState },
     compare,
     onCompareChange,
     ui: {
