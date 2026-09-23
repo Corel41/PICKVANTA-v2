@@ -45,6 +45,8 @@ PV.util.ready(function () {
   const saved = U.savings(record);
   const category = PV.data.category(record.category);
   const currency = (record.price && record.price.currency) || 'KES';
+  const considerationGroups = PV.data.considerations(record);
+  const goodToKnowNotes = PV.data.goodToKnow(record);
   const relatedMatches = PV.data.related(record, 4);
   const related = relatedMatches.map(function (m) { return m.record; });
 
@@ -70,6 +72,53 @@ PV.util.ready(function () {
       g.rows.push(a);
     });
     return groups;
+  }
+
+  /* ------------------------------------------------------- quick facts */
+  /* A compact, skimmable summary. Products and services lead with different
+     information, and a fact is only rendered when the record actually has it —
+     no "undefined", no empty labels. */
+  function quickFacts() {
+    const facts = [];
+    const attr = function (label) {
+      const found = (record.attributes || []).find(function (a) { return a.label === label; });
+      return found ? found.value : '';
+    };
+    const push = function (label, value) {
+      if (value !== undefined && value !== null && String(value).trim() !== '') facts.push({ label: label, value: String(value) });
+    };
+
+    const isService = record.type === 'service';
+    push(isService ? 'Service type' : 'Type', U.typeLabel(record.type) + (record.subcategory ? ' · ' + record.subcategory : ''));
+    if (isService) push('Provider', U.sellerLabel(record));
+    else push('Brand', record.brand);
+
+    push('Price', U.priceText(record));
+    if (isService) push('Service area', attr('Service area'));
+    push('Location', U.locationLabel(record));
+    push('Availability', status.label);
+
+    if (isService) {
+      push('Turnaround', attr('Turnaround') || attr('Timeline'));
+      push('Included', attr('Included'));
+    } else {
+      /* One representative specification, taken straight from the record, plus
+         the practical ownership details when the record states them. */
+      const firstSpec = (record.attributes || [])[0];
+      if (firstSpec) push('Key specification', firstSpec.label + ': ' + firstSpec.value);
+      push('Condition', attr('Condition'));
+      push('Warranty', attr('Warranty'));
+    }
+    push('Offer', deal ? (deal.headline || U.dealKindLabel(deal)) : 'No demo offer on this record');
+    return facts;
+  }
+
+  /* Highlights come from the record's own highlights[] when it has them.
+     Otherwise they are read straight off the structured attributes, so nothing
+     is invented and there is no second content source. */
+  function highlightList() {
+    if (record.highlights && record.highlights.length) return record.highlights.slice(0, 5);
+    return (record.attributes || []).map(function (a) { return a.value; }).filter(Boolean).slice(0, 5);
   }
 
   /* --------------------------------------------------- compare shortcuts */
@@ -137,11 +186,36 @@ PV.util.ready(function () {
               })() +
             '</dl>' +
 
+            /* Quick facts — the whole option in one block, before any reading */
+            '<div class="block" id="quickFacts">' +
+              '<h2 class="block-title">Quick facts</h2>' +
+              '<dl class="quick-facts">' +
+                quickFacts().map(function (f) {
+                  return '<div><dt>' + U.esc(f.label) + '</dt><dd>' + U.esc(f.value) + '</dd></div>';
+                }).join('') +
+              '</dl>' +
+            '</div>' +
+
             /* Highlights sit above the actions so they are read before deciding */
-            (record.highlights && record.highlights.length
+            (highlightList().length
               ? '<div class="highlights-block">' +
                   '<h2 class="block-title">Key highlights</h2>' +
-                  '<ul class="highlight-list">' + record.highlights.map(function (h) { return '<li>' + U.esc(h) + '</li>'; }).join('') + '</ul>' +
+                  '<ul class="highlight-list">' + highlightList().map(function (h) { return '<li>' + U.esc(h) + '</li>'; }).join('') + '</ul>' +
+                '</div>'
+              : '') +
+
+            /* What to consider — questions worth asking for this kind of option */
+            (considerationGroups
+              ? '<div class="block consider-block">' +
+                  '<h2 class="block-title">What to consider</h2>' +
+                  '<p class="block-note">General prompts for this kind of ' + U.esc(record.type) +
+                  ', not a verdict on this listing. Nothing below is scored or ranked.</p>' +
+                  considerationGroups.map(function (g) {
+                    return '<div class="consider-group"><h3>' + U.esc(g.title) + '</h3><ul class="consider-list">' +
+                      g.items.map(function (item) {
+                        return '<li><strong>' + U.esc(item.label) + '</strong><span>' + U.esc(item.hint) + '</span></li>';
+                      }).join('') + '</ul></div>';
+                  }).join('') +
                 '</div>'
               : '') +
 
@@ -202,15 +276,21 @@ PV.util.ready(function () {
                 '<h2 id="deal-title">Offer attached to ' + U.esc(record.name) + '</h2>' +
                 (deal.headline ? '<p class="deal-headline">' + U.esc(deal.headline) + '</p>' : '') +
                 '<p class="deal-sub">The offer changes the price of this ' + U.esc(record.type) + ' — it is not a separate item.</p>' +
+                '<h3 class="deal-sub-title">Price</h3>' +
                 '<div class="deal-terms">' +
-                  '<div><span>Deal price</span><strong>' + U.esc(U.money(deal.dealPrice, currency)) + (record.price && record.price.unit ? '/' + (U.UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</strong></div>' +
+                  '<div><span>Deal price (demo)</span><strong>' + U.esc(U.money(deal.dealPrice, currency)) + (record.price && record.price.unit ? '/' + (U.UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</strong></div>' +
                   '<div><span>Reference price</span><strong>' + U.esc(U.money(deal.referencePrice, currency)) + '</strong></div>' +
-                  '<div><span>Offer type</span><strong>' + U.esc(U.dealKindLabel(deal)) + '</strong></div>' +
                   '<div><span>Discount</span><strong>-' + deal.discountPercent + '%</strong></div>' +
+                '</div>' +
+                '<h3 class="deal-sub-title">Offer</h3>' +
+                '<div class="deal-terms">' +
+                  '<div><span>Offer type</span><strong>' + U.esc(U.dealKindLabel(deal)) + '</strong></div>' +
                   '<div><span>Valid from</span><strong>' + U.esc(U.formatDate(deal.validFrom)) + '</strong></div>' +
                   '<div><span>Valid to</span><strong>' + U.esc(U.formatDate(deal.validTo)) + '</strong></div>' +
                   '<div><span>Status</span><strong>' + U.esc(dealState ? dealState.label : 'Demo offer') + '</strong></div>' +
                 '</div>' +
+                '<h3 class="deal-sub-title">Important context</h3>' +
+                '<p class="deal-context">This is a demonstration offer. PickVanta does not process the transaction — there is no checkout, no payment and no order. Prices are illustrative, and the reference price is an invented comparison figure rather than a checked market price.</p>' +
                 (deal.conditions && deal.conditions.length
                   ? '<div class="deal-conditions"><h3>Conditions (demo)</h3><ul>' + deal.conditions.map(function (c) { return '<li>' + U.esc(c) + '</li>'; }).join('') + '</ul></div>'
                   : '') +
@@ -254,17 +334,38 @@ PV.util.ready(function () {
       ? '<section class="section" id="related" aria-labelledby="rel-title">' +
           '<div class="shell">' +
             '<div class="section-head"><div>' +
-              '<h2 id="rel-title">More in ' + U.esc(U.categoryLabel(record.category)) + '</h2>' +
-              '<p>Matched on category, type, shared topics, similar price and location — not an algorithm, and not a ranking. Each card shows why it appears.</p>' +
+              '<h2 id="rel-title">Related options</h2>' +
+              '<p>Deterministic matches on category, subcategory, tags, brand, price range and location — not an algorithm, not a recommendation and not a ranking. Each card says why it appears.</p>' +
             '</div>' +
             '<a class="link-arrow" href="discover.html?category=' + U.esc(record.category) + '">See all ' + U.esc(U.categoryLabel(record.category)) + ' <span aria-hidden="true">→</span></a>' +
             '</div>' +
             '<div class="products-grid grid-4">' +
-              relatedMatches.map(function (m) { return PV.card.item(m.record, { reasons: m.reasons }); }).join('') +
+              relatedMatches.map(function (m) { return PV.card.item(m.record, { reasons: m.reasons, reasonLabel: 'Why this appears:' }); }).join('') +
             '</div>' +
           '</div>' +
         '</section>'
       : '');
+
+  /* Good to know — general educational notes for this kind of option. */
+  if (goodToKnowNotes.length) {
+    const knowHost = U.$('#detailKnow');
+    if (knowHost) {
+      knowHost.innerHTML =
+        '<section class="section section-tight" id="goodToKnow" aria-labelledby="know-title">' +
+          '<div class="shell">' +
+            '<div class="panel know-panel">' +
+              '<h2 id="know-title" class="panel-title">Good to know</h2>' +
+              '<p class="panel-note">General context for this kind of ' + U.esc(record.type) +
+              ' — educational notes, not claims about this provider or listing.</p>' +
+              '<ul class="know-list">' + goodToKnowNotes.map(function (n) { return '<li>' + U.esc(n) + '</li>'; }).join('') + '</ul>' +
+            '</div>' +
+          '</div>' +
+        '</section>';
+    }
+  }
+
+  /* Remember this visit for the "Recently viewed on this device" list. */
+  PV.recent.add(record.id);
 
   PV.ui.syncCompareButtons();
   PV.ui.renderTray();

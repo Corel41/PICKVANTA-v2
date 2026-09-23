@@ -1866,7 +1866,8 @@
       summary: 'A short framework for reading display, battery, storage and camera specs without getting lost in numbers.',
       readTime: '6 min read',
       level: 'Beginner',
-      covers: ['Battery vs screen size trade-offs', 'Storage and update support', 'When a mid-range phone is enough']
+      covers: ['Battery vs screen size trade-offs', 'Storage and update support', 'When a mid-range phone is enough'],
+      link: { label: 'Browse smartphones', href: 'discover.html?category=technology&sub=Smartphones' }
     },
     {
       id: 'guide-laptop-for-work',
@@ -1877,7 +1878,8 @@
       summary: 'What to decide before comparing laptops, and which specifications rarely matter for everyday work.',
       readTime: '7 min read',
       level: 'Beginner',
-      covers: ['Memory and storage minimums', 'Ports, repairability and warranty', 'When a tablet or desktop fits better']
+      covers: ['Memory and storage minimums', 'Ports, repairability and warranty', 'When a tablet or desktop fits better'],
+      link: { label: 'Browse laptops', href: 'discover.html?category=technology&sub=Laptops' }
     },
     {
       id: 'guide-used-phone-checks',
@@ -1888,7 +1890,8 @@
       summary: 'Condition grades, battery health claims and the questions to ask about a refurbished device.',
       readTime: '5 min read',
       level: 'Beginner',
-      covers: ['Condition grades and what they mean', 'Battery health and repair history', 'Warranty differences from new stock']
+      covers: ['Condition grades and what they mean', 'Battery health and repair history', 'Warranty differences from new stock'],
+      link: { label: 'Refurbished phones', href: 'discover.html?category=technology&sub=Smartphones&q=refurbished' }
     },
     {
       id: 'guide-home-internet',
@@ -1899,7 +1902,8 @@
       summary: 'Speeds are only one line in the contract. How to read contract length, fees and support terms.',
       readTime: '5 min read',
       level: 'Beginner',
-      covers: ['Speed needed per household size', 'Contract length and exit costs', 'Installation and equipment fees']
+      covers: ['Speed needed per household size', 'Contract length and exit costs', 'Installation and equipment fees'],
+      link: { label: 'Browse internet plans', href: 'discover.html?category=services&sub=Internet' }
     },
     {
       id: 'guide-wifi-router',
@@ -1910,7 +1914,8 @@
       summary: 'Wi-Fi standard, bands, coverage and SIM support explained without the marketing language.',
       readTime: '5 min read',
       level: 'Beginner',
-      covers: ['Wi-Fi 5 vs Wi-Fi 6 in practice', 'Bands, channels and coverage limits', 'When a portable or SIM router is better']
+      covers: ['Wi-Fi 5 vs Wi-Fi 6 in practice', 'Bands, channels and coverage limits', 'When a portable or SIM router is better'],
+      link: { label: 'Browse networking', href: 'discover.html?category=technology&sub=Networking' }
     },
     {
       id: 'guide-car-detailing',
@@ -1921,7 +1926,8 @@
       summary: 'Package scope, materials, duration and mobile service — the parts that decide what you actually get.',
       readTime: '5 min read',
       level: 'Beginner',
-      covers: ['What a full detail should include', 'Ceramic coating vs wax', 'Mobile or workshop service trade-offs']
+      covers: ['What a full detail should include', 'Ceramic coating vs wax', 'Mobile or workshop service trade-offs'],
+      link: { label: 'Browse detailing', href: 'discover.html?category=automotive&sub=Detailing' }
     },
     {
       id: 'guide-office-chair',
@@ -1932,7 +1938,8 @@
       summary: 'Lumbar support, seat depth, armrests and warranty — what to test before committing.',
       readTime: '5 min read',
       level: 'Beginner',
-      covers: ['Adjustability that actually helps', 'Materials and expected lifespan', 'Warranty and spare parts']
+      covers: ['Adjustability that actually helps', 'Materials and expected lifespan', 'Warranty and spare parts'],
+      link: { label: 'Browse home furniture', href: 'discover.html?category=home&sub=Furniture' }
     },
     {
       id: 'guide-service-providers',
@@ -1943,7 +1950,8 @@
       summary: 'Scope, turnaround, service area, warranty on work and price basis — a reusable checklist.',
       readTime: '6 min read',
       level: 'Beginner',
-      covers: ['Included vs excluded work', 'Turnaround and availability', 'Warranty and follow-up terms']
+      covers: ['Included vs excluded work', 'Turnaround and availability', 'Warranty and follow-up terms'],
+      link: { label: 'Browse services', href: 'discover.html?category=services' }
     },
     {
       id: 'guide-evaluate-a-deal',
@@ -1954,7 +1962,8 @@
       summary: 'Understand what a reference price is measured against, and when an offer is not really a saving.',
       readTime: '4 min read',
       level: 'Beginner',
-      covers: ['Reference price definitions', 'Time-limited vs permanent offers', 'Conditions that change the value']
+      covers: ['Reference price definitions', 'Time-limited vs permanent offers', 'Conditions that change the value'],
+      link: { label: 'Browse demo deals', href: 'deals.html' }
     },
     {
       id: 'guide-questions-before-hiring',
@@ -1965,13 +1974,355 @@
       summary: 'A practical list of questions about scope, timing, extras and warranties you can ask any provider.',
       readTime: '4 min read',
       level: 'Beginner',
-      covers: ['Scope and exclusions', 'Timing and delays', 'Payment, warranty and follow-up']
+      covers: ['Scope and exclusions', 'Timing and delays', 'Payment, warranty and follow-up'],
+      link: { label: 'Browse service providers', href: 'discover.html?type=service&tag=professional' }
     }
+  ];
+
+  /* ==========================================================================
+     STEP 5 — decision-support configuration
+     --------------------------------------------------------------------------
+     Small, deterministic configuration that helps a visitor understand a choice
+     without PickVanta making it for them. Nothing here scores, ranks or
+     recommends: it only says which questions are worth asking and which rows
+     belong together. Keys are category slugs, with optional
+     "category:Subcategory" overrides.
+     ========================================================================== */
+
+  /* "What to consider" — grouped prompts, not verdicts. */
+  const considerations = {
+    technology: [
+      { title: 'Core specifications', items: [
+        { label: 'Display', hint: 'Screen size, resolution and refresh rate change how it feels to use.' },
+        { label: 'Battery', hint: 'Compare advertised runtime and how the device is charged.' },
+        { label: 'Performance', hint: 'Processor and memory decide how it copes with your workload.' },
+        { label: 'Storage', hint: 'How much you can keep on the device, and whether it can be extended.' }
+      ] },
+      { title: 'Around the device', items: [
+        { label: 'Connectivity', hint: 'Wi-Fi, mobile network, ports and SIM support.' },
+        { label: 'Software', hint: 'Operating system, updates and app support.' },
+        { label: 'Portability', hint: 'Weight and size if it travels with you.' },
+        { label: 'Warranty and condition', hint: 'New, refurbished or graded stock, and what the warranty covers.' }
+      ] }
+    ],
+    'technology:Smartphones': [
+      { title: 'What matters on a phone', items: [
+        { label: 'Display', hint: 'Size, panel type and refresh rate.' },
+        { label: 'Battery', hint: 'Capacity and typical runtime.' },
+        { label: 'Camera', hint: 'Sensor resolution and how many lenses you actually use.' },
+        { label: 'Storage', hint: 'Onboard space versus expandable storage.' },
+        { label: 'Performance', hint: 'Processor and RAM for apps and multitasking.' },
+        { label: 'Software', hint: 'Update support matters for how long it stays useful.' }
+      ] }
+    ],
+    'technology:Laptops': [
+      { title: 'What matters on a laptop', items: [
+        { label: 'Processor', hint: 'Sets the ceiling for heavy work.' },
+        { label: 'RAM', hint: 'Multi-tasking headroom — check what you can upgrade later.' },
+        { label: 'Storage', hint: 'How much you can carry locally.' },
+        { label: 'Display', hint: 'Size, resolution and how it looks outdoors.' },
+        { label: 'Graphics', hint: 'Only a deciding factor for gaming, video and 3D work.' },
+        { label: 'Weight', hint: 'Matters most if you carry it daily.' }
+      ] }
+    ],
+    'technology:Networking': [
+      { title: 'What matters on a router', items: [
+        { label: 'Wi-Fi standard', hint: 'The generation of wireless technology it supports.' },
+        { label: 'Speed', hint: 'Advertised combined speed, not real-world throughput.' },
+        { label: 'Coverage', hint: 'Illustrative area, and how many rooms that really means.' },
+        { label: 'Bands', hint: 'Dual band separates slow and fast devices.' },
+        { label: 'Ports', hint: 'Wired devices and how many you can connect.' },
+        { label: 'SIM support', hint: 'Whether the connection comes from a fixed line or a SIM.' }
+      ] }
+    ],
+    'technology:Audio': [
+      { title: 'What matters on headphones', items: [
+        { label: 'Noise cancellation', hint: 'Active cancelling versus passive isolation.' },
+        { label: 'Battery', hint: 'Runtime per charge and how quickly it tops up.' },
+        { label: 'Comfort', hint: 'Weight and earcup style matter for long sessions.' },
+        { label: 'Connectivity', hint: 'Bluetooth version, multipoint and wired options.' }
+      ] }
+    ],
+    home: [
+      { title: 'Fit and comfort', items: [
+        { label: 'Adjustability', hint: 'What can be set to suit you or the room.' },
+        { label: 'Material', hint: 'How it feels and how it wears over time.' },
+        { label: 'Dimensions', hint: 'Measure the space before comparing anything else.' },
+        { label: 'Weight capacity', hint: 'How much it is rated to hold.' }
+      ] },
+      { title: 'Ownership', items: [
+        { label: 'Assembly', hint: 'Whether it arrives ready to use or needs building.' },
+        { label: 'Warranty', hint: 'What is covered, and for how long.' },
+        { label: 'Running cost', hint: 'Energy or consumables over time, not just the price.' }
+      ] }
+    ],
+    automotive: [
+      { title: 'Fit and use', items: [
+        { label: 'Fitment', hint: 'Size, rating and compatibility come before price.' },
+        { label: 'Season or use', hint: 'What conditions it is designed for.' },
+        { label: 'Included work', hint: 'Installation, fitting or balancing may or may not be included.' }
+      ] },
+      { title: 'Ownership', items: [
+        { label: 'Warranty', hint: 'What is covered if it fails early.' },
+        { label: 'Service area', hint: 'Where the work can actually be carried out.' },
+        { label: 'Price basis', hint: 'Per unit, per package or quoted after inspection.' }
+      ] }
+    ],
+    travel: [
+      { title: 'Practical fit', items: [
+        { label: 'Size limits', hint: 'Cabin and baggage rules decide what actually works.' },
+        { label: 'Weight', hint: 'Weight when empty counts towards your limit.' },
+        { label: 'Duration', hint: 'Nights or days included, and any minimum stay.' }
+      ] },
+      { title: 'Terms', items: [
+        { label: 'Included', hint: 'What comes with the price and what is billed separately.' },
+        { label: 'Cancellation', hint: 'How late you can change your plans.' },
+        { label: 'Delivery method', hint: 'Self-service, in person or online.' }
+      ] }
+    ],
+    business: [
+      { title: 'Scope', items: [
+        { label: 'Scope', hint: 'What exactly is delivered, and what is explicitly excluded.' },
+        { label: 'Timeline', hint: 'How long it takes from start to handover.' },
+        { label: 'Price structure', hint: 'Fixed, per month, or quoted after a scoping call.' }
+      ] },
+      { title: 'Ongoing', items: [
+        { label: 'Support', hint: 'What happens after delivery if something needs changing.' },
+        { label: 'Revisions', hint: 'How many rounds are included before extra work is billed.' },
+        { label: 'Contract', hint: 'Whether you can leave, and what notice is required.' }
+      ] }
+    ],
+    education: [
+      { title: 'Format', items: [
+        { label: 'Format', hint: 'Live sessions, self-paced, in person or online.' },
+        { label: 'Duration', hint: 'Total commitment, not just the headline length.' },
+        { label: 'Level', hint: 'Where it starts, so you are not repeating or jumping ahead.' }
+      ] },
+      { title: 'Outcome', items: [
+        { label: 'Certificate', hint: 'Whether completion is documented.' },
+        { label: 'Support', hint: 'Tutor contact, class size or mentor sessions.' },
+        { label: 'Availability', hint: 'Times that fit your week.' }
+      ] }
+    ],
+    fashion: [
+      { title: 'Product details', items: [
+        { label: 'Material', hint: 'What it is made of and how it wears.' },
+        { label: 'Fit and sizes', hint: 'The range available and whether fit is stated.' },
+        { label: 'Weight', hint: 'Noticeable on daily-carry items.' }
+      ] },
+      { title: 'Buying', items: [
+        { label: 'Care', hint: 'Washing and maintenance requirements.' },
+        { label: 'Returns', hint: 'How long you have to change your mind.' }
+      ] }
+    ],
+    services: [
+      { title: 'Before you compare prices', items: [
+        { label: 'Service area', hint: 'Where the provider actually works — a cheaper price elsewhere may not apply to you.' },
+        { label: 'What is included', hint: 'A lower starting price may cover a smaller package.' },
+        { label: 'Turnaround', hint: 'How long the work takes, and whether it is booked in advance.' }
+      ] },
+      { title: 'Terms', items: [
+        { label: 'Availability', hint: 'Days, times and how far ahead you must book.' },
+        { label: 'Delivery method', hint: 'On site, mobile, workshop or fully online.' },
+        { label: 'Price basis', hint: 'Fixed, per session, per package or quoted after inspection.' }
+      ] }
+    ]
+  };
+
+  /* "Good to know" — general educational notes, never claims about a seller. */
+  const goodToKnow = {
+    technology: [
+      'Specifications describe the hardware, not how it will feel to you. Two devices with the same numbers can behave differently once you are actually using them.',
+      'Advertised battery life is usually measured under favourable conditions. Expect real use to be shorter, especially with heavy apps or screen brightness.'
+    ],
+    'technology:Laptops': [
+      'RAM and storage affect different things: more RAM helps with doing several things at once, while storage decides how much you can keep on the machine.',
+      'A faster processor usually matters most for long, heavy tasks. For browsing, documents and email, memory and storage often decide whether the machine feels responsive.'
+    ],
+    'technology:Networking': [
+      'Advertised wireless speed and real-world coverage are different things. Walls, distance and the number of connected devices affect what you actually get.',
+      'Wi-Fi generations are backwards compatible, but you only benefit from the newer standard if your devices support it too.'
+    ],
+    'technology:Smartphones': [
+      'Camera figures describe the sensors, not photo quality. Software processing and lens quality often matter more than megapixels.',
+      'Storage cannot always be extended, so check whether a memory card slot exists before choosing a smaller capacity.'
+    ],
+    'technology:Audio': [
+      'Noise cancelling is most effective on steady sounds such as engines and fans, and least effective on sudden ones such as voices.',
+      'Comfort is personal: a heavier headphone with better padding can be easier to wear for hours than a lighter one that presses on your ears.'
+    ],
+    home: [
+      'Dimensions decide whether something fits, and comfort decides whether you keep using it. Check both before comparing prices.',
+      'Warranty length is a rough signal of expected lifespan, but it only matters if spare parts and service are still available.'
+    ],
+    automotive: [
+      'Fitment comes before brand or price: a part that does not match the vehicle is not a saving at any price.',
+      'Fitting, balancing and disposal are often charged separately, so compare the total cost rather than the headline figure.'
+    ],
+    travel: [
+      'Size and weight limits are set by the operator, not the maker. A bag that meets one airline limit may not meet another.',
+      'Cancellation terms matter more on fixed dates. Flexible terms usually cost more upfront and save more if plans change.'
+    ],
+    business: [
+      'Scope is the main thing to pin down: two quotes at the same price can cover very different amounts of work.',
+      'Support and revision terms decide what happens after delivery, when changes are usually most expensive.'
+    ],
+    education: [
+      'Level and format matter more than the subject name: a self-paced course and a live class demand very different amounts of time.',
+      'A certificate documents completion. Check what it actually says and whether the issuer is recognised for your purpose.'
+    ],
+    fashion: [
+      'Material and construction decide how long something lasts; the look usually decides whether you get the wear out of it.',
+      'Sizing varies between makers, so compare measurements where they are stated rather than labels alone.'
+    ],
+    services: [
+      'A lower starting price may cover a smaller package. Check what is included and where the work is done before comparing prices directly.',
+      'Quoted ranges often depend on details you have not supplied yet, such as access, size or condition. Ask what changes the final figure.'
+    ]
+  };
+
+  /* "Compare focus" — which rows a visitor wants emphasised. These only
+     highlight; they never score or rank. */
+  const compareFocus = [
+    { code: 'price', label: 'Price', help: 'Price, reference price and demo offers',
+      rows: ['price', 'reference', 'dealPrice', 'offer'], keywords: ['price', 'cost', 'fee'] },
+    { code: 'performance', label: 'Performance', help: 'Processor, memory, speed and capacity',
+      keywords: ['processor', 'ram', 'memory', 'storage', 'graphics', 'chip', 'speed', 'capacity', 'refresh'] },
+    { code: 'features', label: 'Features', help: 'Included items and package contents',
+      keywords: ['included', 'package', 'features', 'modules', 'contents'] },
+    { code: 'portability', label: 'Portability', help: 'Weight, size and travel fit',
+      keywords: ['weight', 'size', 'dimensions', 'portable', 'volume', 'thickness', 'cabin'] },
+    { code: 'availability', label: 'Availability', help: 'Status, notice and turnaround',
+      rows: ['availability', 'listed'], keywords: ['availability', 'turnaround', 'duration', 'time', 'session', 'delivery', 'minimum stay'] },
+    { code: 'location', label: 'Location', help: 'Where the item or provider is',
+      rows: ['location'], keywords: ['location', 'area', 'coverage', 'delivery method'] },
+    { code: 'specifications', label: 'Specifications', help: 'Every specification row',
+      allAttributes: true, keywords: [] },
+    { code: 'coverage', label: 'Service coverage', help: 'Where a service is available',
+      keywords: ['service area', 'coverage', 'mobile service', 'delivery method', 'availability'] },
+    { code: 'included', label: 'Included services', help: 'What the price includes',
+      keywords: ['included', 'package', 'supplies', 'materials', 'revisions', 'warranty', 'trial'] }
+  ];
+
+  /* Comparison grouping per category. Attribute rows are matched by keyword
+     against their label and group; anything unmatched lands in the last group.
+     A category with no configuration falls back to the generic grouping. */
+  const compareGroups = {
+    technology: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Performance', keywords: ['processor', 'ram', 'memory', 'graphics', 'chip', 'speed', 'capacity'] },
+        { title: 'Display', keywords: ['display', 'screen', 'resolution', 'refresh', 'panel'] },
+        { title: 'Camera & battery', keywords: ['camera', 'battery', 'charging', 'runtime', 'energy'] },
+        { title: 'Connectivity & design', keywords: ['connectivity', 'wi-fi', 'sim', 'network', 'ports', 'weight', 'water', 'bands', 'coverage', 'lock', 'wheels'] },
+        { title: 'Support & condition', keywords: ['warranty', 'condition', 'included', 'support', 'returns'] }
+      ]
+    },
+    home: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Size & material', keywords: ['dimensions', 'material', 'size', 'weight', 'thickness'] },
+        { title: 'Capacity & power', keywords: ['capacity', 'volume', 'load', 'energy', 'output', 'battery', 'runtime', 'noise', 'shelves'] },
+        { title: 'Comfort & features', keywords: ['lumbar', 'armrests', 'firmness', 'adjustment', 'features', 'included', 'trial'] },
+        { title: 'Support', keywords: ['warranty', 'assembly'] }
+      ]
+    },
+    automotive: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Fitment & performance', keywords: ['size', 'load', 'speed', 'season', 'capacity', 'cranking', 'terminal', 'tread'] },
+        { title: 'Electronics', keywords: ['resolution', 'view', 'recording', 'storage', 'mounting', 'night'] },
+        { title: 'Support', keywords: ['warranty', 'fitting', 'trade-in', 'old battery'] }
+      ],
+      serviceGroups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Service scope', keywords: ['package', 'included', 'duration', 'price basis', 'warranty', 'coating'] },
+        { title: 'Coverage & availability', keywords: ['service area', 'availability', 'mobile', 'coverage'] }
+      ]
+    },
+    travel: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Size & weight', keywords: ['volume', 'weight', 'material', 'dimensions'] },
+        { title: 'Features', keywords: ['wheels', 'lock', 'compartments', 'features'] },
+        { title: 'Support', keywords: ['warranty', 'returns'] }
+      ],
+      serviceGroups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Stay & logistics', keywords: ['guests', 'minimum stay', 'check-in', 'included', 'service area', 'availability', 'cancellation', 'turnaround', 'delivery method', 'revisions'] },
+        { title: 'Pricing', keywords: ['price basis', 'contact', 'package'] }
+      ]
+    },
+    business: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Plan & scope', keywords: ['plan', 'users', 'storage', 'invoices', 'package', 'included', 'modules', 'revisions'] },
+        { title: 'Delivery & terms', keywords: ['timeline', 'contract', 'trial', 'delivery method', 'availability', 'fees', 'retention', 'devices'] },
+        { title: 'Support', keywords: ['support', 'warranty'] }
+      ]
+    },
+    education: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Format & level', keywords: ['format', 'level', 'class size', 'session length', 'subjects', 'modules'] },
+        { title: 'Schedule & delivery', keywords: ['duration', 'availability', 'delivery method', 'service area', 'certificate', 'package', 'vehicle'] },
+        { title: 'Support', keywords: ['support', 'included'] }
+      ]
+    },
+    fashion: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Product details', keywords: ['material', 'weight', 'sole', 'upper', 'waterproof', 'volume', 'laptop size', 'packed size'] },
+        { title: 'Sizing & fit', keywords: ['sizes', 'fit', 'care'] },
+        { title: 'Support', keywords: ['warranty', 'returns'] }
+      ]
+    },
+    services: {
+      groups: [
+        { title: 'Overview', rows: ['type', 'brand', 'category', 'price', 'reference', 'dealPrice', 'offer'] },
+        { title: 'Provider', rows: ['seller', 'sellerType', 'location', 'serviceArea'] },
+        { title: 'Coverage & availability', keywords: ['service area', 'availability', 'delivery method', 'coverage', 'booking', 'contact', 'mobile'] },
+        { title: 'Service', keywords: ['package', 'included', 'session', 'lesson', 'team', 'duration', 'supplies', 'materials', 'crews', 'revisions', 'modules', 'subjects', 'format', 'level'] },
+        { title: 'Pricing', keywords: ['price basis', 'contract', 'setup', 'fees', 'trial', 'travel'] },
+        { title: 'Support', keywords: ['support', 'warranty', 'certificate', 'retention'] }
+      ]
+    }
+  };
+
+  /* "Explore by need" — deterministic entries into the existing catalogue.
+     Each one uses a tag filter or a plain query, never a new page. */
+  const needs = [
+    { group: 'Technology', icon: '🎓', label: 'Student', tag: 'student' },
+    { group: 'Technology', icon: '🏠', label: 'Remote work', tag: 'remote-work' },
+    { group: 'Technology', icon: '💼', label: 'Business', tag: 'business' },
+    { group: 'Technology', icon: '🎮', label: 'Gaming', tag: 'gaming' },
+    { group: 'Technology', icon: '🎒', label: 'Portable', tag: 'portable' },
+    { group: 'Technology', icon: '💰', label: 'Budget', tag: 'budget' },
+    { group: 'Home', icon: '📐', label: 'Small space', q: 'compact' },
+    { group: 'Home', icon: '🖥️', label: 'Home office', q: 'desk chair office' },
+    { group: 'Home', icon: '👨‍👩‍👧', label: 'Family', tag: 'family' },
+    { group: 'Home', icon: '🛋️', label: 'Comfort', q: 'comfort' },
+    { group: 'Automotive', icon: '🔧', label: 'Maintenance', q: 'battery tyres maintenance' },
+    { group: 'Automotive', icon: '🛡️', label: 'Safety', q: 'dash camera safety' },
+    { group: 'Automotive', icon: '🧼', label: 'Car care', tag: 'detailing' },
+    { group: 'Automotive', icon: '🧳', label: 'Travel gear', q: 'luggage travel' },
+    { group: 'Services', icon: '💼', label: 'For a business', q: 'business website invoicing' },
+    { group: 'Services', icon: '🏡', label: 'For the home', q: 'cleaning' },
+    { group: 'Services', icon: '🧑', label: 'Personal', tag: 'fitness' },
+    { group: 'Services', icon: '🛠️', label: 'Professional', tag: 'professional' },
+    { group: 'Services', icon: '🌱', label: 'Beginner', tag: 'beginner' },
+    { group: 'Services', icon: '⚡', label: 'Fast turnaround', tag: 'fast' }
+  ];
+
+  /* Tags offered as shortcuts on Discover, most useful first. */
+  const popularTags = [
+    'budget', 'premium', 'student', 'business', 'remote-work', 'portable',
+    'wireless', 'family', 'nairobi', 'professional', 'fast', 'beginner'
   ];
 
   /* ---------------------------------------------------------------- export */
   window.PICKVANTA_DATA = {
-    version: 'step4-demo-2.0.0',
+    version: 'step5-demo-3.0.0',
     demoNotice: 'Demonstration catalogue only — every listing, price, seller, provider and offer here is invented.',
     types: types,
     categories: categories,
@@ -1998,6 +2349,13 @@
     ],
     homeDealIds: ['headphones-quietmax-700', 'service-sparklehome-deep-clean', 'tyre-roadgrip-195-65'],
     homeGuideIds: ['guide-compare-smartphones', 'guide-service-providers', 'guide-evaluate-a-deal'],
+    /* Step 5 decision-support configuration */
+    considerations: considerations,
+    goodToKnow: goodToKnow,
+    compareFocus: compareFocus,
+    compareGroups: compareGroups,
+    needs: needs,
+    popularTags: popularTags,
     items: items,
     guides: guides
   };

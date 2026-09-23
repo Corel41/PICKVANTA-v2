@@ -2471,3 +2471,294 @@ a.compare-btn{text-decoration:none}
 .spec-list dt{
   overflow-wrap:anywhere;
 }
+
+/* ==========================================================================
+   STEP 5 — decision support
+   Additive only. Same tokens, cards, pills and radii as the rest of the app:
+   quick facts, what-to-consider, good-to-know, compare focus, explore-by-need,
+   popular tags and the recently viewed strip.
+   ========================================================================== */
+
+/* --- detail page: quick facts ------------------------------------------- */
+.quick-facts{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px 14px;
+  margin:10px 0 0;
+}
+.quick-facts div{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 10px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--surface-2);
+  min-width:0;
+}
+.quick-facts dt{
+  font-size:11.5px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--muted);
+  flex:0 0 auto;
+}
+.quick-facts dd{
+  margin:0;
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  text-align:right;
+  overflow-wrap:anywhere;
+  min-width:0;
+}
+
+/* --- detail page: what to consider -------------------------------------- */
+.block{margin-top:16px}
+.consider-block{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+  background:var(--surface);
+}
+.block-note{
+  margin:4px 0 10px;
+  font-size:12px;
+  line-height:1.5;
+  color:var(--muted);
+}
+.consider-group + .consider-group{margin-top:12px}
+.consider-group h3{
+  margin:0 0 6px;
+  font-size:11.5px;
+  font-weight:750;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted);
+}
+.consider-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px 14px;
+}
+.consider-list li{
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+  padding:7px 10px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--surface-2);
+  min-width:0;
+}
+.consider-list strong{font-size:12.5px;font-weight:750;color:var(--text)}
+.consider-list span{font-size:11.5px;line-height:1.45;color:var(--muted)}
+
+/* --- detail page: good to know ------------------------------------------ */
+.know-panel{background:var(--surface-2)}
+.know-list{
+  margin:0;
+  padding-left:18px;
+  display:grid;
+  gap:8px;
+}
+.know-list li{font-size:13px;line-height:1.6;color:var(--text-2)}
+
+/* --- detail page: deal block sections ----------------------------------- */
+.deal-sub-title{
+  margin:14px 0 6px;
+  font-size:11.5px;
+  font-weight:750;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted);
+}
+.deal-context{
+  margin:0;
+  font-size:12.5px;
+  line-height:1.6;
+  color:var(--text-2);
+  border:1px dashed var(--line-2);
+  border-radius:10px;
+  padding:10px 12px;
+  background:var(--surface-2);
+}
+
+/* --- compare: focus controls -------------------------------------------- */
+.cmp-focus{
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--surface);
+  padding:12px 14px;
+  margin-bottom:12px;
+}
+.cmp-focus:empty{display:none}
+.focus-head{display:flex;flex-direction:column;gap:2px}
+.focus-note{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.focus-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.focus-chip.is-on{
+  background:var(--accent-soft);
+  border-color:var(--accent);
+  color:var(--accent-hover);
+}
+.focus-status{
+  margin:10px 0 0;
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-2);
+}
+
+/* --- compare: focus emphasis in the table ------------------------------- */
+.cmp-table tr.is-focus > th[scope="row"],
+.cmp-table tr.is-focus > td{background:var(--surface-2)}
+.cmp-table tr.is-focus > th[scope="row"]{
+  box-shadow:inset 3px 0 0 var(--accent);
+}
+.cmp-stack-card div.is-focus{background:var(--surface-2);border-radius:8px;padding:5px 8px}
+.cmp-stack-card div.is-focus dt{color:var(--accent-hover)}
+
+/* --- compare: empty state / intro --------------------------------------- */
+.cmp-intro{
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--surface);
+  padding:18px;
+  max-width:760px;
+}
+.cmp-intro h3{margin:0 0 6px;font-size:17px;letter-spacing:-.02em}
+.cmp-intro > p{margin:0 0 12px;font-size:13.5px;line-height:1.6;color:var(--text-2)}
+.cmp-intro-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.cmp-intro-notes{
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid var(--line);
+  display:grid;
+  gap:6px;
+}
+.cmp-intro-notes p{margin:0;font-size:12px;line-height:1.55;color:var(--muted)}
+
+/* --- compare tools: row summary ----------------------------------------- */
+.tools-meta{font-size:11.5px;font-weight:700;color:var(--muted)}
+
+/* --- explore by need ---------------------------------------------------- */
+.needs{display:grid;gap:10px}
+.need-group{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.need-group-label{
+  font-size:11px;
+  font-weight:750;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted);
+  flex:0 0 auto;
+  min-width:104px;
+}
+.need-chips{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.need-chip{text-decoration:none}
+
+/* --- popular tags strip ------------------------------------------------- */
+.tag-strip{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-top:12px;
+}
+.tag-strip-label{
+  font-size:11.5px;
+  font-weight:700;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.tag-strip-items{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.tag-chip{text-decoration:none}
+.tag-chip.is-on{
+  background:var(--accent-soft);
+  border-color:var(--accent);
+  color:var(--accent-hover);
+}
+
+/* --- filter panel: extra tags + note ------------------------------------ */
+.filter-more{margin-top:8px}
+.filter-more > summary{
+  cursor:pointer;
+  font-size:12px;
+  font-weight:700;
+  color:var(--accent);
+  padding:4px 0;
+}
+.filter-more .filter-options{margin-top:8px;max-height:240px;overflow-y:auto}
+.filter-note{
+  margin:8px 0 0;
+  font-size:11px;
+  line-height:1.5;
+  color:var(--muted-2);
+}
+
+/* --- recently viewed strip ---------------------------------------------- */
+.recent-strip{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  padding-bottom:4px;
+}
+.recent-item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:230px;
+  flex:0 0 auto;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface);
+  padding:10px 12px;
+  text-decoration:none;
+  color:inherit;
+}
+.recent-item:hover{border-color:var(--line-2)}
+.recent-icon{
+  width:34px;height:34px;
+  border-radius:10px;
+  display:grid;place-items:center;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  font-size:17px;
+  flex:0 0 auto;
+}
+.recent-text{display:grid;gap:2px;min-width:0}
+.recent-text strong{font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.recent-text small{font-size:11.5px;color:var(--muted)}
+.recent-arrow{color:var(--muted-2);flex:0 0 auto}
+
+/* --- guide → catalogue entry point -------------------------------------- */
+.guide-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-top:10px;
+  font-size:12.5px;
+  font-weight:700;
+  color:var(--accent);
+  text-decoration:none;
+}
+.guide-link:hover{color:var(--accent-hover)}
+
+/* --- responsive ---------------------------------------------------------- */
+@media(max-width:900px){
+  .quick-facts{grid-template-columns:1fr}
+  .consider-list{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .need-group-label{min-width:100%}
+  .recent-item{min-width:200px}
+  .cmp-intro{padding:14px}
+}
+
+/* --- compare: which value actually differs (equal treatment, no verdict) -- */
+.cmp-table td.is-uniq{background:var(--accent-soft-2);font-weight:700}
+.cmp-stack-card dd.is-uniq{background:var(--accent-soft-2);border-radius:6px;padding:2px 6px}

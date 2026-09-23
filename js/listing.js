@@ -40,6 +40,7 @@ PV.listing = (function () {
       q: p.get('q') || '',
       category: p.get('category') || 'all',
       subcategory: p.get('sub') || 'all',
+      tag: p.get('tag') || 'all',
       type: p.get('type') || 'all',
       band: p.get('band') || 'any',
       location: p.get('location') || 'any',
@@ -47,6 +48,13 @@ PV.listing = (function () {
       sort: p.get('sort') || 'relevance'
     };
     if (cfg.filters && state.type !== 'all' && cfg.filters.indexOf('type') === -1) state.type = 'all';
+
+    /* An unknown tag is ignored rather than emptying the page — a stale or
+       mistyped ?tag= link should still show the catalogue. */
+    if (cfg.filters && cfg.filters.indexOf('tag') !== -1 && state.tag !== 'all') {
+      const known = PV.data.tags().some(function (t) { return t.tag === state.tag; });
+      if (!known) state.tag = 'all';
+    }
 
     /* A subcategory only makes sense together with its category, so a link that
        carries one without the other is quietly narrowed back to "all". */
@@ -93,18 +101,34 @@ PV.listing = (function () {
 
       if (!list.length) {
         grid.classList.add('is-empty');
+        /* Recovery path: what is active, what else is worth trying, and a way
+           back to the whole catalogue. Suggestions stay deterministic. */
+        const activeTag = state.tag !== 'all' ? state.tag : null;
+        const tagChoices = PV.data.popularTags()
+          .filter(function (t) { return t !== activeTag; })
+          .slice(0, 5)
+          .map(function (t) { return { label: PV.data.tagLabel(t), href: cfg.url + '?tag=' + encodeURIComponent(t) }; });
+        const examples = isSearch
+          ? ['laptop', 'student', 'Nairobi', 'wireless'].map(function (q) { return { label: q, q: q }; })
+          : ['student', 'remote-work', 'budget', 'premium', 'nairobi'].map(function (q) { return { label: q, q: q }; });
+
         grid.innerHTML = PV.card.empty({
           icon: isSearch ? '🔍' : '🧭',
-          title: isSearch ? 'No matches found' : 'Nothing matches these filters',
+          title: isSearch ? 'No options found' : 'Nothing matches these filters',
           text: isSearch
-            ? 'Nothing in the demo dataset matches “' + state.q + '”. Try a shorter or different search term, or start from a category.'
+            ? 'Nothing in the demo catalogue matches “' + state.q + '”. Try a shorter term, a related tag, or start from a category.'
             : 'Every record is filtered out right now. Clear the filters to see all ' + total + ' demo ' + countLabel + plural + ' again.',
-          suggestLabel: 'Browse a category:',
-          suggestions: PV.data.categories().slice(0, 4).map(function (c) {
+          suggestLabel: 'Popular categories:',
+          suggestions: PV.data.categories().slice(0, 6).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: cfg.url + '?category=' + c.slug };
           }),
+          tags: tagChoices,
+          tagLabel: activeTag ? 'Other tags:' : 'Related tags:',
+          examples: examples,
+          examplesLabel: 'Example searches:',
           buttons: isNarrowed ? [{ label: isSearch ? 'Clear search & filters' : 'Clear all filters', action: 'reset' }] : [],
           actions: [
+            { label: 'Search all categories', href: cfg.url },
             { label: cfg.page === 'deals' ? 'Start discovering products' : 'See demo deals', href: cfg.page === 'deals' ? 'discover.html' : 'deals.html' },
             { label: 'Browse guides', href: 'guides.html' }
           ],
@@ -142,6 +166,7 @@ PV.listing = (function () {
       if (state.q) chips.push(chip('Search: ' + state.q, 'q'));
       if (state.category !== 'all') chips.push(chip(U.categoryLabel(state.category), 'category'));
       if (state.subcategory !== 'all') chips.push(chip(state.subcategory, 'subcategory'));
+      if (state.tag !== 'all') chips.push(chip('Tag: ' + PV.data.tagLabel(state.tag), 'tag'));
       if (state.type !== 'all') chips.push(chip(U.typeLabel(state.type) + 's', 'type'));
       if (state.band !== 'any') {
         const band = PV.data.priceBands().find(function (b) { return b.code === state.band; });
@@ -178,12 +203,31 @@ PV.listing = (function () {
           .join('');
     }
 
+    /* --------------------------------------------------------- tag strip */
+    /* Shortcuts into the same ?tag= state the filter panel uses. */
+    function renderTags() {
+      const host = U.$('#tagStrip');
+      if (!host) return;
+      const popular = PV.data.popularTags();
+      const current = state.tag !== 'all' ? state.tag : null;
+      const list = current && popular.indexOf(current) === -1 ? [current].concat(popular) : popular;
+      host.innerHTML =
+        '<a class="chip tag-chip' + (current ? '' : ' is-on') + '" href="' + cfg.url + '"' +
+        (current ? '' : ' aria-current="true"') + '>All</a>' +
+        list.map(function (t) {
+          const on = current === t;
+          return '<a class="chip tag-chip' + (on ? ' is-on' : '') + '" href="' + cfg.url + '?tag=' + encodeURIComponent(t) + '"' +
+            (on ? ' aria-current="true"' : '') + '>' + U.esc(PV.data.tagLabel(t)) + '</a>';
+        }).join('');
+    }
+
     /* -------------------------------------------------------------- state */
     function setState(key, value) {
       if (key === 'reset') {
         state.q = '';
         state.category = 'all';
         state.subcategory = 'all';
+        state.tag = 'all';
         state.type = 'all';
         state.band = 'any';
         state.location = 'any';
@@ -199,16 +243,18 @@ PV.listing = (function () {
         q: state.q,
         category: state.category,
         sub: state.subcategory,
+        tag: state.tag,
         type: state.type,
         band: state.band,
         location: state.location,
         availability: state.availability,
         sort: state.sort
       });
-      if (key === 'reset' || key === 'category' || key === 'subcategory' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
+      if (key === 'reset' || key === 'category' || key === 'subcategory' || key === 'tag' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
         PV.ui.renderFilters(filtersHost, state, cfg.filters, setState, filterCounts());
       }
       renderCategories();
+      renderTags();
       render();
     }
 
@@ -247,7 +293,15 @@ PV.listing = (function () {
       clearButton.addEventListener('click', function () { setState('reset'); });
     }
     grid.addEventListener('click', function (e) {
-      if (e.target.closest('[data-empty-action="reset"]')) setState('reset');
+      const btn = e.target.closest('[data-empty-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-empty-action');
+      if (action === 'reset') setState('reset');
+      if (action === 'search') {
+        const q = btn.getAttribute('data-q') || '';
+        if (searchInput) searchInput.value = q;
+        setState('q', q);
+      }
     });
 
     /* --------------------------------------------------------------- sort */
@@ -259,6 +313,7 @@ PV.listing = (function () {
 
     /* -------------------------------------------------- category + chips */
     renderCategories();
+    renderTags();
 
     if (activeRow) {
       activeRow.addEventListener('click', function (e) {

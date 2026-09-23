@@ -91,6 +91,71 @@ PV.util.ready(function () {
     dealHost.innerHTML = deals.map(function (record) { return PV.card.deal(record); }).join('');
   }
 
+  /* ------------------------------------------------------ explore by need */
+  /* Each shortcut is a tag filter or a plain search into Discover — the same
+     URL state every other part of the app uses. Nothing is personalised. */
+  const needsHost = U.$('#homeNeeds');
+  if (needsHost) {
+    const needs = PV.data.needs();
+    const groups = [];
+    needs.forEach(function (n) {
+      let g = groups.filter(function (x) { return x.label === n.group; })[0];
+      if (!g) { g = { label: n.group, rows: [] }; groups.push(g); }
+      g.rows.push(n);
+    });
+    needsHost.innerHTML = groups.map(function (g) {
+      return '<div class="need-group">' +
+        '<span class="need-group-label">' + U.esc(g.label) + '</span>' +
+        '<div class="need-chips">' +
+        g.rows.map(function (n) {
+          const href = n.tag
+            ? 'discover.html?tag=' + encodeURIComponent(n.tag)
+            : 'discover.html?q=' + encodeURIComponent(n.q);
+          const meta = n.tag ? 'tag: ' + PV.data.tagLabel(n.tag) : 'search: ' + n.q;
+          return '<a class="chip need-chip" href="' + href + '" title="' + U.esc(meta) + '">' +
+            '<span aria-hidden="true">' + U.esc(n.icon) + '</span> ' + U.esc(n.label) + '</a>';
+        }).join('') +
+        '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  /* ----------------------------------------------------- recently viewed */
+  const recentHost = U.$('#homeRecent');
+  const recentSection = U.$('#recent');
+  const recentClear = U.$('#recentClear');
+
+  function renderRecent() {
+    if (!recentHost || !recentSection) return;
+    const items = PV.recent.items();
+    if (!items.length) {
+      recentSection.hidden = true;
+      recentHost.innerHTML = '';
+      return;
+    }
+    recentSection.hidden = false;
+    recentHost.innerHTML = items.map(function (record) {
+      return '<a class="recent-item" href="' + U.esc(PV.hrefDetail(record.id)) + '">' +
+        '<span class="recent-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</span>' +
+        '<span class="recent-text">' +
+          '<strong>' + U.esc(record.name) + '</strong>' +
+          '<small>' + U.esc(U.typeLabel(record.type)) + ' · ' + U.esc(U.categoryLabel(record.category)) + ' · ' + U.esc(U.priceText(record)) + '</small>' +
+        '</span>' +
+        '<span class="recent-arrow" aria-hidden="true">→</span>' +
+        '</a>';
+    }).join('');
+  }
+
+  if (recentClear) {
+    recentClear.addEventListener('click', function () {
+      PV.recent.clear();
+      PV.ui.toast('Cleared the recently viewed list on this device. Nothing was ever stored on a server.');
+      recentSection.hidden = true;
+    });
+  }
+  renderRecent();
+  PV.onRecentChange(renderRecent);
+
   /* ------------------------------------------------------ discover preview */
   const discoverHost = U.$('#homeDiscover');
   if (discoverHost) {

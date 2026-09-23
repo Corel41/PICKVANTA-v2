@@ -177,6 +177,32 @@ window.PV = (function () {
         guides: pick(D.homeGuideIds, () => data.guides(), 3)
       };
     },
+    /* ---- Step 5 decision-support accessors -------------------------------- */
+    /* Subcategory-specific guidance wins over category-wide guidance. */
+    considerations: (record) => {
+      if (!record) return null;
+      const C = D.considerations || {};
+      return C[record.category + ':' + record.subcategory] || C[record.category] || null;
+    },
+    goodToKnow: (record) => {
+      if (!record) return [];
+      const G = D.goodToKnow || {};
+      return G[record.category + ':' + record.subcategory] || G[record.category] || [];
+    },
+    compareConfig: (category) => ((D.compareGroups || {})[category] || null),
+    compareFocusAreas: () => (D.compareFocus || []).slice(),
+    focusArea: (code) => (D.compareFocus || []).find((f) => f.code === code) || null,
+    needs: () => (D.needs || []).slice(),
+    popularTags: () => (D.popularTags || []).slice(),
+    tagLabel: (tag) => String(tag || '').replace(/-/g, ' '),
+    /* Tags actually present in the catalogue, with how many records carry them. */
+    tags: () => {
+      const map = new Map();
+      D.items.forEach((i) => (i.tags || []).forEach((t) => map.set(t, (map.get(t) || 0) + 1)));
+      return [...map.entries()]
+        .map(([tag, count]) => ({ tag: tag, label: data.tagLabel(tag), count: count }))
+        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+    },
     sellers: () => {
       const map = new Map();
       D.items.forEach((i) => {
@@ -250,40 +276,72 @@ window.PV = (function () {
   }
 
   /* ---------------------------------------------------------------- search */
-  const tokenize = (value) => String(value == null ? '' : value).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  /* Words that carry no filtering value on their own. Kept deliberately short. */
+  const STOP_WORDS = ['a', 'an', 'and', 'the', 'for', 'with', 'to', 'of', 'in', 'on', 'my', 'me', 'i',
+    'need', 'needing', 'looking', 'want', 'show', 'find', 'some', 'please', 'best', 'good', 'top'];
+  /* Everyday words mapped onto the vocabulary the catalogue actually uses. */
+  const TERM_SYNONYMS = { cheap: 'budget', affordable: 'budget', inexpensive: 'budget', 'high-end': 'premium' };
+
+  /** Lower-case and normalise the spellings the catalogue mixes together. */
+  const norm = (value) => String(value == null ? '' : value)
+    .toLowerCase()
+    .replace(/wi[-\s]?fi/g, 'wifi')
+    .replace(/[’']/g, '');
+
+  const tokenize = (value) => norm(value).split(/[^a-z0-9]+/).filter(Boolean);
+
+  /** Query terms after stop-word removal and vocabulary mapping. */
+  function normalizeTerms(query) {
+    const raw = tokenize(query);
+    const kept = [];
+    raw.forEach((term) => {
+      if (STOP_WORDS.indexOf(term) !== -1) return;
+      const mapped = TERM_SYNONYMS[term] || term;
+      if (kept.indexOf(mapped) === -1) kept.push(mapped);
+    });
+    /* A query made only of filler words ("the best") carries no filtering
+       information, so it is treated like an empty search. */
+    return kept;
+  }
 
   /**
    * Lightweight keyword search over the demo dataset.
    *
    * Matching rules (deliberately simple — no engine, no index, no backend):
-   *   • case-insensitive, punctuation-tolerant
-   *   • word-prefix matching, so "cancel" finds "cancelling" and "phone"
-   *     finds "EdgePhone" / "Smartphones"
-   *   • partial-word and cross-word matches are accepted with a lower score
-   *   • every query term must match somewhere (AND), then results are ranked
+   *   • case-insensitive, punctuation-tolerant; "wi-fi" and "wifi" are the same
+   *   • common filler words are ignored and a few everyday words are mapped onto
+   *     catalogue vocabulary ("cheap" → "budget")
+   *   • word-prefix matching, so "cancel" finds "cancelling" and "phone" finds
+   *     "Smartphones"
+   *   • every query term must match somewhere (AND); if nothing matches at all,
+   *     a relaxed pass accepts records matching most terms, provided at least one
+   *     term matched a strong field (name, brand, category, subcategory, tag)
+   *   • results are ranked by field weight, then by name
    *
-   * Fields searched: name, brand, category, subcategory, tags, seller,
-   * location, description and specification values.
+   * Fields searched: name, brand, category, subcategory, tags, seller, location,
+   * description and specification values.
    */
   function search(query, list) {
     const pool = list || D.items;
-    const q = String(query || '').trim().toLowerCase();
+    const q = String(query || '').trim();
     if (!q) return pool.slice();
 
-    const terms = q.split(/\s+/).filter(Boolean);
+    const terms = normalizeTerms(q);
+    if (!terms.length) return pool.slice();
+
     const scored = [];
 
     pool.forEach((record) => {
       const fields = {
-        name: (record.name || '').toLowerCase(),
-        brand: (record.brand || '').toLowerCase(),
-        category: categoryLabel(record.category).toLowerCase(),
-        subcategory: (record.subcategory || '').toLowerCase(),
-        tags: (record.tags || []).join(' ').toLowerCase(),
-        seller: ((record.seller && record.seller.name) || '').toLowerCase(),
-        location: ((record.location && record.location.city + ' ' + record.location.country) || '').toLowerCase(),
-        body: ((record.shortDescription || '') + ' ' + (record.description || '')).toLowerCase(),
-        specs: ((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' ') || '').toLowerCase()
+        name: norm(record.name),
+        brand: norm(record.brand),
+        category: norm(categoryLabel(record.category)),
+        subcategory: norm(record.subcategory),
+        tags: norm((record.tags || []).join(' ')),
+        seller: norm(record.seller && record.seller.name),
+        location: norm(((record.location && record.location.city) || '') + ' ' + ((record.location && record.location.country) || '')),
+        body: norm((record.shortDescription || '') + ' ' + (record.description || '')),
+        specs: norm((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' '))
       };
       const tokens = {};
       Object.keys(fields).forEach((key) => { tokens[key] = tokenize(fields[key]); });
@@ -296,25 +354,40 @@ window.PV = (function () {
       };
 
       let score = 0;
-      let matchedAll = true;
+      let matched = 0;
+      let strong = false;
 
       terms.forEach((term) => {
-        const termScore =
-          hit('name', 12, term) + hit('brand', 9, term) + hit('category', 7, term) + hit('subcategory', 6, term) +
-          hit('tags', 5, term) + hit('seller', 5, term) + hit('location', 4, term) + hit('body', 3, term) + hit('specs', 2, term);
-        if (!termScore) matchedAll = false;
+        const strongScore = hit('name', 12, term) + hit('brand', 9, term) + hit('category', 7, term) +
+          hit('subcategory', 6, term) + hit('tags', 5, term);
+        const weakScore = hit('seller', 5, term) + hit('location', 4, term) + hit('body', 3, term) + hit('specs', 2, term);
+        const termScore = strongScore + weakScore;
+        if (termScore) matched++;
+        if (strongScore) strong = true;
         score += termScore;
       });
 
-      if (!matchedAll) return;
-      if (fields.name.indexOf(q) !== -1) score += 6;                                    // whole phrase in the name
+      if (!matched) return;
+      const phrase = norm(q);
+      if (fields.name.indexOf(phrase) !== -1) score += 6;                              // whole phrase in the name
       if (terms.length > 1 && terms.every((t) => fields.name.indexOf(t) !== -1)) score += 4;
       if (record.deal) score += 2;
       if (record.badge && record.badge.tone === 'accent') score += 1;
-      scored.push({ record: record, score: score });
+      scored.push({ record: record, score: score, matched: matched, strong: strong });
     });
 
-    return scored.sort((a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name)).map((x) => x.record);
+    const rank = (rows) => rows
+      .sort((a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name))
+      .map((x) => x.record);
+
+    /* Strict pass: every term must match somewhere. */
+    const strict = scored.filter((r) => r.matched === terms.length);
+    if (strict.length) return rank(strict);
+
+    /* Relaxed pass: most terms matched and at least one of them hit a strong
+       field, so "website development" still finds the web design service. */
+    const needed = Math.max(1, Math.ceil(terms.length / 2));
+    return rank(scored.filter((r) => r.matched >= needed && r.strong));
   }
 
   /** Typeahead suggestions: records, categories, brands/sellers and guides. */
@@ -367,6 +440,7 @@ window.PV = (function () {
 
     if (f.category && f.category !== 'all') out = out.filter((i) => i.category === f.category);
     if (f.subcategory && f.subcategory !== 'all') out = out.filter((i) => i.subcategory === f.subcategory);
+    if (f.tag && f.tag !== 'all') out = out.filter((i) => (i.tags || []).indexOf(f.tag) !== -1);
     if (f.type && f.type !== 'all') out = out.filter((i) => i.type === f.type);
 
     if (f.band && f.band !== 'any') {
@@ -477,7 +551,8 @@ window.PV = (function () {
       (record.rating ? '<span class="meta-item meta-rating">★ ' + record.rating.value.toFixed(1) + ' demo</span>' : '') +
       '</div>' +
       (o.reasons && o.reasons.length
-        ? '<p class="card-reason"><span aria-hidden="true">↳</span> Matched on ' + esc(o.reasons.slice(0, 3).join(', ')) + '</p>'
+        ? '<p class="card-reason"><span aria-hidden="true">↳</span> <strong>' + esc(o.reasonLabel || 'Matched on') + '</strong> ' +
+          esc(o.reasons.slice(0, 3).join(' · ')) + '</p>'
         : '') +
       '<div class="card-actions">' +
       '<a class="small-btn primary" href="' + hrefDetail(record.id) + '">View details</a>' +
@@ -594,6 +669,12 @@ window.PV = (function () {
       '<span class="rating">' + esc(guide.level) + ' · ' + esc(guide.readTime) + '</span>' +
       '<button type="button" class="link-btn guide-open" data-later="Guide articles">Read outline</button>' +
       '</div>' +
+      /* Guides are decision-support entry points: each one opens a matching
+         slice of the catalogue using the existing filters. */
+      (guide.link && guide.link.href
+        ? '<a class="guide-link" href="' + esc(guide.link.href) + '">' + esc(guide.link.label) +
+          ' <span aria-hidden="true">→</span></a>'
+        : '') +
       '<p class="guide-note">Outline only — the full article is not written yet.</p>' +
       '</article>'
     );
@@ -621,6 +702,18 @@ window.PV = (function () {
           o.suggestions.map((s) => '<a class="chip" href="' + esc(s.href) + '">' + esc(s.label) + '</a>').join('') +
           '</div>'
         : '') +
+      (o.tags && o.tags.length
+        ? '<div class="empty-chips">' +
+          '<span class="empty-chip-label">' + esc(o.tagLabel || 'Related tags:') + '</span>' +
+          o.tags.map((t) => '<a class="chip" href="' + esc(t.href) + '">' + esc(t.label) + '</a>').join('') +
+          '</div>'
+        : '') +
+      (o.examples && o.examples.length
+        ? '<div class="empty-chips">' +
+          '<span class="empty-chip-label">' + esc(o.examplesLabel || 'Example searches:') + '</span>' +
+          o.examples.map((e) => '<button type="button" class="chip" data-empty-action="search" data-q="' + esc(e.q) + '">' + esc(e.label) + '</button>').join('') +
+          '</div>'
+        : '') +
       ((o.buttons && o.buttons.length) || (o.actions && o.actions.length)
         ? '<div class="empty-actions">' +
           (o.buttons || []).map((b) => '<button type="button" class="btn-primary" data-empty-action="' + esc(b.action) + '">' + esc(b.label) + '</button>').join('') +
@@ -631,6 +724,67 @@ window.PV = (function () {
       '</div>'
     );
   }
+
+  /* ------------------------------------------------- recently viewed store */
+  /* Browser-only convenience list: newest first, no duplicates, capped, and
+     pruned whenever an id is no longer part of the demo catalogue. It is not an
+     account, a favourites list or anything server-side — it never leaves the
+     device, and it stores ids only. */
+  const RECENT_KEY = 'pickvanta.recent.v1';
+  const RECENT_MAX = 5;
+  const recentListeners = [];
+  let recentIds = [];
+
+  function persistRecent() {
+    try {
+      window.localStorage.setItem(RECENT_KEY, JSON.stringify(recentIds));
+    } catch (e) {
+      /* storage unavailable — the list simply stays empty for this session */
+    }
+  }
+
+  /* Stored ids are validated against the catalogue on every read, so an id that
+     no longer exists can never render an empty card. */
+  function readRecent() {
+    let stored = [];
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RECENT_KEY) || '[]');
+      if (Array.isArray(parsed)) stored = parsed.filter((id) => typeof id === 'string');
+    } catch (e) {
+      return [];
+    }
+    const clean = stored.filter((id) => !!data.item(id)).slice(0, RECENT_MAX);
+    if (clean.length !== stored.length) {
+      recentIds = clean;
+      persistRecent();
+    }
+    return clean;
+  }
+
+  const recent = {
+    max: RECENT_MAX,
+    ids: () => recentIds.slice(),
+    items: () => data.items(recentIds),
+    count: () => recentIds.length,
+    has: (id) => recentIds.indexOf(id) !== -1,
+    add(id) {
+      if (!data.item(id)) return;
+      recentIds = [id].concat(recentIds.filter((x) => x !== id)).slice(0, RECENT_MAX);
+      persistRecent();
+      recentListeners.forEach((fn) => fn());
+    },
+    clear() {
+      recentIds = [];
+      persistRecent();
+      recentListeners.forEach((fn) => fn());
+    }
+  };
+
+  function onRecentChange(fn) {
+    if (typeof fn === 'function') recentListeners.push(fn);
+  }
+
+  recentIds = readRecent();
 
   /* -------------------------------------------------------- compare store */
   const COMPARE_KEY = 'pickvanta.compare.v1';
@@ -1100,6 +1254,38 @@ window.PV = (function () {
     if (has('location')) {
       html += radioGroup('Location', 'f-location', null, D.locationOptions.map((l) => ({ key: 'location', value: l.code, label: l.label })));
     }
+    if (has('tag')) {
+      const activeTag = active.tag && active.tag !== 'all' ? active.tag : 'all';
+      const all = data.tags();
+      const popular = data.popularTags();
+      const isPopular = (t) => popular.indexOf(t) !== -1;
+      /* A tag that is not in the shortcut list still needs a visible radio, so
+         the current selection is always on screen. */
+      const ordered = all
+        .filter((t) => isPopular(t.tag) || t.tag === activeTag)
+        .sort((a, b) => popular.indexOf(a.tag) - popular.indexOf(b.tag));
+      const rest = all.filter((t) => ordered.indexOf(t) === -1);
+      const tagRadio = (t) =>
+        '<label class="check"><input type="radio" name="f-tag" value="' + esc(t.tag) + '"' +
+        (activeTag === t.tag ? ' checked' : '') + ' />' +
+        '<span class="check-label">' + esc(t.label) + '</span>' +
+        '<span class="check-count">' + t.count + '</span></label>';
+
+      html +=
+        '<div class="filter-group">' +
+        '<span class="filter-legend">Tag</span>' +
+        '<div class="filter-options">' +
+        '<label class="check"><input type="radio" name="f-tag" value="all"' + (activeTag === 'all' ? ' checked' : '') + ' />' +
+        '<span class="check-label">All tags</span></label>' +
+        ordered.map(tagRadio).join('') +
+        '</div>' +
+        (rest.length
+          ? '<details class="filter-more"><summary>More tags (' + rest.length + ')</summary>' +
+            '<div class="filter-options">' + rest.map(tagRadio).join('') + '</div></details>'
+          : '') +
+        '<p class="filter-note">Tags describe what a record is good for, how it is used or where it is — they are keywords, not scores.</p>' +
+        '</div>';
+    }
     if (has('availability')) {
       html += radioGroup('Availability', 'f-availability', 'status', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
         D.statuses.map((s) => ({ key: 'availability', value: s.code, label: s.label }))
@@ -1113,7 +1299,8 @@ window.PV = (function () {
       input.addEventListener('change', () => {
         const key = {
           'f-category': 'category', 'f-subcategory': 'subcategory', 'f-type': 'type',
-          'f-band': 'band', 'f-location': 'location', 'f-availability': 'availability'
+          'f-band': 'band', 'f-location': 'location', 'f-availability': 'availability',
+          'f-tag': 'tag'
         }[input.name];
         if (key) onChange(key, input.value);
       });
@@ -1134,6 +1321,7 @@ window.PV = (function () {
     let n = 0;
     if (s.category && s.category !== 'all') n++;
     if (s.subcategory && s.subcategory !== 'all') n++;
+    if (s.tag && s.tag !== 'all') n++;
     if (s.type && s.type !== 'all') n++;
     if (s.band && s.band !== 'any') n++;
     if (s.location && s.location !== 'any') n++;
@@ -1303,6 +1491,8 @@ window.PV = (function () {
     card: { item: cardItem, deal: cardDeal, guide: cardGuide, empty: emptyState },
     compare,
     onCompareChange,
+    recent,
+    onRecentChange,
     ui: {
       toast, announce, mountChrome, bindSearch, renderFilters, renderSort, bindFiltersDrawer,
       syncCompareButtons, renderTray, toggleTray, headerMarkup, footerMarkup
