@@ -11,16 +11,14 @@ PV.util.ready(function () {
     url: 'deals.html',
     countLabel: 'demo offer',
     filters: ['category', 'type', 'tag', 'band', 'location', 'availability'],
-    list: function () {
-      return PV.data.deals();
-    },
+    dataset: 'deals',
     cardFn: PV.card.deal,
     hintDefault: 'Every offer here is attached to a product or a service. Open the item to see its full detail, or compare up to <strong>3 offers</strong>.'
   });
 
   const stat = PV.util.$('#datasetStat');
   if (stat) {
-    const deals = PV.data.deals();
+    const deals = PV.store.deals();
     const biggest = deals.reduce(function (best, d) {
       return !best || d.deal.discountPercent > best.deal.discountPercent ? d : best;
     }, null);

@@ -11,7 +11,7 @@ PV.util.ready(function () {
   const host = U.$('#detail');
   const crumb = U.$('#crumb');
   const id = U.params().get('id');
-  const record = id ? PV.data.item(id) : null;
+  const record = id ? PV.store.item(id) : null;
 
   if (!host) return;
 
@@ -43,11 +43,11 @@ PV.util.ready(function () {
   const deal = record.deal;
   const dealState = U.dealState(record);
   const saved = U.savings(record);
-  const category = PV.data.category(record.category);
+  const category = PV.store.category(record.category);
   const currency = (record.price && record.price.currency) || 'KES';
-  const considerationGroups = PV.data.considerations(record);
-  const goodToKnowNotes = PV.data.goodToKnow(record);
-  const relatedMatches = PV.data.related(record, 4);
+  const considerationGroups = PV.store.considerations(record);
+  const goodToKnowNotes = PV.store.goodToKnow(record);
+  const relatedMatches = PV.store.related(record, 4);
   const related = relatedMatches.map(function (m) { return m.record; });
 
   /* ------------------------------------------------------------- crumbs */
@@ -122,7 +122,7 @@ PV.util.ready(function () {
   }
 
   /* --------------------------------------------------- compare shortcuts */
-  const similar = PV.data.related(record, 3)
+  const similar = PV.store.related(record, 3)
     .map(function (m) { return m.record; })
     .filter(function (i) { return i.category === record.category; });
   const compareIds = [record.id].concat(similar.slice(0, 2).map(function (i) { return i.id; }));

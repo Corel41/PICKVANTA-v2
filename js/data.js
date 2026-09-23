@@ -1879,7 +1879,7 @@
       readTime: '7 min read',
       level: 'Beginner',
       covers: ['Memory and storage minimums', 'Ports, repairability and warranty', 'When a tablet or desktop fits better'],
-      link: { label: 'Browse laptops', href: 'discover.html?category=technology&sub=Laptops' }
+      link: { label: 'Explore remote-work laptops', href: 'discover.html?category=technology&sub=Laptops&tag=remote-work' }
     },
     {
       id: 'guide-used-phone-checks',
@@ -2322,7 +2322,7 @@
 
   /* ---------------------------------------------------------------- export */
   window.PICKVANTA_DATA = {
-    version: 'step5-demo-3.0.0',
+    version: 'step6-demo-3.1.0',
     demoNotice: 'Demonstration catalogue only — every listing, price, seller, provider and offer here is invented.',
     types: types,
     categories: categories,

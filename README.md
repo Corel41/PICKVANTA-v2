@@ -1,7 +1,7 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 5 — decision-support layer (Find → Discover → Inspect → Compare → Understand → Choose).
+**Stage:** Step 6 — architecture preparation: the frontend now talks to a data-access layer instead of to `js/data.js` directly, so a real backend can be introduced later without rewriting the pages. Step 6 prepares the frontend for that backend; it does **not** implement it.
 No database, no backend, no accounts, no payments, no external services, no live pricing.
 
 ---
@@ -17,7 +17,7 @@ No database, no backend, no accounts, no payments, no external services, no live
 | Compare | `compare.html?ids=a,b,c` | Up to three options side by side with a **Compare focus** selector (price, performance, features, portability, availability, location, specifications, service coverage, included services) that highlights matching rows and says “Your selected comparison areas are highlighted below.” Rows are grouped per category (products and services use different groups; unknown combinations fall back to the generic grouping), rows that are empty for every option are dropped, “Show differences only” hides identical rows, values that no other selected option shares are tinted (tint marks the difference, never superiority), and small screens get a stacked card layout. Equal treatment throughout — no scoring, ranking or winner. |
 | Guides | `guides.html` | Guide outlines with category filtering and search. Each card states the question it answers, hides its topics behind a disclosure, and links into the matching slice of the catalogue (for example “How to choose a Wi-Fi router” → `discover.html?category=technology&sub=Networking`). Full articles are intentionally not written yet. |
 
-## Data model (`js/data.js`)
+## Data model (`js/data.js` — the demo source)
 
 All demo content lives in one file, separate from the UI. Each record is shaped
 so it can map onto a real database row later:
@@ -62,23 +62,88 @@ page is labelled as demo data. The homepage shows a *curated* slice
 (`homeFeaturedIds`, `homeDealIds`, `homeGuideIds` in `js/data.js`); the full
 catalogue lives in Discover.
 
+## Architecture
+
+### Current (Step 6)
+
+```
+page (HTML)
+   ↓
+controller (js/app.js, discover.js, deals.js, detail.js, compare.js, guides.js, listing.js)
+   ↓
+data access layer (js/store.js)          ← the only module that knows where records come from
+   ↓
+demo catalogue (js/data.js)
+```
+
+The interface layer (`js/core.js`) renders what the data layer returns and owns
+browser-local user state (compare selection, recently viewed). No page reads
+`js/data.js` directly.
+
+### Future (when the backend arrives)
+
+```
+page (HTML)
+   ↓
+controller
+   ↓
+data access layer (js/store.js)
+   ↓
+API
+   ↓
+database
+```
+
+`js/store.js` already exposes the shape an API needs: a single `query(state, opts)`
+call that returns `{ ok, items, total, page, pageSize, hasNext, hasPrev, error }`,
+id-based accessors, and an adapter seam (`store.use(adapter)`, `store.source()`,
+`store.isAsync()`). A backend adapter is the only new code; the pages, cards,
+comparison, deals and search all keep working unchanged. **Step 6 does not
+implement that API** — there is still no server, database, account or payment
+anywhere in this project.
+
 ## Frontend structure (`js/`)
 
 | File | Role |
 | ---- | ---- |
-| `data.js` | Demo dataset + categories, types, statuses, price bands, sort options, guides, and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`) — configuration only, no rules engine and no second data file. |
-| `core.js` | Shared layer: DOM/format helpers, data access (including the decision-support accessors), search, filters, sort, card and empty-state builders, header/footer chrome, toast, the compare selection store and the recently-viewed store (both `localStorage`), search binding, filter/sort controls. |
-| `listing.js` | The shared listing view behind Discover and Deals (search, categories, filters, sort, results, empty states, URL state). |
+| `data.js` | The demo catalogue only: records, categories, guides and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). It is the *source*, not an API the pages use. |
+| `store.js` | **Data access layer.** Owns the demo adapter, normalises every record into the catalogue model, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. No DOM, no network, no user state. |
+| `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
+| `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
 | `discover.js`, `deals.js`, `detail.js`, `compare.js`, `guides.js` | One small controller per view. |
 
+### Catalogue model
+
+Every record served by `PV.store` has the same high-level shape, with optional
+blocks filled in by the normaliser so the UI never has to test for their
+absence:
+
+| Field | Notes |
+| ----- | ----- |
+| `id`, `type`, `name`, `category`, `subcategory` | `type` is `"product"` or `"service"` — explicit data, never inferred from a name or category |
+| `brand`, `shortDescription`, `description` | Products carry a brand; services commonly leave it empty and are identified by their provider |
+| `price` | `{ amount \| min+max, currency, unit }` — defaults to KES; a missing price renders “Price on request” |
+| `referencePrice` | Optional pre-offer price |
+| `location` | `{ city, country, format }` — `format` is `local`, `nationwide`, `online` |
+| `seller` | `{ id, name, type, rating, verified }`, plus `sellerId` on the record as the future foreign key a listing will reference |
+| `image` | `{ icon, gradient, alt, src }` — `src` is optional; a broken or missing image falls back to the icon tile or the bundled `assets/placeholder.svg` |
+| `attributes` | `[{ label, value, group }]` — the specifications shown on detail and compare |
+| `tags`, `highlights`, `badge`, `status`, `listedAt`, `rating` | Tags drive discovery; ratings stay clearly labelled as demo |
+| `deal` | The attached offer, or `null`: `{ id, itemId, kind, headline, dealPrice, referencePrice, discountPercent, currency, validFrom, validTo, conditions, sellerId, location, status }`. An offer is never a second product — `store.offers()` always carries its `item`, so the UI can walk offer → item → details. |
+
+Records that cannot be normalised (no id or no name) are refused rather than
+rendered, and reported through `store.diagnostics()` instead of failing
+silently. The demo catalogue currently produces zero diagnostics.
+
 `css/styles.css` holds the existing design system plus clearly-marked
-“STEP 2 — discovery experience” and “STEP 5 — decision support” sections that
-reuse the same tokens, buttons, cards, radii and shadows.
+“STEP 2 — discovery experience”, “STEP 5 — decision support” and
+“STEP 6 — data-layer preparation” sections that reuse the same tokens, buttons,
+cards, radii and shadows.
 
 ### Search rules
 
-One implementation in `js/core.js` serves the homepage, Discover, Deals and Guides:
+One implementation, in the data-access layer (`js/store.js`), serves the homepage, Discover, Deals, Guides and the Compare page:
 
 * case-insensitive, punctuation-tolerant, and `wi-fi`/`wifi` are treated as the same word;
 * filler words (`the`, `best`, `looking for`, …) are ignored, and a few everyday words map onto catalogue vocabulary (`cheap` → `budget`);
@@ -111,7 +176,9 @@ Everything here exists to help a visitor understand a choice — never to make i
 ### Conventions
 
 * Filter/sort/search state lives in the URL (`?q=&category=&sub=&tag=&type=&band=&location=&availability=&sort=`), so a filtered view can be linked and reloaded. A subcategory is only honoured together with its category, switching category clears it, and an unknown tag is ignored rather than emptying the page.
-* Comparison selection is a browser-only demo list (`localStorage`, max 3). It is not a favourites feature and is not stored on a server. Recently viewed is a separate list with its own key.
+* Comparison selection is a browser-only demo list (`localStorage`, max 3). It is not a favourites feature and is not stored on a server. Recently viewed is a separate list with its own key. Both live in `js/core.js` behind `PV.compare` and `PV.recent`, so the storage could later be replaced by authenticated storage without touching a page.
+* Catalogue state (records, offers, guides, taxonomy) and interface state (query, filters, sort, comparison focus, recently viewed) never mix: only `js/store.js` reads the catalogue, only `js/core.js` writes browser state.
+* Listing pages render the envelope from `PV.store.query()`. Paging fields are already in that envelope, so a future API can page without changing the interface; with the demo dataset the whole result set is returned, exactly as before.
 * Verdict-free by construction: no winner badges, no scores, no rankings, no “recommended for you”. The words only ever appear in copy that denies them, and a checklist asserts that no heading, button or badge carries them.
 * Toasts and `aria-live` regions announce selections; nothing is written anywhere else.
 * Card actions stay deliberately unequal: one primary action plus the Compare toggle, so no card competes with itself.

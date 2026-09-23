@@ -44,8 +44,8 @@ PV.util.ready(function () {
 
   function renderCats() {
     if (!strip) return;
-    const cats = PV.data.categories().filter(function (c) {
-      return PV.data.guides().some(function (g) { return g.category === c.slug; });
+    const cats = PV.store.categories().filter(function (c) {
+      return PV.store.guides().some(function (g) { return g.category === c.slug; });
     });
     strip.innerHTML =
       '<a class="cat-pill' + (state.category === 'all' ? ' is-active' : '') + '" href="guides.html">All guides</a>' +
@@ -56,7 +56,7 @@ PV.util.ready(function () {
   }
 
   function render() {
-    const list = PV.data.guides().filter(matches);
+    const list = PV.store.guides().filter(matches);
     renderCats();
 
     if (meta) {
@@ -77,7 +77,7 @@ PV.util.ready(function () {
             ? 'No guide outline matches “' + state.q + '”. Try a shorter topic, or browse all guides.'
             : 'This category has no guide outlines in the demo set yet. Try another category.',
           suggestLabel: 'Jump to a category:',
-          suggestions: PV.data.categories().slice(0, 4).map(function (c) {
+          suggestions: PV.store.categories().slice(0, 4).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: 'guides.html?category=' + c.slug };
           }),
           buttons: state.q ? [{ label: 'Clear search', action: 'clear-search' }] : [],

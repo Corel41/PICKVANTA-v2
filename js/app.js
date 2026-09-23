@@ -44,10 +44,10 @@ PV.util.ready(function () {
      preview keeps its shape whatever the catalogue contains. */
   const heroList = U.$('#heroCompareList');
   if (heroList) {
-    const heroIds = window.PICKVANTA_DATA.defaultCompareIds || [];
+    const heroIds = PV.store.defaultCompareIds();
     const heroCount = U.$('#heroOptionCount');
     if (heroCount) heroCount.textContent = heroIds.length + ' options';
-    heroList.innerHTML = PV.data.items(heroIds).map(function (record) {
+    heroList.innerHTML = PV.store.items(heroIds).map(function (record) {
       const facts = (record.attributes || [])
         .map(function (a) { return String(a.value || '').split(',')[0].trim(); })
         .filter(function (v) { return v && v.length <= 16; })
@@ -73,8 +73,8 @@ PV.util.ready(function () {
   /* -------------------------------------------------------- category grid */
   const catHost = U.$('#homeCategories');
   if (catHost) {
-    catHost.innerHTML = PV.data.categories().map(function (c) {
-      const count = PV.data.all().filter(function (i) { return i.category === c.slug; }).length;
+    catHost.innerHTML = PV.store.categories().map(function (c) {
+      const count = PV.store.byCategory(c.slug).length;
       return '<a class="category" href="discover.html?category=' + U.esc(c.slug) + '" role="listitem">' +
         '<div class="cat-icon" aria-hidden="true">' + U.esc(c.icon) + '</div>' +
         '<strong>' + U.esc(c.label) + '</strong>' +
@@ -87,7 +87,7 @@ PV.util.ready(function () {
   /* --------------------------------------------------------- deals preview */
   const dealHost = U.$('#homeDeals');
   if (dealHost) {
-    const deals = PV.data.home().deals;
+    const deals = PV.store.home().deals;
     dealHost.innerHTML = deals.map(function (record) { return PV.card.deal(record); }).join('');
   }
 
@@ -96,7 +96,7 @@ PV.util.ready(function () {
      URL state every other part of the app uses. Nothing is personalised. */
   const needsHost = U.$('#homeNeeds');
   if (needsHost) {
-    const needs = PV.data.needs();
+    const needs = PV.store.needs();
     const groups = [];
     needs.forEach(function (n) {
       let g = groups.filter(function (x) { return x.label === n.group; })[0];
@@ -111,7 +111,7 @@ PV.util.ready(function () {
           const href = n.tag
             ? 'discover.html?tag=' + encodeURIComponent(n.tag)
             : 'discover.html?q=' + encodeURIComponent(n.q);
-          const meta = n.tag ? 'tag: ' + PV.data.tagLabel(n.tag) : 'search: ' + n.q;
+          const meta = n.tag ? 'tag: ' + PV.store.tagLabel(n.tag) : 'search: ' + n.q;
           return '<a class="chip need-chip" href="' + href + '" title="' + U.esc(meta) + '">' +
             '<span aria-hidden="true">' + U.esc(n.icon) + '</span> ' + U.esc(n.label) + '</a>';
         }).join('') +
@@ -161,14 +161,14 @@ PV.util.ready(function () {
   if (discoverHost) {
     /* A curated slice — spread across categories and price bands — so the
        homepage stays a shop window and the full catalogue stays in Discover. */
-    const featured = PV.data.home().featured;
+    const featured = PV.store.home().featured;
     discoverHost.innerHTML = featured.map(function (record) { return PV.card.item(record); }).join('');
   }
 
   /* ------------------------------------------------------- guides preview */
   const guideHost = U.$('#homeGuides');
   if (guideHost) {
-    guideHost.innerHTML = PV.data.home().guides.map(function (guide) { return PV.card.guide(guide); }).join('');
+    guideHost.innerHTML = PV.store.home().guides.map(function (guide) { return PV.card.guide(guide); }).join('');
   }
 
   /* ---------------------------------------------- live compare state on home */
@@ -199,16 +199,16 @@ PV.util.ready(function () {
   /* The homepage previews are a small slice of the demo dataset. */
   const countHost = U.$('#homeDatasetNote');
   if (countHost) {
-    const items = PV.data.all();
+    const items = PV.store.all();
     const cities = [];
     items.forEach(function (i) {
       const c = i.location && i.location.city;
       if (c && ['Online', 'Nationwide'].indexOf(c) === -1 && cities.indexOf(c) === -1) cities.push(c);
     });
     countHost.textContent =
-      PV.data.all().length + ' demo records, ' + PV.data.deals().length + ' demo offers and ' +
-      PV.data.guides().length + ' guide outlines are included in this build — covering ' +
-      PV.data.categories().length + ' categories, ' + PV.data.subcategories('all').length + ' subcategories and ' +
+      PV.store.all().length + ' demo records, ' + PV.store.deals().length + ' demo offers and ' +
+      PV.store.guides().length + ' guide outlines are included in this build — covering ' +
+      PV.store.categories().length + ' categories, ' + PV.store.subcategories('all').length + ' subcategories and ' +
       cities.length + ' demo locations. Everything is invented demonstration content: no real sellers, no real prices, ' +
       'no live availability.';
   }

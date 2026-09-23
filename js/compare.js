@@ -14,7 +14,7 @@ PV.util.ready(function () {
   const suggestHost = U.$('#compareSuggest');
   const noticeHost = U.$('#compareNotice');
 
-  const ALL = PV.data.all();
+  const ALL = PV.store.all();
   let diffsOnly = false;
   let seededTitle = false;
   /* Compare focus: which areas the visitor asked to have emphasised. It only
@@ -25,7 +25,7 @@ PV.util.ready(function () {
   const fromUrl = (U.params().get('ids') || '')
     .split(',')
     .map(function (s) { return s.trim(); })
-    .filter(function (id) { return !!PV.data.item(id); })
+    .filter(function (id) { return !!PV.store.item(id); })
     .slice(0, MAX);
 
   if (fromUrl.length) {
@@ -35,7 +35,7 @@ PV.util.ready(function () {
        state rather than silently substituting other options */
     PV.compare.set([]);
   } else if (!PV.compare.count()) {
-    PV.compare.set(window.PICKVANTA_DATA.defaultCompareIds || []);
+    PV.compare.set(PV.store.defaultCompareIds());
     seededTitle = true;
   }
 
@@ -43,7 +43,7 @@ PV.util.ready(function () {
     return PV.compare.ids();
   }
   function items() {
-    return PV.data.items(ids());
+    return PV.store.items(ids());
   }
 
   /* ----------------------------------------------------------- row builder */
@@ -61,7 +61,7 @@ PV.util.ready(function () {
   function applyGrouping(rows, list) {
     const categories = [...new Set(list.map(function (i) { return i.category; }))];
     if (categories.length !== 1) return rows;
-    const config = PV.data.compareConfig(categories[0]);
+    const config = PV.store.compareConfig(categories[0]);
     if (!config) return rows;
 
     const allServices = list.every(function (i) { return i.type === 'service'; });
@@ -106,7 +106,7 @@ PV.util.ready(function () {
   function rowInFocus(row) {
     if (!focusAreas.length) return false;
     return focusAreas.some(function (code) {
-      const area = PV.data.focusArea(code);
+      const area = PV.store.focusArea(code);
       if (!area) return false;
       if (area.rows && area.rows.indexOf(row.key) !== -1) return true;
       if (area.allAttributes && row.key.indexOf('attr:') === 0) return true;
@@ -199,7 +199,7 @@ PV.util.ready(function () {
     let html = '';
     for (let slot = 0; slot < MAX; slot++) {
       const chosen = current[slot] || '';
-      const record = chosen ? PV.data.item(chosen) : null;
+      const record = chosen ? PV.store.item(chosen) : null;
 
       html += '<div class="cmp-picker' + (record ? '' : ' is-empty') + '">';
       html += '<div class="cmp-picker-head"><span class="cmp-slot">Option ' + letters[slot] + '</span>';
@@ -211,8 +211,8 @@ PV.util.ready(function () {
       html += '<label class="cmp-select"><span class="visually-hidden">Choose option ' + letters[slot] + '</span>' +
         '<select data-slot="' + slot + '">' +
         '<option value="">' + (slot === 0 ? 'Choose an option…' : 'Add another option…') + '</option>' +
-        PV.data.categories().map(function (c) {
-          const inCat = ALL.filter(function (i) { return i.category === c.slug; });
+        PV.store.categories().map(function (c) {
+          const inCat = PV.store.byCategory(c.slug);
           if (!inCat.length) return '';
           return '<optgroup label="' + U.esc(c.label) + '">' +
             inCat.map(function (i) {
@@ -300,7 +300,7 @@ PV.util.ready(function () {
        rendered once and only its classes change, so keyboard focus stays put. */
     const focusHost = U.$('#compareFocus');
     if (focusHost) {
-      const areas = PV.data.compareFocusAreas();
+      const areas = PV.store.compareFocusAreas();
       focusHost.innerHTML =
         '<div class="focus-head">' +
           '<span class="filter-legend">Compare focus</span>' +
@@ -335,7 +335,7 @@ PV.util.ready(function () {
       U.$$('[data-focus]', focusHost).forEach(function (btn) {
         btn.addEventListener('click', function () {
           const code = btn.getAttribute('data-focus');
-          const area = PV.data.focusArea(code);
+          const area = PV.store.focusArea(code);
           const label = area ? area.label : code;
           const wasOn = focusAreas.indexOf(code) !== -1;
           focusAreas = wasOn
@@ -360,7 +360,7 @@ PV.util.ready(function () {
       return '<p class="focus-status" role="status" id="focusStatus">No focus selected — every row is shown the same way.</p>';
     }
     const labels = focusAreas.map(function (code) {
-      const area = PV.data.focusArea(code);
+      const area = PV.store.focusArea(code);
       return U.esc(area ? area.label : code);
     }).join(' · ');
     const matched = coreRows(list).filter(rowInFocus).length;
@@ -388,7 +388,7 @@ PV.util.ready(function () {
           '<div class="empty-chips">' +
             '<span class="empty-chip-label">Browse a category:</span>' +
             ['technology', 'home', 'automotive', 'services'].map(function (slug) {
-              const c = PV.data.category(slug);
+              const c = PV.store.category(slug);
               if (!c) return '';
               return '<a class="chip" href="discover.html?category=' + U.esc(slug) + '">' + U.esc(c.icon + '  ' + c.label) + '</a>';
             }).join('') +
