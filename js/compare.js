@@ -17,6 +17,9 @@ PV.util.ready(function () {
   const ALL = PV.data.all();
   let diffsOnly = false;
   let seededTitle = false;
+  /* Compare focus: which areas the visitor asked to have emphasised. It only
+     highlights rows — it never scores, ranks or picks anything. */
+  let focusAreas = [];
 
   /* ------------------------------------------------------------- selection */
   const fromUrl = (U.params().get('ids') || '')
@@ -49,6 +52,68 @@ PV.util.ready(function () {
   function attrValue(record, label) {
     const found = (record.attributes || []).find(function (a) { return a.label === label; });
     return found && found.value ? found.value : '—';
+  }
+
+  /* Which group a row belongs to, when the compared records share a category
+     and that category has a configuration. Anything unmatched lands in the
+     last configured group, and a category without configuration keeps the
+     generic sections. */
+  function applyGrouping(rows, list) {
+    const categories = [...new Set(list.map(function (i) { return i.category; }))];
+    if (categories.length !== 1) return rows;
+    const config = PV.data.compareConfig(categories[0]);
+    if (!config) return rows;
+
+    const allServices = list.every(function (i) { return i.type === 'service'; });
+    const groups = (allServices && config.serviceGroups) ? config.serviceGroups : config.groups;
+    if (!groups || !groups.length) return rows;
+
+    const fallback = groups[groups.length - 1].title;
+
+    function titleFor(row) {
+      const byKey = groups.find(function (g) { return g.rows && g.rows.indexOf(row.key) !== -1; });
+      if (byKey) return byKey.title;
+      const haystack = (row.label + ' ' + (row.attrGroup || '')).toLowerCase();
+      const byKeyword = groups.find(function (g) {
+        return g.keywords && g.keywords.some(function (k) { return haystack.indexOf(k) !== -1; });
+      });
+      if (byKeyword) return byKeyword.title;
+      return fallback;
+    }
+
+    const order = groups.map(function (g) { return g.title; });
+    rows.forEach(function (row) { row.section = titleFor(row); });
+    /* Rows are emitted in group order so each group heading appears once and
+       its rows stay together. */
+    return rows
+      .map(function (row, idx) { return { row: row, idx: idx }; })
+      .sort(function (a, b) {
+        return order.indexOf(a.row.section) - order.indexOf(b.row.section) || a.idx - b.idx;
+      })
+      .map(function (x) { return x.row; });
+  }
+
+  /* Within a differing row, a value that appears only once is what actually
+     distinguishes that option. The tint marks the difference itself — it says
+     nothing about which value is better. */
+  function uniqueValueFlags(row) {
+    const counts = {};
+    row.values.forEach(function (v) { counts[v] = (counts[v] || 0) + 1; });
+    return row.values.map(function (v) { return counts[v] === 1; });
+  }
+
+  /* Does a row belong to one of the selected focus areas? */
+  function rowInFocus(row) {
+    if (!focusAreas.length) return false;
+    return focusAreas.some(function (code) {
+      const area = PV.data.focusArea(code);
+      if (!area) return false;
+      if (area.rows && area.rows.indexOf(row.key) !== -1) return true;
+      if (area.allAttributes && row.key.indexOf('attr:') === 0) return true;
+      if (!area.keywords || !area.keywords.length) return false;
+      const haystack = (row.label + ' ' + (row.attrGroup || '')).toLowerCase();
+      return area.keywords.some(function (k) { return haystack.indexOf(k) !== -1; });
+    });
   }
 
   function coreRows(list) {
@@ -88,9 +153,13 @@ PV.util.ready(function () {
     /* Attribute rows are built from whatever the records actually contain, so
        new categories with new specifications need no changes here. */
     const labels = [];
+    const groupOf = {};
     list.forEach(function (i) {
       (i.attributes || []).forEach(function (a) {
-        if (labels.indexOf(a.label) === -1) labels.push(a.label);
+        if (labels.indexOf(a.label) === -1) {
+          labels.push(a.label);
+          groupOf[a.label] = a.group || '';
+        }
       });
     });
     labels.forEach(function (label) {
@@ -98,6 +167,7 @@ PV.util.ready(function () {
         key: 'attr:' + label,
         section: 'Specifications',
         label: label,
+        attrGroup: groupOf[label],
         values: list.map(function (i) {
           const found = (i.attributes || []).find(function (a) { return a.label === label; });
           return found ? found.value : '—';
@@ -106,9 +176,10 @@ PV.util.ready(function () {
     });
     /* A row that is empty for every option carries no information, so it is
        dropped rather than shown as a column of dashes. */
-    return rows.filter(function (r) {
+    const kept = rows.filter(function (r) {
       return !r.values.every(function (v) { return String(v).trim() === '—'; });
     });
+    return applyGrouping(kept, list);
   }
 
   /* A row "differs" whenever the demo values are not all identical. A spec that
@@ -195,8 +266,12 @@ PV.util.ready(function () {
       toolsHost.innerHTML = '';
       return;
     }
+    const diffs = coreRows(list).filter(differs).length;
+    const totalRows = coreRows(list).length;
+
     toolsHost.innerHTML =
       '<label class="switch"><input type="checkbox" id="diffsOnly"' + (diffsOnly ? ' checked' : '') + ' /><span>Show differences only</span></label>' +
+      '<span class="tools-meta">' + diffs + ' of ' + totalRows + ' rows differ</span>' +
       '<span class="tools-spacer"></span>' +
       '<a class="btn-secondary" href="discover.html">Find more options</a>' +
       '<button type="button" class="btn-ghost" data-clear-compare>Clear all</button>' +
@@ -207,6 +282,9 @@ PV.util.ready(function () {
       box.addEventListener('change', function () {
         diffsOnly = box.checked;
         renderMatrix();
+        PV.ui.announce(diffsOnly
+          ? 'Showing ' + diffs + ' differing rows of ' + totalRows + '.'
+          : 'Showing all ' + totalRows + ' rows.');
       });
     }
     const clear = U.$('[data-clear-compare]');
@@ -216,6 +294,81 @@ PV.util.ready(function () {
         render();
       });
     }
+
+    /* Compare focus: the visitor chooses which areas to emphasise. Focus only
+       highlights rows — it never ranks or scores anything. The chip list is
+       rendered once and only its classes change, so keyboard focus stays put. */
+    const focusHost = U.$('#compareFocus');
+    if (focusHost) {
+      const areas = PV.data.compareFocusAreas();
+      focusHost.innerHTML =
+        '<div class="focus-head">' +
+          '<span class="filter-legend">Compare focus</span>' +
+          '<p class="focus-note">Choose the areas you care about. Matching rows are highlighted below — PickVanta does not score, rank or choose for you.</p>' +
+        '</div>' +
+        '<div class="focus-chips" id="focusChips" role="group" aria-label="Compare focus areas">' +
+          areas.map(function (a) {
+            const on = focusAreas.indexOf(a.code) !== -1;
+            return '<button type="button" class="chip focus-chip' + (on ? ' is-on' : '') + '" data-focus="' + U.esc(a.code) + '"' +
+              ' aria-pressed="' + (on ? 'true' : 'false') + '" title="' + U.esc(a.help) + '">' +
+              U.esc(a.label) + '</button>';
+          }).join('') +
+          '<button type="button" class="chip chip-clear" data-focus-clear' + (focusAreas.length ? '' : ' hidden') + '>Clear focus</button>' +
+        '</div>' +
+        '<div id="focusStatusHost">' + focusStatusHtml(list) + '</div>';
+
+      const statusHost = U.$('#focusStatusHost', focusHost);
+      const clearChip = U.$('[data-focus-clear]', focusHost);
+
+      const applyFocus = function (message) {
+        U.$$('[data-focus]', focusHost).forEach(function (btn) {
+          const on = focusAreas.indexOf(btn.getAttribute('data-focus')) !== -1;
+          btn.classList.toggle('is-on', on);
+          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        if (clearChip) clearChip.hidden = !focusAreas.length;
+        if (statusHost) statusHost.innerHTML = focusStatusHtml(list);
+        renderMatrix();
+        PV.ui.announce(message || (statusHost ? statusHost.textContent : ''));
+      };
+
+      U.$$('[data-focus]', focusHost).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const code = btn.getAttribute('data-focus');
+          const area = PV.data.focusArea(code);
+          const label = area ? area.label : code;
+          const wasOn = focusAreas.indexOf(code) !== -1;
+          focusAreas = wasOn
+            ? focusAreas.filter(function (c) { return c !== code; })
+            : focusAreas.concat([code]);
+          applyFocus(label + (wasOn ? ' removed from the compare focus.' : ' added to the compare focus.'));
+        });
+      });
+      if (clearChip) {
+        clearChip.addEventListener('click', function () {
+          focusAreas = [];
+          applyFocus('Compare focus cleared — every row is shown the same way.');
+        });
+      }
+    }
+  }
+
+  /* Focus status copy. It reports what is highlighted, and says so plainly when
+     a chosen area has nothing to match in this particular comparison. */
+  function focusStatusHtml(list) {
+    if (!focusAreas.length) {
+      return '<p class="focus-status" role="status" id="focusStatus">No focus selected — every row is shown the same way.</p>';
+    }
+    const labels = focusAreas.map(function (code) {
+      const area = PV.data.focusArea(code);
+      return U.esc(area ? area.label : code);
+    }).join(' · ');
+    const matched = coreRows(list).filter(rowInFocus).length;
+    return '<p class="focus-status" role="status" id="focusStatus">' +
+      (matched
+        ? 'Your selected comparison areas are highlighted below: ' + labels + '.'
+        : 'Nothing in this comparison matches ' + labels + ' — the rows below are shown the same way.') +
+      '</p>';
   }
 
   function renderMatrix() {
@@ -223,19 +376,34 @@ PV.util.ready(function () {
     const list = items();
 
     if (!list.length) {
-      matrixHost.innerHTML = PV.card.empty({
-        icon: '⚖️',
-        title: 'Nothing selected to compare yet',
-        text: 'Choose up to three products or services in the slots above, or add options with the Compare button while you browse Discover or Deals.',
-        suggestions: PV.data.categories().slice(0, 4).map(function (c) {
-          return { label: c.icon + '  ' + c.label, href: 'discover.html?category=' + c.slug };
-        }),
-        suggestLabel: 'Start from a category:',
-        actions: [
-          { label: 'Browse Discover', href: 'discover.html' },
-          { label: 'See demo deals', href: 'deals.html' }
-        ]
-      });
+      matrixHost.innerHTML =
+        '<div class="cmp-intro">' +
+          '<h3>Compare options side by side</h3>' +
+          '<p>Select up to ' + MAX + ' products or services while you browse and PickVanta lines them up row by row. ' +
+          'Only the rows where the demo values differ are flagged — nothing is scored and no option is recommended.</p>' +
+          '<div class="cmp-intro-actions">' +
+            '<a class="btn-primary" href="discover.html">Search the catalogue</a>' +
+            '<a class="btn-secondary" href="deals.html">See the demo deals</a>' +
+          '</div>' +
+          '<div class="empty-chips">' +
+            '<span class="empty-chip-label">Browse a category:</span>' +
+            ['technology', 'home', 'automotive', 'services'].map(function (slug) {
+              const c = PV.data.category(slug);
+              if (!c) return '';
+              return '<a class="chip" href="discover.html?category=' + U.esc(slug) + '">' + U.esc(c.icon + '  ' + c.label) + '</a>';
+            }).join('') +
+          '</div>' +
+          '<div class="empty-chips">' +
+            '<span class="empty-chip-label">Example searches:</span>' +
+            ['laptop', 'wireless', 'detailing', 'student'].map(function (q) {
+              return '<a class="chip" href="discover.html?q=' + encodeURIComponent(q) + '">' + U.esc(q) + '</a>';
+            }).join('') +
+          '</div>' +
+          '<div class="cmp-intro-notes">' +
+            '<p><strong>Selected for comparison</strong> is a choice you make here — it is kept in this browser only.</p>' +
+            '<p><strong>Recently viewed</strong> is a separate, smaller list of pages you opened. Neither is an account or a favourites list.</p>' +
+          '</div>' +
+        '</div>';
       return;
     }
 
@@ -272,9 +440,14 @@ PV.util.ready(function () {
       '<tbody>' +
       rows.map(function (r) {
         const isDiff = differs(r);
-        const tds = r.values.map(function (v) {
+        const focused = rowInFocus(r);
+        const uniq = isDiff ? uniqueValueFlags(r) : r.values.map(function () { return false; });
+        const tds = r.values.map(function (v, vi) {
           const strong = r.strong || r.key === 'dealPrice';
-          return '<td data-label="' + U.esc(r.label) + '"' + (strong ? ' class="cmp-strong"' : '') + '>' + U.esc(v) + '</td>';
+          const classes = [];
+          if (strong) classes.push('cmp-strong');
+          if (uniq[vi]) classes.push('is-uniq');
+          return '<td data-label="' + U.esc(r.label) + '"' + (classes.length ? ' class="' + classes.join(' ') + '"' : '') + '>' + U.esc(v) + '</td>';
         }).join('');
         let group = '';
         if (r.section && r.section !== lastSection) {
@@ -282,7 +455,7 @@ PV.util.ready(function () {
           group = '<tr class="cmp-group"><th scope="colgroup" colspan="' + (list.length + 1) + '">' + U.esc(r.section) + '</th></tr>';
         }
         return group +
-          '<tr class="' + (isDiff ? 'row-differs' : 'row-same') + '">' +
+          '<tr class="' + (isDiff ? 'row-differs' : 'row-same') + (focused ? ' is-focus' : '') + '">' +
           '<th scope="row"><span class="row-label">' + U.esc(r.label) + '</span><em class="row-flag">' + (isDiff ? 'Differs' : 'Same') + '</em></th>' +
           tds + '</tr>';
       }).join('') +
@@ -304,7 +477,13 @@ PV.util.ready(function () {
           '</div></header>' +
           '<dl>' + rows.map(function (r) {
             const v = r.values[idx];
-            return '<div class="' + (differs(r) ? 'differs' : '') + '"><dt>' + U.esc(r.label) + '</dt><dd' + (r.strong ? ' class="cmp-strong"' : '') + '>' + U.esc(v) + '</dd></div>';
+            const isDiff = differs(r);
+            const uniq = isDiff ? uniqueValueFlags(r)[idx] : false;
+            const classes = [];
+            if (r.strong) classes.push('cmp-strong');
+            if (uniq) classes.push('is-uniq');
+            return '<div class="' + (isDiff ? 'differs' : '') + (rowInFocus(r) ? ' is-focus' : '') + '">' +
+              '<dt>' + U.esc(r.label) + '</dt><dd' + (classes.length ? ' class="' + classes.join(' ') + '"' : '') + '>' + U.esc(v) + '</dd></div>';
           }).join('') + '</dl>' +
           '</article>';
       }).join('') +
@@ -316,7 +495,9 @@ PV.util.ready(function () {
       '<table class="cmp-table"><caption class="visually-hidden">Side-by-side comparison of ' + list.length + ' options from the demo dataset</caption>' +
       head + body + '</table></div>' +
       stacked +
-      '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” are only rows where the demo values are not identical — PickVanta does not score, rank or recommend any option here.</p>';
+      '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” only mean the demo values are not identical, and a tinted value is one that no other selected option shares. Every option is shown the same way — PickVanta does not score, rank or recommend any of them.' +
+      (focusAreas.length ? ' Highlighted rows match your selected comparison areas.' : '') +
+      (diffsOnly ? ' Showing the ' + rows.length + ' rows that differ.' : '') + '</p>';
   }
 
   function renderSingle(record) {

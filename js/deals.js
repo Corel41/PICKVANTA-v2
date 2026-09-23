@@ -10,7 +10,7 @@ PV.util.ready(function () {
     page: 'deals',
     url: 'deals.html',
     countLabel: 'demo offer',
-    filters: ['category', 'type', 'band', 'location', 'availability'],
+    filters: ['category', 'type', 'tag', 'band', 'location', 'availability'],
     list: function () {
       return PV.data.deals();
     },

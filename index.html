@@ -121,42 +121,21 @@
       </div>
     </section>
 
-    <!-- DEALS -->
-    <section class="section" id="deals" aria-labelledby="deals-title">
+    <!-- EXPLORE BY NEED -->
+    <section class="section" id="needs" aria-labelledby="needs-title">
       <div class="shell">
-        <div class="deal-banner">
+        <div class="section-head">
           <div>
-            <h3 id="deals-title">Deals worth a look</h3>
-            <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
+            <h2 id="needs-title">Explore by need</h2>
+            <p>Common reasons people look for something. Each shortcut applies a tag or a search to the demo catalogue — nothing is personalised or tracked.</p>
           </div>
-          <a class="btn-secondary" style="background:white" href="deals.html">Browse demo deals</a>
+          <a href="discover.html" class="link-arrow">Browse everything <span aria-hidden="true">→</span></a>
         </div>
-
-        <div class="deals-grid" id="homeDeals"></div>
+        <div class="needs" id="homeNeeds"></div>
       </div>
     </section>
 
-    <!-- COMPARE CTA -->
-    <section class="section section-tight" aria-labelledby="compare-cta-title">
-      <div class="shell">
-        <div class="compare-cta">
-          <div class="compare-cta-main">
-            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Compare</span>
-            <h2 id="compare-cta-title">Two or three options? See them side by side.</h2>
-            <p>
-              Add anything you are considering with the <strong>Compare</strong> button. PickVanta lines the options up row by row,
-              flags what differs, and leaves the decision with you — no scores, no winners.
-            </p>
-          </div>
-          <div class="compare-cta-side">
-            <a class="btn-primary btn-large" href="compare.html">Open Compare</a>
-            <a class="btn-secondary btn-large" href="discover.html">Find options to compare</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- DISCOVERY / PRODUCTS -->
+    <!-- FEATURED — a curated slice, one or two records per category -->
     <section class="section" id="discover" aria-labelledby="discover-title">
       <div class="shell">
         <div class="section-head">
@@ -172,18 +151,39 @@
       </div>
     </section>
 
-    <!-- GUIDES -->
-    <section class="section" id="guides" aria-labelledby="guides-title">
+    <!-- COMPARE CTA -->
+    <section class="section section-tight" aria-labelledby="compare-cta-title">
       <div class="shell">
-        <div class="section-head">
-          <div>
-            <h2 id="guides-title">Guides</h2>
-            <p>Short, practical buying guides that explain what to check before you compare options.</p>
+        <div class="compare-cta">
+          <div class="compare-cta-main">
+            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Compare</span>
+            <h2 id="compare-cta-title">Two or three options? See them side by side.</h2>
+            <p>
+              Select up to <strong>3 options</strong> with the <strong>Compare</strong> button and PickVanta lines them up row by row.
+              Choose a <strong>compare focus</strong> to highlight the areas you care about, switch on <strong>differences only</strong>,
+              and keep the decision yourself — no scores, no winners, no recommendation.
+            </p>
           </div>
-          <a href="guides.html" class="link-arrow">All guides <span aria-hidden="true">→</span></a>
+          <div class="compare-cta-side">
+            <a class="btn-primary btn-large" href="compare.html">Open Compare</a>
+            <a class="btn-secondary btn-large" href="discover.html">Find options to compare</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DEMO DEALS -->
+    <section class="section" id="deals" aria-labelledby="deals-title">
+      <div class="shell">
+        <div class="deal-banner">
+          <div>
+            <h3 id="deals-title">Deals worth a look</h3>
+            <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
+          </div>
+          <a class="btn-secondary" style="background:white" href="deals.html">Browse demo deals</a>
         </div>
 
-        <div class="guides-grid" id="homeGuides"></div>
+        <div class="deals-grid" id="homeDeals"></div>
       </div>
     </section>
 
@@ -234,6 +234,36 @@
         </div>
       </div>
     </section>
+
+    <!-- GUIDES -->
+    <section class="section" id="guides" aria-labelledby="guides-title">
+      <div class="shell">
+        <div class="section-head">
+          <div>
+            <h2 id="guides-title">Guides</h2>
+            <p>Short, practical buying guides that explain what to check before you compare options.</p>
+          </div>
+          <a href="guides.html" class="link-arrow">All guides <span aria-hidden="true">→</span></a>
+        </div>
+
+        <div class="guides-grid" id="homeGuides"></div>
+      </div>
+    </section>
+
+    <!-- RECENTLY VIEWED — only rendered when this device has opened a detail page -->
+    <section class="section section-tight" id="recent" aria-labelledby="recent-title" hidden>
+      <div class="shell">
+        <div class="section-head">
+          <div>
+            <h2 id="recent-title">Recently viewed on this device</h2>
+            <p>A short list kept in this browser only — no account, no history on a server, and nothing is sent anywhere.</p>
+          </div>
+          <button type="button" class="btn-ghost" id="recentClear">Clear this list</button>
+        </div>
+        <div class="recent-strip" id="homeRecent"></div>
+      </div>
+    </section>
+
   </main>
 
   <!-- Shared footer (rendered by js/core.js) -->
