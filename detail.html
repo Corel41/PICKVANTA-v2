@@ -37,8 +37,12 @@
   <footer id="siteFooter"></footer>
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Runtime configuration: demo by default, or the public Supabase URL and
-       anon key for the live catalogue. Never contains a secret. -->
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own values (it is absent from the repository: if it is not
+       there, the browser logs one 404 and js/config.js defaults to the bundled
+       demonstration catalogue). It must load immediately before js/config.js,
+       which merges its public values. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
   <script src="js/config.js"></script>
   <script src="js/domain.js"></script>
   <!-- Data-access layer: the only module that talks to the catalogue source
