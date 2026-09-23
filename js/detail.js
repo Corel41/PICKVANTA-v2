@@ -45,7 +45,8 @@ PV.util.ready(function () {
   const saved = U.savings(record);
   const category = PV.data.category(record.category);
   const currency = (record.price && record.price.currency) || 'USD';
-  const related = PV.data.related(record, 4);
+  const relatedMatches = PV.data.related(record, 4);
+  const related = relatedMatches.map(function (m) { return m.record; });
 
   /* ------------------------------------------------------------- crumbs */
   if (crumb) {
@@ -80,7 +81,7 @@ PV.util.ready(function () {
 
   host.innerHTML =
     /* ---------------------------------------------------------- top area */
-    '<section class="detail-top">' +
+    '<section class="detail-top" id="detailTop">' +
       '<div class="shell">' +
         '<div class="detail-grid">' +
           '<div class="detail-media-wrap">' +
@@ -112,23 +113,34 @@ PV.util.ready(function () {
             '</div>' +
 
             '<dl class="detail-facts">' +
-              '<div><dt>Seller</dt><dd>' + U.esc(U.sellerLabel(record)) + (record.seller && record.seller.verified ? ' <span class="verified">✓ verified (demo)</span>' : '') + '</dd></div>' +
-              '<div><dt>Type</dt><dd>' + U.esc(record.seller ? record.seller.type : U.typeLabel(record.type)) + '</dd></div>' +
-              '<div><dt>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
-              '<div><dt>Availability</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span> <small>(' + U.esc(status.help) + ')</small></dd></div>' +
-              '<div><dt>Listed</dt><dd>' + U.esc(U.formatDate(record.listedAt)) + ' <small>· demo record</small></dd></div>' +
-              (record.rating ? '<div><dt>Demo rating</dt><dd>★ ' + record.rating.value.toFixed(1) + ' <small>from ' + record.rating.count + ' demo reviews</small></dd></div>' : '') +
-              (deal && dealState ? '<div><dt>Offer status</dt><dd><span class="status-pill ' + U.esc(dealState.tone) + '">' + U.esc(dealState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🏬</span>Seller / provider</dt><dd>' + U.esc(U.sellerLabel(record)) + (record.seller && record.seller.verified ? ' <span class="verified">✓ verified (demo)</span>' : '') + ' <small>· ' + U.esc(record.seller ? record.seller.type : 'seller') + '</small></dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">📍</span>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>' + U.esc(U.typeLabel(record.type)) + (record.subcategory ? ' <small>· ' + U.esc(record.subcategory) + '</small>' : '') + '</dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🗓</span>Availability</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span> <small>(' + U.esc(status.help) + ')</small></dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.listedAt)) + ' <small>· demo record</small></dd></div>' +
+              (record.rating ? '<div><dt><span class="fact-icon" aria-hidden="true">★</span>Demo rating</dt><dd>' + record.rating.value.toFixed(1) + ' <small>from ' + record.rating.count + ' demo reviews</small></dd></div>' : '') +
+              (deal && dealState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(dealState.tone) + '">' + U.esc(dealState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
             '</dl>' +
 
+            /* Highlights sit above the actions so they are read before deciding */
+            (record.highlights && record.highlights.length
+              ? '<div class="highlights-block">' +
+                  '<h2 class="block-title">Key highlights</h2>' +
+                  '<ul class="highlight-list">' + record.highlights.map(function (h) { return '<li>' + U.esc(h) + '</li>'; }).join('') + '</ul>' +
+                '</div>'
+              : '') +
+
             '<div class="actions-row">' +
-              '<button type="button" class="btn-primary btn-large" data-compare-toggle="' + U.esc(record.id) + '">Compare</button>' +
+              '<button type="button" class="btn-primary btn-large compare-btn" data-compare-toggle="' + U.esc(record.id) + '" data-compare-name="' + U.esc(record.name) + '" aria-pressed="false">' +
+                '<span class="cmp-btn-icon" aria-hidden="true">+</span><span class="cmp-btn-label">Compare</span>' +
+              '</button>' +
               (deal ? '<a class="btn-secondary btn-large" href="#dealBox">View deal</a>' : '') +
-              '<button type="button" class="btn-secondary btn-large" data-later="Saving items">Save</button>' +
-              '<button type="button" class="btn-secondary btn-large" data-later="Seller contact">Contact seller</button>' +
+              (related.length ? '<a class="btn-secondary btn-large" href="#related">Explore similar options</a>' : '') +
+              '<button type="button" class="btn-ghost btn-large" data-later="Saving items">Save</button>' +
+              '<button type="button" class="btn-ghost btn-large" data-later="Seller contact">Contact seller</button>' +
             '</div>' +
 
-            '<p class="actions-note">Compare adds this option to the demo comparison tray. Saving and seller contact are not built in this stage — no messages or favourites are stored.</p>' +
+            '<p class="actions-note">Compare adds this option to the demo comparison tray (up to 3). Save and Contact seller are demo interactions — there is no account, no messaging and no real seller contact in this build.</p>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -140,9 +152,7 @@ PV.util.ready(function () {
         '<div class="panel">' +
           '<h2 id="about-title" class="panel-title">About this ' + U.esc(record.type) + '</h2>' +
           '<p class="panel-text">' + U.esc(record.description) + '</p>' +
-          (record.highlights && record.highlights.length
-            ? '<ul class="highlight-list">' + record.highlights.map(function (h) { return '<li>' + U.esc(h) + '</li>'; }).join('') + '</ul>'
-            : '') +
+          '<p class="panel-note">Illustrative description for interface demonstration. Not a manufacturer or provider statement.</p>' +
         '</div>' +
 
         '<div class="panel side-panel">' +
@@ -158,7 +168,8 @@ PV.util.ready(function () {
             '<div><dt>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
             '<div><dt>Current status</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span></dd></div>' +
           '</dl>' +
-          '<p class="panel-note">Demo sellers and statuses are illustrative. PickVanta does not contact sellers or check stock in this stage.</p>' +
+          '<p class="panel-note">Demo seller: the name, rating and verification badge are invented for this interface. PickVanta does not contact sellers, verify providers or check stock in this build.</p>' +
+          '<button type="button" class="btn-secondary btn-block" data-later="Seller contact">Contact seller (demo)</button>' +
           (similar.length
             ? '<a class="btn-secondary btn-block" href="' + U.esc(compareHref) + '">Compare with ' + similar.length + ' similar option' + (similar.length === 1 ? '' : 's') + '</a>'
             : '') +
@@ -172,8 +183,9 @@ PV.util.ready(function () {
           '<div class="shell">' +
             '<div class="deal-box">' +
               '<div class="deal-box-main">' +
-                '<span class="deal-flag">Demo offer</span>' +
-                '<h2 id="deal-title">' + U.esc(record.name) + ' — offer detail</h2>' +
+                '<span class="deal-flag">Special offer · demo</span>' +
+                '<h2 id="deal-title">Offer attached to ' + U.esc(record.name) + '</h2>' +
+                '<p class="deal-sub">The offer changes the price of this ' + U.esc(record.type) + ' — it is not a separate item.</p>' +
                 '<div class="deal-terms">' +
                   '<div><span>Deal price</span><strong>' + U.esc(U.money(deal.dealPrice, currency)) + (record.price && record.price.unit ? '/' + (U.UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</strong></div>' +
                   '<div><span>Reference price</span><strong>' + U.esc(U.money(deal.referencePrice, currency)) + '</strong></div>' +
@@ -188,8 +200,11 @@ PV.util.ready(function () {
                 '<p class="deal-disclaimer">This offer is invented for interface demonstration. It is not available, not checked against live pricing, and cannot be claimed.</p>' +
               '</div>' +
               '<div class="deal-box-side">' +
-                '<a class="btn-primary btn-block" href="deals.html?q=' + encodeURIComponent(record.name) + '">Open on Deals page</a>' +
-                '<button type="button" class="btn-secondary btn-block" data-compare-toggle="' + U.esc(record.id) + '">Compare</button>' +
+                '<a class="btn-primary btn-block" href="deals.html?q=' + encodeURIComponent(record.name) + '">Open on the Deals page</a>' +
+                '<a class="btn-secondary btn-block" href="#detailTop">Back to the item</a>' +
+                '<button type="button" class="btn-secondary btn-block compare-btn" data-compare-toggle="' + U.esc(record.id) + '" data-compare-name="' + U.esc(record.name) + '" aria-pressed="false">' +
+                  '<span class="cmp-btn-icon" aria-hidden="true">+</span><span class="cmp-btn-label">Compare this option</span>' +
+                '</button>' +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -218,16 +233,18 @@ PV.util.ready(function () {
       : '') +
 
     /* ------------------------------------------------------------ related */
-    (related.length
-      ? '<section class="section" aria-labelledby="rel-title">' +
+    (relatedMatches.length
+      ? '<section class="section" id="related" aria-labelledby="rel-title">' +
           '<div class="shell">' +
             '<div class="section-head"><div>' +
               '<h2 id="rel-title">More in ' + U.esc(U.categoryLabel(record.category)) + '</h2>' +
-              '<p>Other demo records from the same category and type.</p>' +
+              '<p>Simple matches on category, type and topics — not an algorithm, and not a ranking. Each card shows why it appears.</p>' +
             '</div>' +
-            '<a class="link-arrow" href="discover.html?category=' + U.esc(record.category) + '">See all <span aria-hidden="true">→</span></a>' +
+            '<a class="link-arrow" href="discover.html?category=' + U.esc(record.category) + '">See all ' + U.esc(U.categoryLabel(record.category)) + ' <span aria-hidden="true">→</span></a>' +
             '</div>' +
-            '<div class="products-grid grid-4">' + related.map(PV.card.item).join('') + '</div>' +
+            '<div class="products-grid grid-4">' +
+              relatedMatches.map(function (m) { return PV.card.item(m.record, { reasons: m.reasons }); }).join('') +
+            '</div>' +
           '</div>' +
         '</section>'
       : '');

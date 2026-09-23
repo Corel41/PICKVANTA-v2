@@ -29,6 +29,8 @@ PV.listing = (function () {
     const catStrip = U.$('#categoryStrip');
     const activeRow = U.$('#activeFilters');
     const filtersCount = U.$('#filtersCount');
+    const clearButton = U.$('#clearFilters');
+    const hintText = U.$('#compareHintText');
     const countLabel = cfg.countLabel || 'option';
 
     if (!grid) return;
@@ -48,6 +50,19 @@ PV.listing = (function () {
     if (searchInput && state.q) searchInput.value = state.q;
 
     /* --------------------------------------------------------- rendering */
+    /* Counts shown next to filter options come from the unfiltered demo set,
+       so they describe the dataset rather than the current result list. */
+    function filterCounts() {
+      const base = cfg.list();
+      const counts = { category: {}, type: {}, status: {} };
+      base.forEach(function (i) {
+        counts.category[i.category] = (counts.category[i.category] || 0) + 1;
+        counts.type[i.type] = (counts.type[i.type] || 0) + 1;
+        counts.status[i.status] = (counts.status[i.status] || 0) + 1;
+      });
+      return counts;
+    }
+
     function computeList() {
       const base = cfg.list();
       const filtered = PV.filters.apply(base, state);
@@ -56,32 +71,41 @@ PV.listing = (function () {
 
     function render() {
       const list = computeList();
+      const total = cfg.list().length;
+      const plural = countLabel.slice(-1) === 's' ? '' : 's';
+      const isSearch = !!state.q;
+      const isNarrowed = isSearch || PV.filters.activeCount(state) > 0;
 
       if (resultsMeta) {
-        const total = cfg.list().length;
-        resultsMeta.textContent = state.q
-          ? list.length + ' of ' + total + ' ' + countLabel + (countLabel.slice(-1) === 's' ? '' : 's') + ' match “' + state.q + '”'
-          : list.length + ' ' + countLabel + (list.length === 1 ? '' : 's') + ' shown';
+        resultsMeta.textContent = list.length + ' of ' + total + ' ' + countLabel + plural +
+          (isSearch ? ' match “' + state.q + '”' : ' shown') +
+          (isNarrowed && !isSearch ? ' (filtered)' : '');
       }
 
       if (!list.length) {
-        grid.innerHTML = '';
         grid.classList.add('is-empty');
-        const isSearch = !!state.q;
         grid.innerHTML = PV.card.empty({
           icon: isSearch ? '🔍' : '🧭',
           title: isSearch ? 'No matches found' : 'Nothing matches these filters',
           text: isSearch
-            ? 'Nothing in the demo dataset matches “' + state.q + '”. Try a different search term, or browse a category.'
-            : 'Try widening the price range or clearing a filter to see more demo options.',
+            ? 'Nothing in the demo dataset matches “' + state.q + '”. Try a shorter or different search term, or start from a category.'
+            : 'Every record is filtered out right now. Clear the filters to see all ' + total + ' demo ' + countLabel + plural + ' again.',
+          suggestLabel: 'Browse a category:',
           suggestions: PV.data.categories().slice(0, 4).map(function (c) {
-            return { label: c.icon + '  ' + c.label, href: (cfg.page === 'deals' ? 'deals.html' : 'discover.html') + '?category=' + c.slug };
+            return { label: c.icon + '  ' + c.label, href: cfg.url + '?category=' + c.slug };
           }),
-          actions: [{ label: 'Reset all filters', href: cfg.page === 'deals' ? 'deals.html' : 'discover.html' }]
+          buttons: isNarrowed ? [{ label: isSearch ? 'Clear search & filters' : 'Clear all filters', action: 'reset' }] : [],
+          actions: [
+            { label: cfg.page === 'deals' ? 'Start discovering products' : 'See demo deals', href: cfg.page === 'deals' ? 'discover.html' : 'deals.html' },
+            { label: 'Browse guides', href: 'guides.html' }
+          ],
+          footnote: 'Filters and search run on the demo dataset inside this page — no live listings are queried.'
         });
       } else {
         grid.classList.remove('is-empty');
-        grid.innerHTML = list.map(cfg.cardFn).join('');
+        grid.innerHTML = list.map(function (record) { return cfg.cardFn(record); }).join('');
+        lastShown = list.length;
+        updateHint();
       }
 
       if (filtersCount) {
@@ -89,10 +113,9 @@ PV.listing = (function () {
         filtersCount.textContent = String(n);
         filtersCount.hidden = n === 0;
       }
+      if (clearButton) clearButton.hidden = !isNarrowed;
 
       renderActiveChips();
-
-      /* only run sync when the compare tray is on screen */
       PV.ui.syncCompareButtons();
     }
 
@@ -121,7 +144,8 @@ PV.listing = (function () {
       if (state.availability !== 'all') chips.push(chip(U.statusInfo(state.availability).label, 'availability'));
 
       activeRow.innerHTML = chips.length
-        ? '<span class="active-label">Active:</span>' + chips.join('')
+        ? '<span class="active-label">Active filters:</span>' + chips.join('') +
+          '<button type="button" class="chip chip-clear" data-clear="all">Clear all</button>'
         : '';
       activeRow.hidden = chips.length === 0;
     }
@@ -167,7 +191,7 @@ PV.listing = (function () {
         sort: state.sort
       });
       if (key === 'reset' || key === 'category' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
-        PV.ui.renderFilters(filtersHost, state, cfg.filters, setState);
+        PV.ui.renderFilters(filtersHost, state, cfg.filters, setState, filterCounts());
       }
       renderCategories();
       render();
@@ -187,8 +211,29 @@ PV.listing = (function () {
     }
 
     /* ------------------------------------------------------------ filters */
-    PV.ui.renderFilters(filtersHost, state, cfg.filters, setState);
+    PV.ui.renderFilters(filtersHost, state, cfg.filters, setState, filterCounts());
     PV.ui.bindFiltersDrawer();
+
+    /* the toolbar hint doubles as the compare-tray status line */
+    let lastShown = 0;
+    function updateHint() {
+      if (!hintText) return;
+      const count = PV.compare.count();
+      const plural = countLabel.slice(-1) === 's' ? '' : 's';
+      hintText.innerHTML = count
+        ? '<strong>' + count + ' of ' + PV.compare.max + '</strong> selected for comparison · ' +
+          lastShown + ' ' + countLabel + plural + ' shown'
+        : cfg.hintDefault || 'Select up to three options with Compare to line them up side by side.';
+    }
+    PV.onCompareChange(updateHint);
+
+    /* one-click recovery: clears search and every filter */
+    if (clearButton) {
+      clearButton.addEventListener('click', function () { setState('reset'); });
+    }
+    grid.addEventListener('click', function (e) {
+      if (e.target.closest('[data-empty-action="reset"]')) setState('reset');
+    });
 
     /* --------------------------------------------------------------- sort */
     PV.ui.renderSort(sortSelect, state.sort, function (value) {
@@ -205,6 +250,10 @@ PV.listing = (function () {
         const btn = e.target.closest('[data-clear]');
         if (!btn) return;
         const key = btn.getAttribute('data-clear');
+        if (key === 'all') {
+          setState('reset');
+          return;
+        }
         if (key === 'q') {
           if (searchInput) searchInput.value = '';
           setState('q', '');

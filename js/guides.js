@@ -24,16 +24,22 @@ PV.util.ready(function () {
   const searchInput = U.$('#pageSearch');
   if (searchInput && state.q) searchInput.value = state.q;
 
-  /* Guides are searched locally: title, summary, category, and the outline. */
+  /* Guides are searched locally with the same rules as the item search:
+     title, question, summary, category and the outline topics. */
   function matches(guide) {
     if (state.category !== 'all' && guide.category !== state.category) return false;
     if (!state.q) return true;
-    const hay = [guide.title, guide.summary, U.categoryLabel(guide.category), guide.covers.join(' ')].join(' ').toLowerCase();
+    const hay = [guide.title, guide.question || '', guide.summary, U.categoryLabel(guide.category), guide.covers.join(' ')]
+      .join(' ')
+      .toLowerCase();
+    const tokens = hay.split(/[^a-z0-9]+/).filter(Boolean);
     return state.q
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean)
-      .every(function (term) { return hay.indexOf(term) !== -1; });
+      .every(function (term) {
+        return hay.indexOf(term) !== -1 || tokens.some(function (t) { return t.indexOf(term) === 0; });
+      });
   }
 
   function renderCats() {
@@ -68,12 +74,18 @@ PV.util.ready(function () {
           icon: '📘',
           title: state.q ? 'No matches found' : 'No guides in this category yet',
           text: state.q
-            ? 'No guide outline matches “' + state.q + '”. Try another topic, or browse all guides.'
+            ? 'No guide outline matches “' + state.q + '”. Try a shorter topic, or browse all guides.'
             : 'This category has no guide outlines in the demo set yet. Try another category.',
+          suggestLabel: 'Jump to a category:',
           suggestions: PV.data.categories().slice(0, 4).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: 'guides.html?category=' + c.slug };
           }),
-          actions: [{ label: 'All guides', href: 'guides.html' }]
+          buttons: state.q ? [{ label: 'Clear search', action: 'clear-search' }] : [],
+          actions: [
+            { label: 'All guides', href: 'guides.html' },
+            { label: 'Start discovering', href: 'discover.html' }
+          ],
+          footnote: 'Guides are outlines in this build — full articles are not written yet.'
         });
       }
       return;
@@ -81,7 +93,7 @@ PV.util.ready(function () {
 
     grid.hidden = false;
     if (empty) empty.hidden = true;
-    grid.innerHTML = list.map(PV.card.guide).join('');
+    grid.innerHTML = list.map(function (guide) { return PV.card.guide(guide); }).join('');
   }
 
   if (form) {
@@ -92,6 +104,17 @@ PV.util.ready(function () {
         U.updateUrl({ q: q });
         render();
       }
+    });
+  }
+
+  if (empty) {
+    empty.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-empty-action="clear-search"]')) return;
+      state.q = '';
+      if (searchInput) searchInput.value = '';
+      U.updateUrl({ q: '' });
+      render();
+      if (searchInput) searchInput.focus();
     });
   }
 

@@ -91,7 +91,8 @@
                 <button type="button" class="filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersPanel">
                   Filters <span class="count" id="filtersCount" hidden>0</span>
                 </button>
-                <p class="results-meta" id="resultsMeta"></p>
+                <p class="results-meta" id="resultsMeta" role="status" aria-live="polite"></p>
+                <button type="button" class="btn-ghost clear-filters" id="clearFilters" hidden>Clear filters</button>
               </div>
               <div class="toolbar-right">
                 <label class="sort-label" for="sortSelect">Sort by</label>
@@ -100,6 +101,11 @@
             </div>
 
             <div class="active-filters" id="activeFilters" hidden></div>
+
+            <p class="compare-hint" id="compareHint">
+              <span class="compare-hint-icon" aria-hidden="true">⇄</span>
+              <span id="compareHintText">Pick up to <strong>3 options</strong> with <strong>Compare</strong> — the tray at the bottom of the screen keeps your selection together.</span>
+            </p>
 
             <div class="products-grid grid-3" id="resultsGrid"></div>
           </div>

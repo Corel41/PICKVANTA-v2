@@ -111,7 +111,8 @@
                 <button type="button" class="filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersPanel">
                   Filters <span class="count" id="filtersCount" hidden>0</span>
                 </button>
-                <p class="results-meta" id="resultsMeta"></p>
+                <p class="results-meta" id="resultsMeta" role="status" aria-live="polite"></p>
+                <button type="button" class="btn-ghost clear-filters" id="clearFilters" hidden>Clear filters</button>
               </div>
               <div class="toolbar-right">
                 <label class="sort-label" for="sortSelect">Sort by</label>
@@ -120,6 +121,11 @@
             </div>
 
             <div class="active-filters" id="activeFilters" hidden></div>
+
+            <p class="compare-hint" id="compareHint">
+              <span class="compare-hint-icon" aria-hidden="true">⇄</span>
+              <span id="compareHintText">Every offer here is attached to a product or a service. Open the item to see its full detail, or compare up to <strong>3 offers</strong>.</span>
+            </p>
 
             <div class="deals-grid grid-3" id="resultsGrid"></div>
           </div>

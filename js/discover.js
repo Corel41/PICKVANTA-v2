@@ -13,7 +13,8 @@ PV.util.ready(function () {
     list: function () {
       return PV.data.all();
     },
-    cardFn: PV.card.item
+    cardFn: PV.card.item,
+    hintDefault: 'Pick up to <strong>3 options</strong> with <strong>Compare</strong> — the tray at the bottom of the screen keeps your selection together.'
   });
 
   /* Small headline stat that reflects the demo dataset, not a real catalogue. */
