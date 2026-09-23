@@ -3,12 +3,18 @@
    --------------------------------------------------------------------------
    Used by Discover (discover.html) and Deals (deals.html). Both views have the
    same skeleton — search, category navigation, filters, sort, results grid,
-   empty state — so the behaviour lives here once and each page supplies its
-   own dataset and card renderer.
+   empty state — so the behaviour lives here once and each page names the
+   dataset it lists ('catalogue' or 'deals') and its card renderer.
 
-   State is held in the URL (?q=&category=&type=&band=&location=&availability=
-   &sort=) so a filtered view can be linked and reloaded. Everything runs on
-   the local demo dataset — no requests leave the page.
+   Records come from the data-access layer only: one PV.store.query(state) call
+   returns { ok, items, total, page, pageSize, hasNext, hasPrev, error }, which
+   this file renders — including its loading, empty and error states. Paging
+   fields are carried through untouched so a future API can page without a
+   change here.
+
+   Interface state is held in the URL (?q=&category=&sub=&tag=&type=&band=
+   &location=&availability=&sort=) so a filtered view can be linked and
+   reloaded. No requests leave the page.
    ========================================================================== */
 window.PV = window.PV || {};
 
@@ -52,27 +58,25 @@ PV.listing = (function () {
     /* An unknown tag is ignored rather than emptying the page — a stale or
        mistyped ?tag= link should still show the catalogue. */
     if (cfg.filters && cfg.filters.indexOf('tag') !== -1 && state.tag !== 'all') {
-      const known = PV.data.tags().some(function (t) { return t.tag === state.tag; });
-      if (!known) state.tag = 'all';
+      if (!PV.store.tagExists(state.tag)) state.tag = 'all';
     }
 
     /* A subcategory only makes sense together with its category, so a link that
        carries one without the other is quietly narrowed back to "all". */
     if (cfg.filters && cfg.filters.indexOf('subcategory') !== -1) {
       const subOk = state.category !== 'all' &&
-        PV.data.subcategories(state.category).indexOf(state.subcategory) !== -1;
+        PV.store.subcategories(state.category).indexOf(state.subcategory) !== -1;
       if (!subOk) state.subcategory = 'all';
     }
 
     if (searchInput && state.q) searchInput.value = state.q;
 
     /* --------------------------------------------------------- rendering */
-    /* Counts shown next to filter options come from the unfiltered demo set,
-       so they describe the dataset rather than the current result list. */
+    /* Counts shown next to filter options come from the unfiltered dataset, so
+       they describe the catalogue rather than the current result list. */
     function filterCounts() {
-      const base = cfg.list();
       const counts = { category: {}, type: {}, status: {} };
-      base.forEach(function (i) {
+      baseList().forEach(function (i) {
         counts.category[i.category] = (counts.category[i.category] || 0) + 1;
         counts.type[i.type] = (counts.type[i.type] || 0) + 1;
         counts.status[i.status] = (counts.status[i.status] || 0) + 1;
@@ -80,18 +84,65 @@ PV.listing = (function () {
       return counts;
     }
 
-    function computeList() {
-      const base = cfg.list();
-      const filtered = PV.filters.apply(base, state);
-      return PV.sort.apply(filtered, state.sort, state.q);
+    /** The unfiltered dataset this page lists, fetched through the store. */
+    function baseList() {
+      try {
+        return PV.store.dataset(cfg.dataset);
+      } catch (err) {
+        return [];
+      }
+    }
+
+    /** One call to the data layer; it returns the envelope the UI renders. */
+    function queryData() {
+      return PV.store.query(state, { dataset: cfg.dataset });
+    }
+
+    /* A data layer that has to fetch will report isAsync() true; until the
+       result arrives the listing shows its loading state. With the demo
+       adapter this never happens — there is no artificial delay. */
+    function renderLoading() {
+      grid.classList.add('is-empty');
+      grid.innerHTML = PV.card.loading({
+        title: 'Loading ' + countLabel + 's…',
+        text: 'Fetching the catalogue from the data layer.'
+      });
+      if (resultsMeta) resultsMeta.textContent = 'Loading…';
+    }
+
+    function renderFailure(envelope) {
+      grid.classList.remove('is-empty');
+      grid.innerHTML = PV.card.error({
+        detail: envelope && envelope.error ? envelope.error : '',
+        actions: [
+          { label: 'Browse Technology', href: cfg.url + '?category=technology' },
+          { label: 'All ' + countLabel + 's', href: cfg.url }
+        ]
+      });
+      if (resultsMeta) resultsMeta.textContent = 'Could not load ' + countLabel + 's';
+      if (filtersCount) filtersCount.hidden = true;
+      if (clearButton) clearButton.hidden = true;
+      if (activeRow) { activeRow.hidden = true; activeRow.innerHTML = ''; }
+      PV.ui.announce("We couldn't load these options right now.");
     }
 
     function render() {
-      const list = computeList();
-      const total = cfg.list().length;
+      if (PV.store.isAsync()) {
+        renderLoading();
+        return;
+      }
+      const envelope = queryData();
+      if (!envelope.ok) {
+        renderFailure(envelope);
+        return;
+      }
+      const list = envelope.items;
+      /* The meta line reports the size of the whole dataset, not the number of
+         matches — `envelope.total` is the filtered count a paged API would use. */
+      const total = baseList().length;
       const plural = countLabel.slice(-1) === 's' ? '' : 's';
       const isSearch = !!state.q;
-      const isNarrowed = isSearch || PV.filters.activeCount(state) > 0;
+      const isNarrowed = isSearch || PV.store.activeFilterCount(state) > 0;
 
       if (resultsMeta) {
         resultsMeta.textContent = list.length + ' of ' + total + ' ' + countLabel + plural +
@@ -104,10 +155,10 @@ PV.listing = (function () {
         /* Recovery path: what is active, what else is worth trying, and a way
            back to the whole catalogue. Suggestions stay deterministic. */
         const activeTag = state.tag !== 'all' ? state.tag : null;
-        const tagChoices = PV.data.popularTags()
+        const tagChoices = PV.store.popularTags()
           .filter(function (t) { return t !== activeTag; })
           .slice(0, 5)
-          .map(function (t) { return { label: PV.data.tagLabel(t), href: cfg.url + '?tag=' + encodeURIComponent(t) }; });
+          .map(function (t) { return { label: PV.store.tagLabel(t), href: cfg.url + '?tag=' + encodeURIComponent(t) }; });
         const examples = isSearch
           ? ['laptop', 'student', 'Nairobi', 'wireless'].map(function (q) { return { label: q, q: q }; })
           : ['student', 'remote-work', 'budget', 'premium', 'nairobi'].map(function (q) { return { label: q, q: q }; });
@@ -119,7 +170,7 @@ PV.listing = (function () {
             ? 'Nothing in the demo catalogue matches “' + state.q + '”. Try a shorter term, a related tag, or start from a category.'
             : 'Every record is filtered out right now. Clear the filters to see all ' + total + ' demo ' + countLabel + plural + ' again.',
           suggestLabel: 'Popular categories:',
-          suggestions: PV.data.categories().slice(0, 6).map(function (c) {
+          suggestions: PV.store.categories().slice(0, 6).map(function (c) {
             return { label: c.icon + '  ' + c.label, href: cfg.url + '?category=' + c.slug };
           }),
           tags: tagChoices,
@@ -142,7 +193,7 @@ PV.listing = (function () {
       }
 
       if (filtersCount) {
-        const n = PV.filters.activeCount(state);
+        const n = PV.store.activeFilterCount(state);
         filtersCount.textContent = String(n);
         filtersCount.hidden = n === 0;
       }
@@ -166,14 +217,14 @@ PV.listing = (function () {
       if (state.q) chips.push(chip('Search: ' + state.q, 'q'));
       if (state.category !== 'all') chips.push(chip(U.categoryLabel(state.category), 'category'));
       if (state.subcategory !== 'all') chips.push(chip(state.subcategory, 'subcategory'));
-      if (state.tag !== 'all') chips.push(chip('Tag: ' + PV.data.tagLabel(state.tag), 'tag'));
+      if (state.tag !== 'all') chips.push(chip('Tag: ' + PV.store.tagLabel(state.tag), 'tag'));
       if (state.type !== 'all') chips.push(chip(U.typeLabel(state.type) + 's', 'type'));
       if (state.band !== 'any') {
-        const band = PV.data.priceBands().find(function (b) { return b.code === state.band; });
+        const band = PV.store.priceBands().find(function (b) { return b.code === state.band; });
         if (band) chips.push(chip(band.label, 'band'));
       }
       if (state.location !== 'any') {
-        const loc = PV.data.locationOptions().find(function (l) { return l.code === state.location; });
+        const loc = PV.store.locationOptions().find(function (l) { return l.code === state.location; });
         if (loc) chips.push(chip(loc.label, 'location'));
       }
       if (state.availability !== 'all') chips.push(chip(U.statusInfo(state.availability).label, 'availability'));
@@ -188,7 +239,7 @@ PV.listing = (function () {
     /* -------------------------------------------------------- category bar */
     function renderCategories() {
       if (!catStrip) return;
-      const cats = PV.data.categories();
+      const cats = PV.store.categories();
       catStrip.innerHTML =
         '<a class="cat-pill' + (state.category === 'all' ? ' is-active' : '') + '" href="' + cfg.url + '">' +
         '<span aria-hidden="true">✨</span> All</a>' +
@@ -208,7 +259,7 @@ PV.listing = (function () {
     function renderTags() {
       const host = U.$('#tagStrip');
       if (!host) return;
-      const popular = PV.data.popularTags();
+      const popular = PV.store.popularTags();
       const current = state.tag !== 'all' ? state.tag : null;
       const list = current && popular.indexOf(current) === -1 ? [current].concat(popular) : popular;
       host.innerHTML =
@@ -217,7 +268,7 @@ PV.listing = (function () {
         list.map(function (t) {
           const on = current === t;
           return '<a class="chip tag-chip' + (on ? ' is-on' : '') + '" href="' + cfg.url + '?tag=' + encodeURIComponent(t) + '"' +
-            (on ? ' aria-current="true"' : '') + '>' + U.esc(PV.data.tagLabel(t)) + '</a>';
+            (on ? ' aria-current="true"' : '') + '>' + U.esc(PV.store.tagLabel(t)) + '</a>';
         }).join('');
     }
 
@@ -293,6 +344,12 @@ PV.listing = (function () {
       clearButton.addEventListener('click', function () { setState('reset'); });
     }
     grid.addEventListener('click', function (e) {
+      /* Retry is offered by the error state: the data layer is asked again. */
+      if (e.target.closest('[data-state-action="retry"]')) {
+        PV.ui.announce('Trying again…');
+        render();
+        return;
+      }
       const btn = e.target.closest('[data-empty-action]');
       if (!btn) return;
       const action = btn.getAttribute('data-empty-action');

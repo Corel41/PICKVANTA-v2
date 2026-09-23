@@ -1,21 +1,19 @@
 /* ==========================================================================
-   PickVanta — core UI layer (shared by every view)
+   PickVanta — interface layer (shared by every view)
    --------------------------------------------------------------------------
    Responsibilities:
-     • tiny DOM/format helpers
-     • read-only access to the demo data layer (js/data.js)
-     • keyword search over the demo dataset
-     • filtering + sorting helpers
-     • reusable card / empty-state markup builders
+     • tiny DOM/format helpers, plus re-exports of the data layer's price and
+       label helpers so view code has a single import surface (PV.util.*)
+     • reusable markup builders: cards, media, empty / loading / error states
      • shared chrome: header, mobile menu, footer, toast, compare tray
-     • compare selection store (in-memory + localStorage, no backend)
+     • browser-local user state: the comparison selection and recently viewed
+       lists (localStorage only, ids only, no backend)
 
-   No framework, no dependencies, no network calls.
+   Catalogue data is never read here — it comes from js/store.js. No framework,
+   no dependencies, no network calls.
    ========================================================================== */
-window.PV = (function () {
+window.PV = Object.assign(window.PV || {}, (function () {
   'use strict';
-
-  const D = window.PICKVANTA_DATA || { items: [], categories: [], guides: [] };
 
   /* ------------------------------------------------------------- helpers */
   const $ = (sel, root) => (root || document).querySelector(sel);
@@ -30,53 +28,23 @@ window.PV = (function () {
       .replace(/'/g, '&#39;');
   }
 
-  /* Demo prices are stated in Kenyan Shillings (KES). The other symbols are
-     kept so a record can still be rendered if a currency is added later. */
-  const CURRENCY_SYMBOL = { KES: 'KSh ', EUR: '€', USD: '$', GBP: '£' };
-  const money = (amount, currency) => {
-    const n = Number(amount);
-    if (!isFinite(n)) return '';
-    const code = currency || 'KES';
-    const symbol = CURRENCY_SYMBOL[code] || code + ' ';
-    return symbol + n.toLocaleString('en-US', { maximumFractionDigits: n % 1 ? 2 : 0 });
-  };
+  /* ------------------------------------------------------ data-derived values */
+  /* Formatting that belongs to the catalogue model (prices, labels, deal
+     windows) is implemented once, in the data-access layer, and re-exported
+     here so view code has a single import surface: PV.util.*. */
+  const S = window.PV.store;
+  if (!S) throw new Error('PickVanta: js/store.js must load before js/core.js');
 
-  /* Plain labels for the offer kinds used by the demo deals. Purely wording —
-     the deal stays attached to its product or service. */
-  const DEAL_KIND_LABEL = {
-    percentage: 'Percentage discount',
-    'fixed-price': 'Fixed-price offer',
-    package: 'Service package',
-    bundle: 'Bundle offer',
-    limited: 'Limited-time offer',
-    billing: 'Billing discount',
-    introductory: 'Introductory price'
-  };
-  const dealKindLabel = (deal) => (deal && deal.kind ? DEAL_KIND_LABEL[deal.kind] || 'Demo offer' : 'Demo offer');
-
-  const UNIT_LABEL = {
-    month: 'month', night: 'night', year: 'year', visit: 'visit',
-    session: 'session', lesson: 'lesson', day: 'day', hour: 'hour'
-  };
-
-  /** Human price for a record: amount, amount+unit, or a range. */
-  function priceText(record) {
-    const p = record && record.price;
-    if (!p) return 'Price on request';
-    const unit = p.unit ? '/' + (UNIT_LABEL[p.unit] || p.unit) : '';
-    if (p.amount != null) return money(p.amount, p.currency) + unit;
-    if (p.min != null && p.max != null) return money(p.min, p.currency) + ' – ' + money(p.max, p.currency) + unit;
-    return 'Price on request';
-  }
-
-  /** Numeric value used for sorting (ranges use their lower bound). */
-  function priceValue(record) {
-    const p = record && record.price;
-    if (!p) return Number.MAX_SAFE_INTEGER;
-    if (p.amount != null) return Number(p.amount);
-    if (p.min != null) return Number(p.min);
-    return Number.MAX_SAFE_INTEGER;
-  }
+  const money = S.money;
+  const priceText = S.priceText;
+  const priceValue = S.priceValue;
+  const categoryLabel = S.categoryLabel;
+  const statusInfo = S.statusInfo;
+  const typeLabel = S.typeLabel;
+  const locationLabel = S.locationLabel;
+  const sellerLabel = S.sellerLabel;
+  const dealKindLabel = S.dealKindLabel;
+  const UNIT_LABEL = S.UNIT_LABEL;
 
   function formatDate(iso) {
     if (!iso) return '';
@@ -86,405 +54,24 @@ window.PV = (function () {
     return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
   }
 
-  function categoryLabel(slug) {
-    const c = D.categories.find((x) => x.slug === slug);
-    return c ? c.label : 'Uncategorised';
-  }
-
-  function statusInfo(code) {
-    return D.statuses.find((s) => s.code === code) || { code: code, label: code, tone: 'info', help: '' };
-  }
-
-  function typeLabel(code) {
-    return { product: 'Product', service: 'Service' }[code] || 'Item';
-  }
-
-  function locationLabel(record) {
-    const l = record && record.location;
-    if (!l) return 'Location not stated';
-    if (l.format === 'online' || l.city === 'Online') return 'Online / nationwide';
-    if (l.format === 'nationwide') return 'Nationwide (demo)';
-    return l.city + (l.country && l.country !== 'Online' ? ', ' + l.country : '');
-  }
-
-  function sellerLabel(record) {
-    const s = record && record.seller;
-    return s ? s.name : 'Seller not stated';
-  }
-
-  /** Deal window state — computed, never hard-coded in markup. */
+  /* Deal window as the interface shows it: the store returns the state as
+     data, this adds the tone and the wording. */
   function dealState(record) {
-    const deal = record && record.deal;
-    if (!deal) return null;
-    const now = new Date();
-    const start = new Date(deal.validFrom + 'T00:00:00');
-    const end = new Date(deal.validTo + 'T23:59:59');
-    const daysLeft = Math.ceil((end - now) / 86400000);
-    if (now > end) return { code: 'ended', tone: 'muted', label: 'Demo offer ended ' + formatDate(deal.validTo) };
-    if (now < start) return { code: 'upcoming', tone: 'info', label: 'Starts ' + formatDate(deal.validFrom) };
-    if (daysLeft <= 14) return { code: 'ending', tone: 'warn', label: 'Ends ' + formatDate(deal.validTo) };
-    return { code: 'active', tone: 'ok', label: 'Ends ' + formatDate(deal.validTo) };
+    const state = S.dealState(record);
+    if (!state || state.code === 'none') return null;
+    if (state.code === 'ended') return { code: 'ended', tone: 'muted', label: 'Demo offer ended ' + formatDate(state.validTo) };
+    if (state.code === 'upcoming') return { code: 'upcoming', tone: 'info', label: 'Starts ' + formatDate(state.validFrom) };
+    if (state.code === 'ending') return { code: 'ending', tone: 'warn', label: 'Ends ' + formatDate(state.validTo) };
+    return { code: 'active', tone: 'ok', label: 'Ends ' + formatDate(state.validTo) };
   }
 
   function savings(record) {
-    const deal = record && record.deal;
-    if (!deal || deal.dealPrice == null || deal.referencePrice == null) return null;
-    const diff = deal.referencePrice - deal.dealPrice;
-    return diff > 0 ? money(diff, record.price && record.price.currency) : null;
+    const value = S.savingsValue(record);
+    return value == null ? null : money(value, record.price && record.price.currency);
   }
 
-  /* ----------------------------------------------------------- data access */
-  const data = {
-    all: () => D.items.slice(),
-    item: (id) => D.items.find((i) => i.id === id) || null,
-    items: (ids) => ids.map((id) => data.item(id)).filter(Boolean),
-    deals: () =>
-      D.items
-        .filter((i) => !!i.deal)
-        .filter((i) => {
-          const st = dealState(i);
-          return st && st.code !== 'ended';
-        }),
-    guides: () => D.guides.slice(),
-    guide: (id) => D.guides.find((g) => g.id === id) || null,
-    categories: () => D.categories.slice(),
-    category: (slug) => D.categories.find((c) => c.slug === slug) || null,
-    priceBands: () => D.priceBands.slice(),
-    sortOptions: () => D.sortOptions.slice(),
-    locationOptions: () => D.locationOptions.slice(),
-    /* Subcategories are derived from the records themselves — no second list to
-       keep in sync. Passing a category slug narrows them to that category. */
-    subcategories: (category) => {
-      const seen = [];
-      D.items.forEach((i) => {
-        if (!i.subcategory) return;
-        if (category && category !== 'all' && i.category !== category) return;
-        if (seen.indexOf(i.subcategory) === -1) seen.push(i.subcategory);
-      });
-      return seen.sort((a, b) => a.localeCompare(b));
-    },
-    /* Curated homepage selection. Ids live in the data file so the homepage
-       stays a small, deliberate slice instead of a second catalogue. */
-    home: () => {
-      const pick = (ids, fallback, limit) => {
-        const chosen = (ids || []).length ? data.items(ids) : [];
-        const list = chosen.length ? chosen : fallback();
-        return list.slice(0, limit);
-      };
-      return {
-        featured: pick(D.homeFeaturedIds, () => data.all(), 8),
-        deals: pick(D.homeDealIds, () => data.deals(), 3),
-        guides: pick(D.homeGuideIds, () => data.guides(), 3)
-      };
-    },
-    /* ---- Step 5 decision-support accessors -------------------------------- */
-    /* Subcategory-specific guidance wins over category-wide guidance. */
-    considerations: (record) => {
-      if (!record) return null;
-      const C = D.considerations || {};
-      return C[record.category + ':' + record.subcategory] || C[record.category] || null;
-    },
-    goodToKnow: (record) => {
-      if (!record) return [];
-      const G = D.goodToKnow || {};
-      return G[record.category + ':' + record.subcategory] || G[record.category] || [];
-    },
-    compareConfig: (category) => ((D.compareGroups || {})[category] || null),
-    compareFocusAreas: () => (D.compareFocus || []).slice(),
-    focusArea: (code) => (D.compareFocus || []).find((f) => f.code === code) || null,
-    needs: () => (D.needs || []).slice(),
-    popularTags: () => (D.popularTags || []).slice(),
-    tagLabel: (tag) => String(tag || '').replace(/-/g, ' '),
-    /* Tags actually present in the catalogue, with how many records carry them. */
-    tags: () => {
-      const map = new Map();
-      D.items.forEach((i) => (i.tags || []).forEach((t) => map.set(t, (map.get(t) || 0) + 1)));
-      return [...map.entries()]
-        .map(([tag, count]) => ({ tag: tag, label: data.tagLabel(tag), count: count }))
-        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-    },
-    sellers: () => {
-      const map = new Map();
-      D.items.forEach((i) => {
-        if (!i.seller) return;
-        if (!map.has(i.seller.name)) map.set(i.seller.name, i.seller);
-      });
-      return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-    },
-    /* Related options: deterministic matching on category, subcategory, type,
-       tags, brand and price band. Returns { record, reasons[] } so the UI can
-       say *why* something is related. No ranking, scoring or recommendation. */
-    related: (item, limit) => relatedFor(item, limit),
-    notice: D.demoNotice || 'Demonstration data only.',
-    version: D.version || 'demo'
-  };
-
-  /* ---------------------------------------------------- related discovery */
-  const midPrice = (record) => {
-    const p = (record && record.price) || {};
-    if (p.amount != null) return Number(p.amount);
-    if (p.min != null) return Number(p.min);
-    return null;
-  };
-
-  function relatedFor(item, limit) {
-    if (!item) return [];
-    const max = limit || 4;
-    const mine = midPrice(item);
-    const scored = [];
-
-    D.items.forEach((r) => {
-      if (r.id === item.id) return;
-      let score = 0;
-      const reasons = [];
-
-      if (r.category === item.category) { score += 5; reasons.push('same category'); }
-      if (item.subcategory && r.subcategory === item.subcategory) { score += 4; reasons.push('same kind of item'); }
-      if (r.type === item.type) { score += 1; reasons.push(r.type === 'product' ? 'both products' : 'both services'); }
-
-      const shared = (r.tags || []).filter((t) => (item.tags || []).indexOf(t) !== -1);
-      if (shared.length) {
-        score += 3 * Math.min(shared.length, 2);
-        reasons.push('shares ' + shared.slice(0, 2).join(' + '));
-      }
-
-      if (item.brand && r.brand === item.brand) { score += 2; reasons.push('same brand'); }
-
-      /* Same service area / town — only for records that name a real town, so
-         "Online" and "Nationwide" records never produce a city match. */
-      const myCity = (item.location && item.location.city) || '';
-      const theirCity = (r.location && r.location.city) || '';
-      const isTown = (c) => !!c && c !== 'Online' && c !== 'Nationwide';
-      if (isTown(myCity) && myCity === theirCity) { score += 1; reasons.push('same area'); }
-
-      const theirs = midPrice(r);
-      if (mine != null && theirs != null && Math.abs(theirs - mine) / Math.max(mine, 1) <= 0.35) {
-        score += 2;
-        reasons.push('similar price');
-      }
-
-      if (score > 0) scored.push({ record: r, score: score, reasons: reasons });
-    });
-
-    return scored
-      .sort((a, b) =>
-        b.score - a.score ||
-        ((b.record.rating && b.record.rating.value) || 0) - ((a.record.rating && a.record.rating.value) || 0) ||
-        a.record.name.localeCompare(b.record.name)
-      )
-      .slice(0, max);
-  }
-
-  /* ---------------------------------------------------------------- search */
-  /* Words that carry no filtering value on their own. Kept deliberately short. */
-  const STOP_WORDS = ['a', 'an', 'and', 'the', 'for', 'with', 'to', 'of', 'in', 'on', 'my', 'me', 'i',
-    'need', 'needing', 'looking', 'want', 'show', 'find', 'some', 'please', 'best', 'good', 'top'];
-  /* Everyday words mapped onto the vocabulary the catalogue actually uses. */
-  const TERM_SYNONYMS = { cheap: 'budget', affordable: 'budget', inexpensive: 'budget', 'high-end': 'premium' };
-
-  /** Lower-case and normalise the spellings the catalogue mixes together. */
-  const norm = (value) => String(value == null ? '' : value)
-    .toLowerCase()
-    .replace(/wi[-\s]?fi/g, 'wifi')
-    .replace(/[’']/g, '');
-
-  const tokenize = (value) => norm(value).split(/[^a-z0-9]+/).filter(Boolean);
-
-  /** Query terms after stop-word removal and vocabulary mapping. */
-  function normalizeTerms(query) {
-    const raw = tokenize(query);
-    const kept = [];
-    raw.forEach((term) => {
-      if (STOP_WORDS.indexOf(term) !== -1) return;
-      const mapped = TERM_SYNONYMS[term] || term;
-      if (kept.indexOf(mapped) === -1) kept.push(mapped);
-    });
-    /* A query made only of filler words ("the best") carries no filtering
-       information, so it is treated like an empty search. */
-    return kept;
-  }
-
-  /**
-   * Lightweight keyword search over the demo dataset.
-   *
-   * Matching rules (deliberately simple — no engine, no index, no backend):
-   *   • case-insensitive, punctuation-tolerant; "wi-fi" and "wifi" are the same
-   *   • common filler words are ignored and a few everyday words are mapped onto
-   *     catalogue vocabulary ("cheap" → "budget")
-   *   • word-prefix matching, so "cancel" finds "cancelling" and "phone" finds
-   *     "Smartphones"
-   *   • every query term must match somewhere (AND); if nothing matches at all,
-   *     a relaxed pass accepts records matching most terms, provided at least one
-   *     term matched a strong field (name, brand, category, subcategory, tag)
-   *   • results are ranked by field weight, then by name
-   *
-   * Fields searched: name, brand, category, subcategory, tags, seller, location,
-   * description and specification values.
-   */
-  function search(query, list) {
-    const pool = list || D.items;
-    const q = String(query || '').trim();
-    if (!q) return pool.slice();
-
-    const terms = normalizeTerms(q);
-    if (!terms.length) return pool.slice();
-
-    const scored = [];
-
-    pool.forEach((record) => {
-      const fields = {
-        name: norm(record.name),
-        brand: norm(record.brand),
-        category: norm(categoryLabel(record.category)),
-        subcategory: norm(record.subcategory),
-        tags: norm((record.tags || []).join(' ')),
-        seller: norm(record.seller && record.seller.name),
-        location: norm(((record.location && record.location.city) || '') + ' ' + ((record.location && record.location.country) || '')),
-        body: norm((record.shortDescription || '') + ' ' + (record.description || '')),
-        specs: norm((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' '))
-      };
-      const tokens = {};
-      Object.keys(fields).forEach((key) => { tokens[key] = tokenize(fields[key]); });
-
-      const hit = (key, weight, term) => {
-        if (tokens[key].some((t) => t.indexOf(term) === 0)) return weight;          // word prefix
-        if (tokens[key].some((t) => t.indexOf(term) !== -1)) return weight - 1;     // inside a word
-        if (fields[key].indexOf(term) !== -1) return Math.max(1, weight - 2);      // spans words
-        return 0;
-      };
-
-      let score = 0;
-      let matched = 0;
-      let strong = false;
-
-      terms.forEach((term) => {
-        const strongScore = hit('name', 12, term) + hit('brand', 9, term) + hit('category', 7, term) +
-          hit('subcategory', 6, term) + hit('tags', 5, term);
-        const weakScore = hit('seller', 5, term) + hit('location', 4, term) + hit('body', 3, term) + hit('specs', 2, term);
-        const termScore = strongScore + weakScore;
-        if (termScore) matched++;
-        if (strongScore) strong = true;
-        score += termScore;
-      });
-
-      if (!matched) return;
-      const phrase = norm(q);
-      if (fields.name.indexOf(phrase) !== -1) score += 6;                              // whole phrase in the name
-      if (terms.length > 1 && terms.every((t) => fields.name.indexOf(t) !== -1)) score += 4;
-      if (record.deal) score += 2;
-      if (record.badge && record.badge.tone === 'accent') score += 1;
-      scored.push({ record: record, score: score, matched: matched, strong: strong });
-    });
-
-    const rank = (rows) => rows
-      .sort((a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name))
-      .map((x) => x.record);
-
-    /* Strict pass: every term must match somewhere. */
-    const strict = scored.filter((r) => r.matched === terms.length);
-    if (strict.length) return rank(strict);
-
-    /* Relaxed pass: most terms matched and at least one of them hit a strong
-       field, so "website development" still finds the web design service. */
-    const needed = Math.max(1, Math.ceil(terms.length / 2));
-    return rank(scored.filter((r) => r.matched >= needed && r.strong));
-  }
-
-  /** Typeahead suggestions: records, categories, brands/sellers and guides. */
-  function suggest(query, limit) {
-    const q = String(query || '').trim().toLowerCase();
-    const max = limit || 6;
-    if (!q) {
-      return D.categories.slice(0, 4).map((c) => ({ label: c.label, meta: 'Category', href: 'discover.html?category=' + c.slug, icon: c.icon }));
-    }
-    const out = [];
-    const push = (row) => {
-      if (out.length < max && !out.some((r) => r.label.toLowerCase() === row.label.toLowerCase())) out.push(row);
-    };
-
-    D.categories.forEach((c) => {
-      if (c.label.toLowerCase().includes(q) || c.blurb.toLowerCase().includes(q)) {
-        push({ label: c.label, meta: 'Category · ' + c.blurb.split(',')[0], href: 'discover.html?category=' + c.slug, icon: c.icon });
-      }
-    });
-    search(q, D.items).forEach((r) => {
-      push({ label: r.name, meta: typeLabel(r.type) + ' · ' + categoryLabel(r.category), href: 'detail.html?id=' + r.id, icon: r.image.icon });
-    });
-    data.sellers().forEach((s) => {
-      if (s.name.toLowerCase().includes(q)) push({ label: s.name, meta: 'Demo seller · ' + s.type, href: 'discover.html?q=' + encodeURIComponent(s.name), icon: '🏬' });
-    });
-    D.guides.forEach((g) => {
-      if (g.title.toLowerCase().includes(q)) push({ label: g.title, meta: 'Guide · ' + categoryLabel(g.category), href: 'guides.html?q=' + encodeURIComponent(g.title), icon: '📘' });
-    });
-    return out.slice(0, max);
-  }
-
-  /* ------------------------------------------------------- filter + sort */
-  function matchesLocation(record, code) {
-    if (!code || code === 'any') return true;
-    const loc = record.location || {};
-    if (code === 'online') return loc.format === 'online' || loc.city === 'Online';
-    if (code === 'local') return loc.format === 'local' || loc.format === 'nationwide';
-    return (loc.city || '').toLowerCase().indexOf(code) === 0;
-  }
-
-  /**
-   * Apply the demo filter set. Every filter is optional and purely local.
-   * filters = { q, category, type, band, location, availability }
-   */
-  function applyFilters(list, filters) {
-    const f = filters || {};
-    let out = list.slice();
-
-    if (f.q) out = search(f.q, out);
-
-    if (f.category && f.category !== 'all') out = out.filter((i) => i.category === f.category);
-    if (f.subcategory && f.subcategory !== 'all') out = out.filter((i) => i.subcategory === f.subcategory);
-    if (f.tag && f.tag !== 'all') out = out.filter((i) => (i.tags || []).indexOf(f.tag) !== -1);
-    if (f.type && f.type !== 'all') out = out.filter((i) => i.type === f.type);
-
-    if (f.band && f.band !== 'any') {
-      const band = D.priceBands.find((b) => b.code === f.band);
-      if (band) {
-        out = out.filter((i) => {
-          const v = priceValue(i);
-          if (v === Number.MAX_SAFE_INTEGER) return false;
-          if (band.min != null && v < band.min) return false;
-          if (band.max != null && v > band.max) return false;
-          return true;
-        });
-      }
-    }
-
-    if (f.location && f.location !== 'any') out = out.filter((i) => matchesLocation(i, f.location));
-    if (f.availability && f.availability !== 'all') out = out.filter((i) => i.status === f.availability);
-
-    return out;
-  }
-
-  function applySort(list, code, query) {
-    const out = list.slice();
-    switch (code) {
-      case 'newest':
-        return out.sort((a, b) => String(b.listedAt).localeCompare(String(a.listedAt)));
-      case 'price-asc':
-        return out.sort((a, b) => priceValue(a) - priceValue(b) || a.name.localeCompare(b.name));
-      case 'price-desc':
-        return out.sort((a, b) => priceValue(b) - priceValue(a) || a.name.localeCompare(b.name));
-      case 'relevance':
-      default:
-        if (query) return search(query, out);
-        return out.sort((a, b) => {
-          const da = a.deal ? 1 : 0;
-          const db = b.deal ? 1 : 0;
-          if (da !== db) return db - da;
-          const ra = (a.rating && a.rating.value) || 0;
-          const rb = (b.rating && b.rating.value) || 0;
-          if (ra !== rb) return rb - ra;
-          return String(b.listedAt).localeCompare(String(a.listedAt));
-        });
-    }
-  }
+  /* Search, filtering, sorting and related-option logic live in the data-access
+     layer (js/store.js) — there is exactly one implementation of each. */
 
   /* ----------------------------------------------------------- card markup */
   const ICON_PIN =
@@ -494,22 +81,35 @@ window.PV = (function () {
   const ICON_CAL =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>';
 
+  /* Images are optional and may fail to load. A record with no src shows its
+     icon tile; a record whose image does not load is swapped for the local
+     placeholder by the delegated error handler (bindMediaFallback) — no
+     external image service, no broken-image icon, no layout shift. */
+  const FALLBACK_IMAGE = 'assets/placeholder.svg';
+
   function mediaMarkup(record, opts) {
     const o = opts || {};
-    const img = record.image || {};
+    const rec = record || {};
+    if (!rec.id || !rec.name) {
+      /* Defensive: a record with no identity renders a quiet tile rather than a
+         link to "detail.html?id=undefined". */
+      return '<div class="card-media"><span class="media-icon" aria-hidden="true">📦</span></div>';
+    }
+    const img = rec.image || {};
     const style = img.gradient ? ' style="background:' + img.gradient + '"' : '';
     const inner = img.src
-      ? '<img src="' + esc(img.src) + '" alt="' + esc(img.alt || record.name) + '" loading="lazy" />'
-      : '<span class="media-icon" aria-hidden="true">' + (img.icon || '📦') + '</span>';
+      ? '<img class="media-img" src="' + esc(img.src) + '" alt="' + esc(img.alt || rec.name || 'Listing image') + '" loading="lazy" decoding="async" />' +
+        '<span class="media-icon" aria-hidden="true" hidden>' + esc(img.icon || '📦') + '</span>'
+      : '<span class="media-icon" aria-hidden="true">' + esc(img.icon || '📦') + '</span>';
     const flags =
-      '<span class="type-flag">' + esc(typeLabel(record.type)) + '</span>' +
-      (o.deal
-        ? '<span class="discount">-' + record.deal.discountPercent + '% · Demo</span>'
-        : record.badge
-        ? '<span class="badge-pill ' + esc(record.badge.tone || 'neutral') + ' flag-right">' + esc(record.badge.label) + '</span>'
+      '<span class="type-flag">' + esc(typeLabel(rec.type)) + '</span>' +
+      (o.deal && rec.deal
+        ? '<span class="discount">-' + rec.deal.discountPercent + '% · Demo</span>'
+        : rec.badge
+        ? '<span class="badge-pill ' + esc(rec.badge.tone || 'neutral') + ' flag-right">' + esc(rec.badge.label) + '</span>'
         : '');
     return (
-      '<a class="card-media-link" href="' + hrefDetail(record.id) + '" aria-label="' + esc(record.name) + '">' +
+      '<a class="card-media-link" href="' + hrefDetail(rec.id) + '" aria-label="' + esc(rec.name || 'Open listing') + '">' +
       '<div class="card-media"' + style + '>' +
       flags +
       inner +
@@ -517,7 +117,7 @@ window.PV = (function () {
     );
   }
 
-  const hrefDetail = (id) => 'detail.html?id=' + encodeURIComponent(id);
+  const hrefDetail = (id) => (id ? 'detail.html?id=' + encodeURIComponent(id) : 'discover.html');
 
   /**
    * Discovery card.
@@ -633,7 +233,7 @@ window.PV = (function () {
 
   /** Compare toggle used on every card and on the detail page. */
   function compareButton(id) {
-    const record = data.item(id);
+    const record = S.item(id);
     const name = record ? record.name : 'this option';
     return (
       '<button type="button" class="small-btn compare-btn" data-compare-toggle="' + esc(id) + '"' +
@@ -689,6 +289,38 @@ window.PV = (function () {
    * Reusable empty state with a recovery path: optional category suggestions,
    * a primary recovery action (button, handled by the caller) and links.
    */
+  /** Reusable "loading" state — used by a page whose data source is async. */
+  function loadingState(opts) {
+    const o = opts || {};
+    return (
+      '<div class="empty state-loading" role="status" aria-live="polite">' +
+      '<div class="empty-icon" aria-hidden="true">⏳</div>' +
+      '<h3>' + esc(o.title || 'Loading options…') + '</h3>' +
+      '<p>' + esc(o.text || 'Fetching the catalogue.') + '</p>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * Reusable "could not load" state. It never hides the problem: the message is
+   * shown and a retry action is offered. Pages bind [data-state-action="retry"].
+   */
+  function errorState(opts) {
+    const o = opts || {};
+    return (
+      '<div class="empty state-error" role="alert">' +
+      '<div class="empty-icon" aria-hidden="true">⚠️</div>' +
+      '<h3>' + esc(o.title || "We couldn't load these options right now.") + '</h3>' +
+      '<p>' + esc(o.text || 'Nothing was changed. Try again, or browse the categories below.') + '</p>' +
+      (o.detail ? '<p class="state-detail">' + esc(o.detail) + '</p>' : '') +
+      '<div class="empty-actions">' +
+      '<button type="button" class="btn-primary" data-state-action="retry">Try again</button>' +
+      (o.actions || []).map((a) => '<a class="btn-secondary" href="' + esc(a.href) + '">' + esc(a.label) + '</a>').join('') +
+      '</div>' +
+      '</div>'
+    );
+  }
+
   function emptyState(opts) {
     const o = opts || {};
     return (
@@ -753,7 +385,7 @@ window.PV = (function () {
     } catch (e) {
       return [];
     }
-    const clean = stored.filter((id) => !!data.item(id)).slice(0, RECENT_MAX);
+    const clean = stored.filter((id) => !!S.item(id)).slice(0, RECENT_MAX);
     if (clean.length !== stored.length) {
       recentIds = clean;
       persistRecent();
@@ -764,11 +396,11 @@ window.PV = (function () {
   const recent = {
     max: RECENT_MAX,
     ids: () => recentIds.slice(),
-    items: () => data.items(recentIds),
+    items: () => S.items(recentIds),
     count: () => recentIds.length,
     has: (id) => recentIds.indexOf(id) !== -1,
     add(id) {
-      if (!data.item(id)) return;
+      if (!S.item(id)) return;
       recentIds = [id].concat(recentIds.filter((x) => x !== id)).slice(0, RECENT_MAX);
       persistRecent();
       recentListeners.forEach((fn) => fn());
@@ -794,7 +426,7 @@ window.PV = (function () {
     try {
       const raw = window.localStorage.getItem(COMPARE_KEY);
       const val = raw ? JSON.parse(raw) : [];
-      return Array.isArray(val) ? val.filter((id) => !!data.item(id)).slice(0, COMPARE_MAX) : [];
+      return Array.isArray(val) ? val.filter((id) => !!S.item(id)).slice(0, COMPARE_MAX) : [];
     } catch (e) {
       return [];
     }
@@ -816,7 +448,7 @@ window.PV = (function () {
     has: (id) => compareIds.indexOf(id) !== -1,
     full: () => compareIds.length >= COMPARE_MAX,
     add(id) {
-      const record = data.item(id);
+      const record = S.item(id);
       if (!record) return false;
       if (compareIds.indexOf(id) !== -1) return true;
       if (compareIds.length >= COMPARE_MAX) {
@@ -830,14 +462,14 @@ window.PV = (function () {
       return true;
     },
     remove(id) {
-      const record = data.item(id);
+      const record = S.item(id);
       compareIds = compareIds.filter((x) => x !== id);
       writeStore(compareIds);
       announce((record ? 'Removed “' + record.name + '”. ' : 'Removed an option. ') + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
       changed();
     },
     toggle(id) {
-      const record = data.item(id);
+      const record = S.item(id);
       if (compare.has(id)) {
         compare.remove(id);
         toast('Removed from comparison. This selection only exists in your browser — nothing is saved on a server.');
@@ -853,7 +485,7 @@ window.PV = (function () {
       }
     },
     set(ids) {
-      compareIds = (ids || []).filter((id) => !!data.item(id)).slice(0, COMPARE_MAX);
+      compareIds = (ids || []).filter((id) => !!S.item(id)).slice(0, COMPARE_MAX);
       writeStore(compareIds);
       changed();
     },
@@ -885,7 +517,7 @@ window.PV = (function () {
     $$('[data-compare-toggle]').forEach((btn) => {
       const id = btn.getAttribute('data-compare-toggle');
       const on = compare.has(id);
-      const name = btn.getAttribute('data-compare-name') || (data.item(id) || {}).name || 'this option';
+      const name = btn.getAttribute('data-compare-name') || (S.item(id) || {}).name || 'this option';
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-pressed', String(on));
       btn.setAttribute('aria-label', (on ? 'Remove from comparison: ' : 'Add to comparison: ') + name);
@@ -961,7 +593,9 @@ window.PV = (function () {
       '<div class="footer-grid">' +
       '<div class="footer-brand">' +
       '<a href="index.html" class="brand" aria-label="PickVanta home"><span class="brand-mark" aria-hidden="true" style="background:white;color:#0B1220">P</span><span>PickVanta</span></a>' +
-      '<p>Modern discovery, comparison and deals platform. Find, compare, and choose products, services, and deals in one place. This build uses demonstration data only — no real products, prices or merchants.</p>' +
+      /* The demonstration notice lives in the dataset, not in this template. */
+      '<p>Modern discovery, comparison and deals platform. Find, compare, and choose products, services, and deals in one place. ' +
+      esc(S.notice()) + '</p>' +
       '</div>' +
       col('Product', [
         { label: 'Home', href: 'index.html' },
@@ -970,7 +604,7 @@ window.PV = (function () {
         { label: 'Compare', href: 'compare.html' },
         { label: 'Guides', href: 'guides.html' }
       ]) +
-      col('Browse', D.categories.slice(0, 5).map((c) => ({ label: c.label, href: 'discover.html?category=' + c.slug }))) +
+      col('Browse', S.categories().slice(0, 5).map((c) => ({ label: c.label, href: 'discover.html?category=' + c.slug }))) +
       col('Company', [
         { label: 'Account', later: 'Account' },
         { label: 'Contact', later: 'Contact' },
@@ -978,7 +612,7 @@ window.PV = (function () {
       ]) +
       '</div>' +
       '<div class="footer-bottom">' +
-      '<p>© 2026 PickVanta. Step 2 build — demonstration data only, no accounts, payments or live pricing.</p>' +
+      '<p>© 2026 PickVanta. Demo build ' + esc(S.version()) + ' — demonstration data only, no accounts, payments or live pricing.</p>' +
       '<div class="footer-bottom-links">' +
       '<button type="button" class="link-btn" data-later="Privacy">Privacy</button>' +
       '<button type="button" class="link-btn" data-later="Terms">Terms</button>' +
@@ -1040,7 +674,7 @@ window.PV = (function () {
       tray.className = 'compare-tray';
       document.body.appendChild(tray);
     }
-    const items = data.items(compare.ids());
+    const items = S.items(compare.ids());
     const open = tray.classList.contains('tray-open');
 
     if (!items.length) {
@@ -1102,6 +736,22 @@ window.PV = (function () {
     }
   }
 
+  /* --------------------------------------------------------- media fallback */
+  /* One delegated listener for every listing image: if an image cannot load,
+     the tile falls back to the bundled placeholder and keeps its alt text. */
+  function bindMediaFallback() {
+    if (window.__pvMediaFallback) return;
+    window.__pvMediaFallback = true;
+    document.addEventListener('error', (e) => {
+      const img = e.target;
+      if (!img || !img.classList || !img.classList.contains('media-img')) return;
+      if (img.dataset.fallbackApplied) return;
+      img.dataset.fallbackApplied = '1';
+      img.classList.add('media-img-fallback');
+      img.src = FALLBACK_IMAGE;
+    }, true);
+  }
+
   /* ------------------------------------------------------- search binding */
   /**
    * Bind a search form. Works on the homepage, Discover and Deals.
@@ -1126,7 +776,7 @@ window.PV = (function () {
 
     function render() {
       if (!box) return;
-      const rows = suggest(input.value, 6);
+      const rows = S.suggest(input.value, 6);
       if (!rows.length) return close();
       items = rows;
       box.innerHTML = rows
@@ -1225,14 +875,14 @@ window.PV = (function () {
     let html = '';
     if (has('category')) {
       html += radioGroup('Category', 'f-category', 'category', [{ key: 'category', value: 'all', label: 'All categories' }].concat(
-        D.categories.map((c) => ({ key: 'category', value: c.slug, label: c.icon + '  ' + c.label }))
+        S.categories().map((c) => ({ key: 'category', value: c.slug, label: c.icon + '  ' + c.label }))
       ));
     }
     /* Subcategory only appears once a category is chosen: it lists that
        category's own subcategories, so it never becomes a wall of options. */
     if (has('subcategory') && active.category && active.category !== 'all') {
-      const subs = data.subcategories(active.category);
-      const inCat = D.items.filter((i) => i.category === active.category);
+      const subs = S.subcategories(active.category);
+      const inCat = S.byCategory(active.category);
       const countIn = (sub) => inCat.filter((i) => i.subcategory === sub).length;
       html += radioGroup(
         'Subcategory',
@@ -1245,19 +895,19 @@ window.PV = (function () {
     }
     if (has('type')) {
       html += radioGroup('Type', 'f-type', 'type', [{ key: 'type', value: 'all', label: 'Products & services' }].concat(
-        D.types.map((t) => ({ key: 'type', value: t.code, label: t.label + 's' }))
+        S.types().map((t) => ({ key: 'type', value: t.code, label: t.label + 's' }))
       ));
     }
     if (has('band')) {
-      html += radioGroup('Price range', 'f-band', null, D.priceBands.map((b) => ({ key: 'band', value: b.code, label: b.label })));
+      html += radioGroup('Price range', 'f-band', null, S.priceBands().map((b) => ({ key: 'band', value: b.code, label: b.label })));
     }
     if (has('location')) {
-      html += radioGroup('Location', 'f-location', null, D.locationOptions.map((l) => ({ key: 'location', value: l.code, label: l.label })));
+      html += radioGroup('Location', 'f-location', null, S.locationOptions().map((l) => ({ key: 'location', value: l.code, label: l.label })));
     }
     if (has('tag')) {
       const activeTag = active.tag && active.tag !== 'all' ? active.tag : 'all';
-      const all = data.tags();
-      const popular = data.popularTags();
+      const all = S.tags();
+      const popular = S.popularTags();
       const isPopular = (t) => popular.indexOf(t) !== -1;
       /* A tag that is not in the shortcut list still needs a visible radio, so
          the current selection is always on screen. */
@@ -1288,7 +938,7 @@ window.PV = (function () {
     }
     if (has('availability')) {
       html += radioGroup('Availability', 'f-availability', 'status', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
-        D.statuses.map((s) => ({ key: 'availability', value: s.code, label: s.label }))
+        S.statuses().map((s) => ({ key: 'availability', value: s.code, label: s.label }))
       ));
     }
     html += '<button type="button" class="filter-reset" data-filter-reset>Clear all filters</button>';
@@ -1311,7 +961,7 @@ window.PV = (function () {
 
   function renderSort(select, value, onChange) {
     if (!select) return;
-    select.innerHTML = D.sortOptions.map((o) => '<option value="' + esc(o.code) + '">' + esc(o.label) + '</option>').join('');
+    select.innerHTML = S.sortOptions().map((o) => '<option value="' + esc(o.code) + '">' + esc(o.label) + '</option>').join('');
     select.value = value || 'relevance';
     select.addEventListener('change', () => onChange(select.value));
   }
@@ -1359,6 +1009,7 @@ window.PV = (function () {
 
   /* --------------------------------------------------------- global wiring */
   function mountChrome(activePage) {
+    bindMediaFallback();
     const headerHost = $('#siteHeader');
     const footerHost = $('#siteFooter');
     if (headerHost) headerHost.outerHTML = headerMarkup(activePage);
@@ -1479,24 +1130,24 @@ window.PV = (function () {
   }
 
   return {
+    /* Presentation helpers. The format/label helpers are re-exports of the
+       data layer's model helpers — there is one implementation of each. */
     util: {
       $, $$, esc, money, priceText, priceValue, formatDate,
       categoryLabel, statusInfo, typeLabel, locationLabel, sellerLabel, dealState, savings, dealKindLabel,
       params, updateUrl, ready, UNIT_LABEL
     },
-    data,
-    search: { query: search, suggest },
-    filters: { apply: applyFilters, matchesLocation, activeCount: activeFilterCount },
-    sort: { apply: applySort },
-    card: { item: cardItem, deal: cardDeal, guide: cardGuide, empty: emptyState },
+    /* The data-access layer, re-exported for pages that want it by name. */
+    store: S,
+    card: { item: cardItem, deal: cardDeal, guide: cardGuide, media: mediaMarkup, empty: emptyState, loading: loadingState, error: errorState },
     compare,
     onCompareChange,
     recent,
     onRecentChange,
     ui: {
       toast, announce, mountChrome, bindSearch, renderFilters, renderSort, bindFiltersDrawer,
-      syncCompareButtons, renderTray, toggleTray, headerMarkup, footerMarkup
+      syncCompareButtons, renderTray, toggleTray, headerMarkup, footerMarkup, bindMediaFallback
     },
     hrefDetail
   };
-})();
+})());
