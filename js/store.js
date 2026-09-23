@@ -586,6 +586,7 @@ window.PV.store = (function () {
             taxonomy: taxonomy,
             locations: values.locations || [],
             settings: values,
+            /* the RPC's own columns; normalised by readTags() in applyScaffold */
             tags: tags.rows,
             stats: asObject(stats),
             facets: asObject(facets)
@@ -800,7 +801,7 @@ window.PV.store = (function () {
       taxonomy: (loaded && loaded.taxonomy) || [],
       locations: (loaded && loaded.locations) || [],
       settings: settings,
-      tags: (loaded && loaded.tags) || [],
+      tags: readTags(loaded && loaded.tags),
       stats: stats,
       priceBands: Dm.asArray(settings.priceBands),
       sortOptions: Dm.asArray(settings.sortOptions),
@@ -1041,6 +1042,25 @@ window.PV.store = (function () {
     Dm.asArray(listings).forEach((l) => Dm.asArray(l.tags).forEach((t) => map.set(t, (map.get(t) || 0) + 1)));
     return [...map.entries()]
       .map(([tag, count]) => ({ tag: tag, label: store.tagLabel(tag), count: count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  /* Tag counts reach the interface in two shapes: built here as
+     { tag, label, count }, or straight from the database, where
+     catalogue_tags() returns the columns of its RETURNS TABLE clause
+     (tag, listings) over PostgREST. One normaliser turns either into the
+     single shape the interface renders, so the two adapters agree and a tag
+     can never surface without a label or a numeric count. */
+  function readTags(rows) {
+    return Dm.asArray(rows)
+      .map((row) => {
+        const tag = Dm.trim(row && row.tag);
+        if (!tag) return null;
+        const raw = row.count != null ? row.count : row.listings;
+        const count = Number.isFinite(Number(raw)) ? Number(raw) : 0;
+        return { tag: tag, label: Dm.trim(row.label) || store.tagLabel(tag), count: count };
+      })
+      .filter(Boolean)
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
 
