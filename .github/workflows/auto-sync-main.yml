@@ -1,0 +1,42 @@
+name: Auto Sync to Main
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge arena branch into main
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          echo "Source branch: $BRANCH"
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          echo "Merging $BRANCH into main..."
+          git merge --no-ff origin/$BRANCH -m "auto: merge $BRANCH into main [skip ci]"
+          git push origin main
+
+      - name: Summary
+        run: |
+          echo "✅ Auto-merged $GITHUB_REF into main"
