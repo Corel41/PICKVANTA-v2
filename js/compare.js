@@ -299,12 +299,13 @@ PV.util.ready(function () {
     const chosen = ids();
     const others = ALL.filter(function (i) { return chosen.indexOf(i.id) === -1; }).slice(0, 5);
     if (!others.length) {
-      suggestHost.innerHTML = '';
+      suggestHost.innerHTML = '<h2 class="panel-title" id="suggest-title">Add another option</h2>' +
+        '<p class="panel-text small">Every record in the demo dataset is already in a comparison slot.</p>';
       return;
     }
     if (chosen.length >= MAX) {
       suggestHost.innerHTML =
-        '<h2 class="panel-title">Add another option</h2>' +
+        '<h2 class="panel-title" id="suggest-title">Add another option</h2>' +
         '<p class="panel-text small">All ' + MAX + ' comparison slots are in use. Remove one above to swap in a different record.</p>' +
         '<div class="suggest-list">' +
         others.slice(0, 3).map(function (i) {
@@ -322,7 +323,7 @@ PV.util.ready(function () {
       return;
     }
     suggestHost.innerHTML =
-      '<h2 class="panel-title">Add another option</h2>' +
+      '<h2 class="panel-title" id="suggest-title">Add another option</h2>' +
       '<p class="panel-text small">Quick picks from the demo dataset. Compare works with any records — not only technology.</p>' +
       '<div class="suggest-list">' +
       others.map(function (i) {
