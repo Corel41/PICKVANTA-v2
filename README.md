@@ -275,6 +275,7 @@ public values are materialised into the same git-ignored override file at build 
 | `SUPABASE_ANON_KEY` (environment variable) | the project's **publishable/anon** key — never the service-role key |
 | Environments | Production, Preview and Development |
 | Build command | `node tools/vercel-config.js` (already set in `vercel.json`) |
+| Output directory | `.` — the site is authored at the project root; there is no `public/` or `dist/` folder to emit |
 
 `tools/vercel-config.js` is a dependency-free Node script and the whole build step:
 
