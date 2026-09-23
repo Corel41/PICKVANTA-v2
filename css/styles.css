@@ -818,7 +818,7 @@ footer{
   max-width:360px;
   margin:0;
 }
-.footer-col h4{
+.footer-col h2{
   margin:0 0 14px;
   font-size:12px;
   letter-spacing:.08em;
@@ -2791,3 +2791,30 @@ a.compare-btn{text-decoration:none}
   display:block;
 }
 .media-img-fallback{object-fit:contain;background:var(--surface-2)}
+
+/* ==========================================================================
+   STEP 7 — domain model
+   Two small additions: the guide card lists the demo listings a guide
+   discusses (styled like the existing guide footnote), and the skip link
+   becomes visible when a keyboard user focuses it.
+   ========================================================================== */
+
+a.visually-hidden:focus{
+  position:fixed!important;
+  top:10px;left:10px;
+  width:auto;height:auto;
+  margin:0;padding:10px 16px;
+  overflow:visible;clip:auto;white-space:normal;
+  background:var(--surface);color:var(--text);
+  border:1px solid var(--line-2);border-radius:10px;
+  box-shadow:var(--shadow-lg);font-weight:700;z-index:200;
+}
+
+.guide-related{
+  margin:10px 0 0;
+  font-size:12.5px;
+  line-height:1.6;
+  color:var(--muted);
+}
+.guide-related a{color:var(--accent);font-weight:650}
+.guide-related a:hover{color:var(--accent-hover)}

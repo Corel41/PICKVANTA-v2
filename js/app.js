@@ -48,7 +48,7 @@ PV.util.ready(function () {
     const heroCount = U.$('#heroOptionCount');
     if (heroCount) heroCount.textContent = heroIds.length + ' options';
     heroList.innerHTML = PV.store.items(heroIds).map(function (record) {
-      const facts = (record.attributes || [])
+      const facts = (record.specifications || [])
         .map(function (a) { return String(a.value || '').split(',')[0].trim(); })
         .filter(function (v) { return v && v.length <= 16; })
         .slice(0, 3);
@@ -56,7 +56,7 @@ PV.util.ready(function () {
       return (
         '<div class="option">' +
         '<div class="option-main">' +
-        '<div class="option-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</div>' +
+        '<div class="option-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</div>' +
         '<div class="option-meta">' +
         '<div class="option-name">' + U.esc(shortName) + '</div>' +
         '<div class="option-spec">' + U.esc((record.brand || U.sellerLabel(record)) + ' · ' + U.priceText(record)) + '</div>' +
@@ -88,7 +88,7 @@ PV.util.ready(function () {
   const dealHost = U.$('#homeDeals');
   if (dealHost) {
     const deals = PV.store.home().deals;
-    dealHost.innerHTML = deals.map(function (record) { return PV.card.deal(record); }).join('');
+    dealHost.innerHTML = deals.map(function (record) { return PV.card.offer(record); }).join('');
   }
 
   /* ------------------------------------------------------ explore by need */
@@ -136,7 +136,7 @@ PV.util.ready(function () {
     recentSection.hidden = false;
     recentHost.innerHTML = items.map(function (record) {
       return '<a class="recent-item" href="' + U.esc(PV.hrefDetail(record.id)) + '">' +
-        '<span class="recent-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</span>' +
+        '<span class="recent-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</span>' +
         '<span class="recent-text">' +
           '<strong>' + U.esc(record.name) + '</strong>' +
           '<small>' + U.esc(U.typeLabel(record.type)) + ' · ' + U.esc(U.categoryLabel(record.category)) + ' · ' + U.esc(U.priceText(record)) + '</small>' +

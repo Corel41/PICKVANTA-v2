@@ -20,7 +20,7 @@ PV.util.ready(function () {
   if (stat) {
     const stats = PV.store.stats();
     stat.innerHTML =
-      '<span><b>' + stats.items + '</b> demo records</span>' +
+      '<span><b>' + stats.listings + '</b> demo records</span>' +
       '<span><b>' + stats.products + '</b> products</span>' +
       '<span><b>' + stats.services + '</b> services</span>' +
       '<span><b>' + stats.offers + '</b> deals</span>';

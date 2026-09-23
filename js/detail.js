@@ -1,7 +1,7 @@
 /* ==========================================================================
    PickVanta — Detail view (detail.html?id=…)
    One reusable detail template for any record type: product, service or an
-   item that carries a deal. Nothing on this page is item-specific — every
+   item that carries an offer. Nothing on this page is item-specific — every
    block is driven by the record from js/data.js.
    ========================================================================== */
 PV.util.ready(function () {
@@ -26,6 +26,7 @@ PV.util.ready(function () {
       '<div class="shell">' +
       PV.card.empty({
         icon: '🧭',
+        level: 1,
         title: 'That item is not in the demo dataset',
         text: 'The link may be old, or the item id is not part of this stage’s demo content. Browse Discover to pick another option.',
         actions: [
@@ -39,12 +40,13 @@ PV.util.ready(function () {
 
   document.title = record.name + ' | PickVanta';
 
-  const status = U.statusInfo(record.status);
-  const deal = record.deal;
-  const dealState = U.dealState(record);
+  const availability = U.availabilityInfo(record.availability);
+  const offer = record.offer;
+  const image = U.primaryImage(record) || {};
+  const offerState = U.offerState(record);
   const saved = U.savings(record);
   const category = PV.store.category(record.category);
-  const currency = (record.price && record.price.currency) || 'KES';
+  const currency = record.currency || U.defaultCurrency();
   const considerationGroups = PV.store.considerations(record);
   const goodToKnowNotes = PV.store.goodToKnow(record);
   const relatedMatches = PV.store.related(record, 4);
@@ -62,7 +64,7 @@ PV.util.ready(function () {
   /* --------------------------------------------- grouped specifications */
   function attributeSections() {
     const groups = [];
-    (record.attributes || []).forEach(function (a) {
+    (record.specifications || []).forEach(function (a) {
       const name = a.group || 'Specifications';
       let g = groups.find(function (x) { return x.name === name; });
       if (!g) {
@@ -81,7 +83,7 @@ PV.util.ready(function () {
   function quickFacts() {
     const facts = [];
     const attr = function (label) {
-      const found = (record.attributes || []).find(function (a) { return a.label === label; });
+      const found = (record.specifications || []).find(function (a) { return a.label === label; });
       return found ? found.value : '';
     };
     const push = function (label, value) {
@@ -104,21 +106,21 @@ PV.util.ready(function () {
     } else {
       /* One representative specification, taken straight from the record, plus
          the practical ownership details when the record states them. */
-      const firstSpec = (record.attributes || [])[0];
+      const firstSpec = (record.specifications || [])[0];
       if (firstSpec) push('Key specification', firstSpec.label + ': ' + firstSpec.value);
       push('Condition', attr('Condition'));
       push('Warranty', attr('Warranty'));
     }
-    push('Offer', deal ? (deal.headline || U.dealKindLabel(deal)) : 'No demo offer on this record');
+    push('Offer', offer ? (offer.title || U.offerKindLabel(offer)) : 'No demo offer on this record');
     return facts;
   }
 
   /* Highlights come from the record's own highlights[] when it has them.
-     Otherwise they are read straight off the structured attributes, so nothing
+     Otherwise they are read straight off the structured specifications, so nothing
      is invented and there is no second content source. */
   function highlightList() {
     if (record.highlights && record.highlights.length) return record.highlights.slice(0, 5);
-    return (record.attributes || []).map(function (a) { return a.value; }).filter(Boolean).slice(0, 5);
+    return (record.specifications || []).map(function (a) { return a.value; }).filter(Boolean).slice(0, 5);
   }
 
   /* --------------------------------------------------- compare shortcuts */
@@ -128,7 +130,7 @@ PV.util.ready(function () {
   const compareIds = [record.id].concat(similar.slice(0, 2).map(function (i) { return i.id; }));
   const compareHref = 'compare.html?ids=' + encodeURIComponent(compareIds.join(','));
 
-  const multi = (record.attributes || []).length ? attributeSections() : [];
+  const multi = (record.specifications || []).length ? attributeSections() : [];
 
   host.innerHTML =
     /* ---------------------------------------------------------- top area */
@@ -136,12 +138,13 @@ PV.util.ready(function () {
       '<div class="shell">' +
         '<div class="detail-grid">' +
           '<div class="detail-media-wrap">' +
-            '<div class="detail-media"' + (record.image && record.image.gradient ? ' style="background:' + record.image.gradient + '"' : '') + '>' +
-              (record.image && record.image.src
-                ? '<img src="' + U.esc(record.image.src) + '" alt="' + U.esc(record.image.alt || record.name) + '" />'
-                : '<span class="detail-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</span>') +
+            '<div class="detail-media"' + (image.gradient ? ' style="background:' + image.gradient + '"' : '') + '>' +
+              (image.src
+                ? '<img class="media-img" src="' + U.esc(image.src) + '" alt="' + U.esc(image.alt || record.name) + '" loading="lazy" decoding="async" />' +
+                  '<span class="detail-icon" aria-hidden="true" hidden>' + U.esc(image.icon || '📦') + '</span>'
+                : '<span class="detail-icon" aria-hidden="true">' + U.esc(image.icon || '📦') + '</span>') +
               '<span class="type-flag">' + U.esc(U.typeLabel(record.type)) + '</span>' +
-              (deal ? '<span class="discount">-' + deal.discountPercent + '% · Demo</span>' : record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + ' flag-right">' + U.esc(record.badge.label) + '</span>' : '') +
+              (offer ? '<span class="discount">-' + offer.discountPercent + '% · Demo</span>' : record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + ' flag-right">' + U.esc(record.badge.label) + '</span>' : '') +
             '</div>' +
             '<p class="media-note">Image placeholder — demo records use a colour tile until real media exists.</p>' +
           '</div>' +
@@ -160,8 +163,8 @@ PV.util.ready(function () {
             '<div class="detail-price-row">' +
               '<span class="detail-price">' + U.esc(U.priceText(record)) + '</span>' +
               '<span class="price-note">Illustrative demo price</span>' +
-              (deal && deal.referencePrice ? '<span class="price-old">' + U.esc(U.money(deal.referencePrice, currency)) + '</span>' : '') +
-              (!deal && record.referencePrice ? '<span class="price-old">ref. ' + U.esc(U.money(record.referencePrice, currency)) + '</span>' : '') +
+              (offer && offer.originalPrice != null ? '<span class="price-old">' + U.esc(U.money(offer.originalPrice, currency)) + '</span>' : '') +
+              (!offer && record.referencePrice != null ? '<span class="price-old">ref. ' + U.esc(U.money(record.referencePrice, currency)) + '</span>' : '') +
               (saved ? '<span class="save-pill">Save ' + U.esc(saved) + ' (demo)</span>' : '') +
             '</div>' +
 
@@ -170,18 +173,17 @@ PV.util.ready(function () {
               (record.brand ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Brand</dt><dd>' + U.esc(record.brand) + '</dd></div>' : '') +
               '<div><dt><span class="fact-icon" aria-hidden="true">📍</span>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>' + U.esc(U.typeLabel(record.type)) + (record.subcategory ? ' <small>· ' + U.esc(record.subcategory) + '</small>' : '') + '</dd></div>' +
-              '<div><dt><span class="fact-icon" aria-hidden="true">🗓</span>Availability</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span> <small>(' + U.esc(status.help) + ')</small></dd></div>' +
-              '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.listedAt)) + ' <small>· demo record</small></dd></div>' +
-              (record.rating ? '<div><dt><span class="fact-icon" aria-hidden="true">★</span>Demo rating</dt><dd>' + record.rating.value.toFixed(1) + ' <small>from ' + record.rating.count + ' demo reviews</small></dd></div>' : '') +
-              (deal && dealState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(dealState.tone) + '">' + U.esc(dealState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🗓</span>Availability</dt><dd><span class="status-pill ' + U.esc(availability.tone) + '">' + U.esc(availability.label) + '</span> <small>(' + U.esc(availability.help) + ')</small></dd></div>' +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.createdAt)) + ' <small>· demo record</small></dd></div>' +
+              (offer && offerState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(offerState.tone) + '">' + U.esc(offerState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
               /* Services state where they work and how long they take; products
                  do not get these rows at all. */
               (function () {
-                const area = (record.attributes || []).find(function (a) { return a.label === 'Service area'; });
+                const area = U.serviceAreaText(record);
                 return area ? '<div><dt><span class="fact-icon" aria-hidden="true">🗺</span>Service area</dt><dd>' + U.esc(area.value) + '</dd></div>' : '';
               })() +
               (function () {
-                const turn = (record.attributes || []).find(function (a) { return a.label === 'Turnaround' || a.label === 'Timeline'; });
+                const turn = (record.specifications || []).find(function (a) { return a.label === 'Turnaround' || a.label === 'Timeline'; });
                 return turn ? '<div><dt><span class="fact-icon" aria-hidden="true">⏱</span>' + U.esc(turn.label) + '</dt><dd>' + U.esc(turn.value) + '</dd></div>' : '';
               })() +
             '</dl>' +
@@ -223,7 +225,7 @@ PV.util.ready(function () {
               '<button type="button" class="btn-primary btn-large compare-btn" data-compare-toggle="' + U.esc(record.id) + '" data-compare-name="' + U.esc(record.name) + '" aria-pressed="false">' +
                 '<span class="cmp-btn-icon" aria-hidden="true">+</span><span class="cmp-btn-label">Compare</span>' +
               '</button>' +
-              (deal ? '<a class="btn-secondary btn-large" href="#dealBox">View deal</a>' : '') +
+              (offer ? '<a class="btn-secondary btn-large" href="#dealBox">View offer</a>' : '') +
               (related.length ? '<a class="btn-secondary btn-large" href="#related">Explore similar options</a>' : '') +
               '<button type="button" class="btn-ghost btn-large" data-later="Saving items">Save</button>' +
               '<button type="button" class="btn-ghost btn-large" data-later="Seller contact">Contact seller</button>' +
@@ -250,14 +252,14 @@ PV.util.ready(function () {
             '<div class="seller-avatar" aria-hidden="true">' + U.esc(U.sellerLabel(record).charAt(0)) + '</div>' +
             '<div>' +
               '<strong>' + U.esc(U.sellerLabel(record)) + '</strong>' +
-              '<span>' + U.esc(record.seller ? record.seller.type : 'Seller') + (record.seller && record.seller.rating ? ' · ★ ' + record.seller.rating.toFixed(1) + ' (demo)' : '') + '</span>' +
+              '<span>' + U.esc(record.seller ? record.seller.typeLabel : 'Seller') + '</span>' +
             '</div>' +
           '</div>' +
           '<dl class="detail-facts compact">' +
             '<div><dt>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
-            '<div><dt>Current status</dt><dd><span class="status-pill ' + U.esc(status.tone) + '">' + U.esc(status.label) + '</span></dd></div>' +
+            '<div><dt>Current availability</dt><dd><span class="status-pill ' + U.esc(availability.tone) + '">' + U.esc(availability.label) + '</span></dd></div>' +
           '</dl>' +
-          '<p class="panel-note">Demo seller: the name, rating and verification badge are invented for this interface. PickVanta does not contact sellers, verify providers or check stock in this build.</p>' +
+          '<p class="panel-note">Demo seller: the name is invented for this interface, and PickVanta keeps no contact details. PickVanta does not contact sellers, verify providers, publish ratings or check stock in this build.</p>' +
           '<button type="button" class="btn-secondary btn-block" data-later="Seller contact">Contact seller (demo)</button>' +
           (similar.length
             ? '<a class="btn-secondary btn-block" href="' + U.esc(compareHref) + '">Compare with ' + similar.length + ' similar option' + (similar.length === 1 ? '' : 's') + '</a>'
@@ -267,32 +269,32 @@ PV.util.ready(function () {
     '</section>' +
 
     /* -------------------------------------------------------- deal block */
-    (deal
+    (offer
       ? '<section class="section" id="dealBox" aria-labelledby="deal-title">' +
           '<div class="shell">' +
             '<div class="deal-box">' +
               '<div class="deal-box-main">' +
                 '<span class="deal-flag">Special offer · demo</span>' +
                 '<h2 id="deal-title">Offer attached to ' + U.esc(record.name) + '</h2>' +
-                (deal.headline ? '<p class="deal-headline">' + U.esc(deal.headline) + '</p>' : '') +
+                (offer.title ? '<p class="deal-headline">' + U.esc(offer.title) + '</p>' : '') +
                 '<p class="deal-sub">The offer changes the price of this ' + U.esc(record.type) + ' — it is not a separate item.</p>' +
                 '<h3 class="deal-sub-title">Price</h3>' +
                 '<div class="deal-terms">' +
-                  '<div><span>Deal price (demo)</span><strong>' + U.esc(U.money(deal.dealPrice, currency)) + (record.price && record.price.unit ? '/' + (U.UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</strong></div>' +
-                  '<div><span>Reference price</span><strong>' + U.esc(U.money(deal.referencePrice, currency)) + '</strong></div>' +
-                  '<div><span>Discount</span><strong>-' + deal.discountPercent + '%</strong></div>' +
+                  '<div><span>Offer price (demo)</span><strong>' + U.esc(U.money(offer.offerPrice, currency)) + U.esc(U.priceUnitSuffix(record.price && record.price.priceType)) + '</strong></div>' +
+                  '<div><span>Original price</span><strong>' + U.esc(U.money(offer.originalPrice, currency)) + '</strong></div>' +
+                  '<div><span>Discount</span><strong>-' + offer.discountPercent + '%</strong></div>' +
                 '</div>' +
                 '<h3 class="deal-sub-title">Offer</h3>' +
                 '<div class="deal-terms">' +
-                  '<div><span>Offer type</span><strong>' + U.esc(U.dealKindLabel(deal)) + '</strong></div>' +
-                  '<div><span>Valid from</span><strong>' + U.esc(U.formatDate(deal.validFrom)) + '</strong></div>' +
-                  '<div><span>Valid to</span><strong>' + U.esc(U.formatDate(deal.validTo)) + '</strong></div>' +
-                  '<div><span>Status</span><strong>' + U.esc(dealState ? dealState.label : 'Demo offer') + '</strong></div>' +
+                  '<div><span>Offer type</span><strong>' + U.esc(U.offerKindLabel(offer)) + '</strong></div>' +
+                  '<div><span>Starts</span><strong>' + U.esc(U.formatDate(offer.startsAt)) + '</strong></div>' +
+                  '<div><span>Ends</span><strong>' + U.esc(U.formatDate(offer.endsAt)) + '</strong></div>' +
+                  '<div><span>Status</span><strong>' + U.esc(offerState ? offerState.label : 'Demo offer') + '</strong></div>' +
                 '</div>' +
                 '<h3 class="deal-sub-title">Important context</h3>' +
                 '<p class="deal-context">This is a demonstration offer. PickVanta does not process the transaction — there is no checkout, no payment and no order. Prices are illustrative, and the reference price is an invented comparison figure rather than a checked market price.</p>' +
-                (deal.conditions && deal.conditions.length
-                  ? '<div class="deal-conditions"><h3>Conditions (demo)</h3><ul>' + deal.conditions.map(function (c) { return '<li>' + U.esc(c) + '</li>'; }).join('') + '</ul></div>'
+                (offer.conditions.length
+                  ? '<div class="deal-conditions"><h3>Conditions (demo)</h3><ul>' + offer.conditions.map(function (c) { return '<li>' + U.esc(c) + '</li>'; }).join('') + '</ul></div>'
                   : '') +
                 '<p class="deal-disclaimer">This offer is invented for interface demonstration. It is not available, not checked against live pricing, and cannot be claimed.</p>' +
               '</div>' +

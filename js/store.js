@@ -1,38 +1,52 @@
 /* ==========================================================================
    PickVanta — data access layer (js/store.js)
    --------------------------------------------------------------------------
-   The single boundary between the interface and whatever is supplying the
-   catalogue. Pages and controllers never read the demo dataset directly; they
-   ask this module for records, and this module decides where they come from:
+   The single boundary between the interface and whatever supplies the
+   catalogue. Pages and controllers never read a data source directly; they ask
+   this module, and this module decides where records come from:
 
-       page → controller → PV.store → js/data.js   (today, synchronous demo data)
-       page → controller → PV.store → API → DB     (later, asynchronous)
+       page → controller → store.js → domain.js (model) → js/data.js   (today)
+       page → controller → store.js → domain.js (model) → API → DB     (later)
 
-   Only `demoAdapter` below knows that `js/data.js` exists. To move to a real
-   backend, write another adapter with the same five methods and hand it to
-   `store.use(adapter)` — nothing above this file has to change.
+   Only `demoAdapter` knows that `js/data.js` exists. A backend adapter
+   implements the same three methods (catalogue / guides / meta) and is handed
+   to `store.use(adapter)`; nothing above this file changes.
 
-   Everything here is deterministic: no scoring, no ranking, no recommendation.
+   MODEL
+     Records are normalised and validated against js/domain.js. Anything that
+     cannot be a listing is excluded from every result and reported through
+     `store.diagnostics()` — one malformed record never breaks the catalogue.
+
+   LIFECYCLE
+     `status` is draft | published | archived. Only *published* listings are
+     readable: they are the only records that appear in results, deals, related
+     options, curated selections, counts or by-id lookups.
+
+   No DOM, no network, no user state (the compare selection and recently viewed
+   lists are browser-local and live in js/core.js).
    ========================================================================== */
 window.PV = window.PV || {};
 
 window.PV.store = (function () {
   'use strict';
 
+  const Dm = window.PV.domain;
+  if (!Dm) throw new Error('PickVanta: js/domain.js must load before js/store.js');
+
   /* ---------------------------------------------------------- adapter ---- */
-  /* The demo adapter reads the global that js/data.js publishes. An API
-     adapter would fetch the same shapes; `isAsync: true` tells the UI to show
-     its loading state while it waits. */
   const demoAdapter = {
     kind: 'demo',
     isAsync: false,
     catalogue: function () {
       const data = window.PICKVANTA_DATA || {};
-      return Array.isArray(data.items) ? data.items : [];
-    },
-    guides: function () {
-      const data = window.PICKVANTA_DATA || {};
-      return Array.isArray(data.guides) ? data.guides : [];
+      return {
+        taxonomy: Dm.asArray(data.taxonomy),
+        locations: Dm.asArray(data.locations),
+        sellers: Dm.asArray(data.sellers),
+        listings: Dm.asArray(data.listings),
+        offers: Dm.asArray(data.offers),
+        guides: Dm.asArray(data.guides)
+      };
     },
     meta: function () {
       return window.PICKVANTA_DATA || {};
@@ -42,375 +56,334 @@ window.PV.store = (function () {
   let adapter = demoAdapter;
 
   /* ------------------------------------------------------- diagnostics --- */
-  /* Records that could not be normalised are reported here instead of being
-     silently dropped or rendered as "undefined". Nothing in the UI shows this;
-     it exists so problems are visible rather than hidden. */
+  /* Every problem found while reading the source is collected here — never
+     thrown, never rendered. `store.diagnostics()` exposes the list. */
   let diagnostics = [];
-  const note = (kind, detail) => diagnostics.push({ kind: kind, detail: detail });
-
-  /* ---------------------------------------------------------- helpers ---- */
-  const str = (value) => (value == null ? '' : String(value));
-  const trim = (value) => str(value).trim();
-  const asArray = (value) => (Array.isArray(value) ? value : []);
-
-  /** Stable, human-readable id derived from a name — the future foreign key. */
-  const slug = (value, prefix) =>
-    (prefix || '') + str(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-  const CURRENCY_SYMBOL = { KES: 'KSh ', EUR: '€', USD: '$', GBP: '£' };
-  const UNIT_LABEL = {
-    month: 'month', night: 'night', year: 'year', visit: 'visit',
-    session: 'session', lesson: 'lesson', day: 'day', hour: 'hour', week: 'week', person: 'person'
+  const note = (severity, code, message, ref) => {
+    diagnostics.push({ severity: severity, code: code, message: message, ref: ref || null });
   };
-  const DEAL_KIND_LABEL = {
-    percentage: 'Percentage discount',
-    'fixed-price': 'Fixed-price offer',
-    package: 'Service package',
-    bundle: 'Bundle offer',
-    limited: 'Limited-time offer',
-    billing: 'Billing discount',
-    introductory: 'Introductory price'
+  const collect = (ref, issues) => {
+    Dm.asArray(issues).forEach((i) => note(i.severity, i.code, i.message, i.ref || ref || null));
   };
-  const TYPE_LABEL = { product: 'Product', service: 'Service' };
-  const FALLBACK_STATUSES = [
-    { code: 'available', label: 'Available', tone: 'ok', help: '' },
-    { code: 'by-appointment', label: 'By appointment', tone: 'info', help: '' },
-    { code: 'limited', label: 'Limited', tone: 'warn', help: '' },
-    { code: 'unavailable', label: 'Unavailable', tone: 'muted', help: '' }
-  ];
 
-  const humanise = (code) => trim(code).replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-  /* ------------------------------------------------------- normalising --- */
-  /* The catalogue model. Optional blocks are filled with safe defaults so the
-     UI never has to test for their absence, and no field can render as
-     undefined/null/NaN. */
-  function normalizePrice(price) {
-    const p = price && typeof price === 'object' ? price : {};
-    const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
-    return {
-      amount: num(p.amount),
-      min: num(p.min),
-      max: num(p.max),
-      currency: trim(p.currency) || 'KES',
-      unit: trim(p.unit) || null
-    };
-  }
-
-  function normalizeSeller(seller) {
-    const s = seller && typeof seller === 'object' ? seller : {};
-    const name = trim(s.name) || 'Demo seller';
-    if (!trim(s.name)) note('seller-name-missing', name);
-    return {
-      id: trim(s.id) || slug(name, 'seller-'),
-      name: name,
-      type: trim(s.type) || (s.id ? 'Provider' : 'Demo seller'),
-      rating: typeof s.rating === 'number' ? s.rating : null,
-      verified: !!s.verified,
-      demo: true
-    };
-  }
-
-  function normalizeLocation(location) {
-    const l = location && typeof location === 'object' ? location : {};
-    return {
-      city: trim(l.city) || 'Location not stated',
-      country: trim(l.country) || '',
-      format: trim(l.format) || 'unspecified'
-    };
-  }
-
-  function normalizeImage(image, name) {
-    const i = image && typeof image === 'object' ? image : {};
-    return {
-      icon: trim(i.icon) || '📦',
-      gradient: trim(i.gradient) || '',
-      /* A remote URL is optional: the UI renders an <img> when one exists and
-         falls back to the icon tile (or the local placeholder) when it does
-         not load. No image service is involved. */
-      src: trim(i.src) || null,
-      alt: trim(i.alt) || trim(name) || 'Listing image'
-    };
-  }
-
-  function normalizeAttributes(attributes) {
-    return asArray(attributes)
-      .map((a) => ({
-        label: trim(a && a.label),
-        value: trim(a && a.value),
-        group: trim(a && a.group) || 'Specifications'
-      }))
-      .filter((a) => a.label && a.value);
-  }
-
-  /* Deals stay attached to their item — an offer is never a second product.
-     The normalised offer carries the ids a real API will need later. */
-  function normalizeOffer(deal, item) {
-    if (!deal || typeof deal !== 'object') return null;
-    const dealPrice = deal.dealPrice == null ? null : Number(deal.dealPrice);
-    const referencePrice = deal.referencePrice == null ? null : Number(deal.referencePrice);
-    const derived = dealPrice != null && referencePrice ? Math.round(((referencePrice - dealPrice) / referencePrice) * 100) : 0;
-    return {
-      id: trim(deal.id) || 'offer-' + item.id,
-      itemId: item.id,
-      kind: trim(deal.kind) || 'offer',
-      headline: trim(deal.headline),
-      dealPrice: dealPrice,
-      referencePrice: referencePrice,
-      discountPercent: Number.isFinite(Number(deal.discountPercent)) && deal.discountPercent != null ? Number(deal.discountPercent) : derived,
-      currency: (item.price && item.price.currency) || 'KES',
-      validFrom: trim(deal.validFrom) || null,
-      validTo: trim(deal.validTo) || null,
-      conditions: asArray(deal.conditions).map(trim).filter(Boolean),
-      sellerId: item.sellerId,
-      location: item.location,
-      status: trim(deal.status) || null,
-      demo: true
-    };
-  }
-
-  /**
-   * One normalised catalogue record. Unknown extra fields are preserved so a
-   * future API can add to the model without breaking older pages.
-   */
-  function normalizeItem(raw) {
-    if (!raw || typeof raw !== 'object') {
-      note('record-not-an-object', String(raw));
-      return null;
-    }
-    const id = trim(raw.id);
-    const name = trim(raw.name);
-    if (!id || !name) {
-      note('record-missing-id-or-name', id || name || '(unnamed)');
-      return null;
-    }
-    /* type is explicit data, never inferred from a name or category. A record
-       that states neither is treated as a product and reported. */
-    let type = trim(raw.type);
-    if (type !== 'product' && type !== 'service') {
-      note('record-type-missing-or-invalid', id + ' → ' + (type || '(none)'));
-      type = 'product';
-    }
-    const seller = normalizeSeller(raw.seller);
-    const item = Object.assign({}, raw, {
-      id: id,
-      name: name,
-      type: type,
-      brand: trim(raw.brand),
-      category: trim(raw.category) || 'uncategorised',
-      subcategory: trim(raw.subcategory),
-      shortDescription: trim(raw.shortDescription),
-      description: trim(raw.description) || trim(raw.shortDescription),
-      price: normalizePrice(raw.price),
-      referencePrice: raw.referencePrice == null ? null : Number(raw.referencePrice),
-      location: normalizeLocation(raw.location),
-      seller: seller,
-      /* Future seller/provider accounts will reference these ids. */
-      sellerId: seller.id,
-      image: normalizeImage(raw.image, name),
-      attributes: normalizeAttributes(raw.attributes),
-      tags: asArray(raw.tags).map((t) => trim(t).toLowerCase()).filter(Boolean),
-      highlights: asArray(raw.highlights).map(trim).filter(Boolean),
-      status: trim(raw.status) || 'available',
-      listedAt: trim(raw.listedAt) || null,
-      badge: raw.badge && raw.badge.label ? { label: trim(raw.badge.label), tone: trim(raw.badge.tone) || 'neutral' } : null,
-      rating: raw.rating && typeof raw.rating.value === 'number' ? { value: raw.rating.value, count: raw.rating.count || 0, demo: true } : null
-    });
-    item.deal = normalizeOffer(raw.deal, item);
-    /* A record may name a type that disagrees with its category list; that is
-       the dataset's business, not an inference here — it is reported only so a
-       swapped-in API is easy to check. */
-    return item;
-  }
-
-  function normalizeGuide(raw) {
-    if (!raw || typeof raw !== 'object') {
-      note('guide-not-an-object', String(raw));
-      return null;
-    }
-    const id = trim(raw.id);
-    const title = trim(raw.title);
-    if (!id || !title) {
-      note('guide-missing-id-or-title', id || title || '(untitled)');
-      return null;
-    }
-    const link = raw.link && trim(raw.link.href) ? { label: trim(raw.link.label) || 'Explore the catalogue', href: trim(raw.link.href) } : null;
-    return Object.assign({}, raw, {
-      id: id,
-      title: title,
-      question: trim(raw.question),
-      category: trim(raw.category) || 'guides',
-      icon: trim(raw.icon) || '📘',
-      summary: trim(raw.summary),
-      readTime: trim(raw.readTime) || 'Outline',
-      level: trim(raw.level) || 'All levels',
-      covers: asArray(raw.covers).map(trim).filter(Boolean),
-      link: link
-    });
-  }
-
-  /* ------------------------------------------------------------ loading -- */
-  /* Reads the adapter once and normalises everything. `store.use(other)` and
-     `store.reload()` exist so an API adapter can drop in without a rewrite. */
-  let CATALOGUE = [];
+  /* ------------------------------------------------------------- load ---- */
+  let TAXONOMY = [];
+  let LOCATIONS = [];
+  let ALL_LISTINGS = [];       /* every parsed listing, whatever its status   */
+  let LISTINGS = [];           /* published listings — the readable catalogue */
+  let OFFERS = [];
   let GUIDES = [];
   let META = {};
-  let byId = new Map();
+  const listingById = new Map();
+  const offerById = new Map();
+  const guideById = new Map();
 
   function load() {
     diagnostics = [];
-    const rawItems = adapter.catalogue();
-    const rawGuides = adapter.guides();
-    const rawMeta = adapter.meta() || {};
-    const seen = new Set();
+    const raw = adapter.catalogue() || {};
+    META = adapter.meta() || {};
 
-    CATALOGUE = [];
-    asArray(rawItems).forEach(function (raw) {
-      const item = normalizeItem(raw);
-      if (!item) return;
-      if (seen.has(item.id)) {
-        note('duplicate-record-id', item.id);
+    /* ---- taxonomy (categories + subcategories) -------------------------- */
+    TAXONOMY = Dm.asArray(raw.taxonomy).map(Dm.normalizeCategory).filter((c) => !!c.slug);
+    collect(null, Dm.validateTaxonomy(TAXONOMY).issues);
+
+    /* ---- locations ------------------------------------------------------ */
+    LOCATIONS = Dm.asArray(raw.locations)
+      .map((l, idx) => ({
+        id: Dm.trim(l && l.id) || 'loc-' + (idx + 1),
+        label: Dm.trim(l && l.label) || Dm.trim(l && l.city) || 'Unnamed place',
+        city: Dm.trim(l && l.city),
+        county: Dm.trim(l && l.county),
+        country: Dm.trim(l && l.country),
+        format: Dm.LOCATION_FORMATS.indexOf(Dm.trim(l && l.format)) !== -1 ? Dm.trim(l && l.format) : 'unspecified'
+      }))
+      .filter((l) => !!l.id);
+
+    /* ---- sellers -------------------------------------------------------- */
+    const sellerIds = [];
+    const sellerById = new Map();
+    const sellerRecords = Dm.asArray(raw.sellers).map(function (s) {
+      const seller = Dm.normalizeSeller(s, TAXONOMY);
+      collect(seller.id, Dm.validateSeller(seller).issues);
+      if (sellerIds.indexOf(seller.id) === -1) sellerIds.push(seller.id);
+      sellerById.set(seller.id, seller);
+      return seller;
+    }).filter((s) => {
+      if (s.status !== 'published') {
+        note('info', 'seller-unpublished', 'Seller "' + s.id + '" is not published, so its listings keep no reference.', s.id);
+        return false;
+      }
+      return true;
+    });
+
+    /* ---- listings ------------------------------------------------------- */
+    ALL_LISTINGS = [];
+    const listingIds = [];
+    const seenIds = new Set();
+    Dm.asArray(raw.listings).forEach(function (r) {
+      const result = Dm.normalizeListing(r, { taxonomy: TAXONOMY, sellerIds: sellerIds });
+      collect(r && r.id, result.issues);
+      if (!result.listing) return;
+      const validation = Dm.validateListing(result.listing);
+      collect(result.listing.id, validation.issues);
+      if (!validation.valid) {
+        note('error', 'listing-rejected', 'Listing "' + (result.listing.id || '(no id)') + '" was rejected because it is not usable.', result.listing.id || null);
         return;
       }
-      seen.add(item.id);
-      CATALOGUE.push(item);
+      if (seenIds.has(result.listing.id)) {
+        note('error', 'listing-duplicate-id', 'Listing id "' + result.listing.id + '" appears more than once; the later record was ignored.', result.listing.id);
+        return;
+      }
+      seenIds.add(result.listing.id);
+      listingIds.push(result.listing.id);
+      ALL_LISTINGS.push(result.listing);
     });
-    byId = new Map(CATALOGUE.map((i) => [i.id, i]));
 
-    GUIDES = asArray(rawGuides).map(normalizeGuide).filter(Boolean);
-
-    META = {
-      version: trim(rawMeta.version) || 'demo',
-      notice: trim(rawMeta.demoNotice) || 'Demonstration data only.',
-      priceBands: asArray(rawMeta.priceBands),
-      sortOptions: asArray(rawMeta.sortOptions),
-      locationOptions: asArray(rawMeta.locationOptions),
-      considerations: rawMeta.considerations || {},
-      goodToKnow: rawMeta.goodToKnow || {},
-      compareGroups: rawMeta.compareGroups || {},
-      compareFocus: asArray(rawMeta.compareFocus),
-      needs: asArray(rawMeta.needs),
-      popularTags: asArray(rawMeta.popularTags),
-      defaultCompareIds: asArray(rawMeta.defaultCompareIds),
-      homeFeaturedIds: asArray(rawMeta.homeFeaturedIds),
-      homeDealIds: asArray(rawMeta.homeDealIds),
-      homeGuideIds: asArray(rawMeta.homeGuideIds),
-      statuses: asArray(rawMeta.statuses),
-      types: asArray(rawMeta.types)
-    };
-
-    /* Categories and subcategories are derived from the records themselves when
-       the source does not supply them, so an API that only returns records
-       still produces a working taxonomy. */
-    const declared = asArray(rawMeta.categories);
-    const derived = [];
-    CATALOGUE.forEach(function (i) {
-      if (i.category === 'uncategorised') return;
-      if (derived.some((c) => c.slug === i.category)) return;
-      derived.push({ slug: i.category, label: humanise(i.category), icon: '📦', blurb: '' });
+    /* ---- offers (each one references its listing) ------------------------ */
+    OFFERS = [];
+    const seenOffers = new Set();
+    Dm.asArray(raw.offers).forEach(function (o) {
+      const result = Dm.normalizeOffer(o, {
+        listingIds: listingIds,
+        currency: Dm.DEFAULT_CURRENCY,
+        sellerId: ''
+      });
+      collect(o && o.id, result.issues);
+      if (!result.offer) return;
+      const validation = Dm.validateOffer(result.offer, listingIds);
+      collect(result.offer.id, validation.issues);
+      if (!validation.valid) {
+        note('error', 'offer-rejected', 'Offer "' + (result.offer.id || '(no id)') + '" was rejected.', result.offer.id || null);
+        return;
+      }
+      if (seenOffers.has(result.offer.id)) {
+        note('error', 'offer-duplicate-id', 'Offer id "' + result.offer.id + '" appears more than once.', result.offer.id);
+        return;
+      }
+      seenOffers.add(result.offer.id);
+      OFFERS.push(result.offer);
     });
-    META.categories = declared.length ? declared : derived;
-    if (!declared.length && derived.length) note('taxonomy-derived-from-records', derived.length + ' categories');
 
-    return { items: CATALOGUE.length, guides: GUIDES.length };
+    /* ---- join the provider onto each listing (a join, not duplication) --- */
+    ALL_LISTINGS.forEach(function (listing) {
+      listing.seller = listing.sellerId ? sellerById.get(listing.sellerId) || null : null;
+    });
+
+    /* ---- join offers onto listings (a join, not stored duplication) ------ */
+    const byListing = new Map();
+    OFFERS.forEach(function (offer) {
+      const listing = ALL_LISTINGS.find((l) => l.id === offer.listingId);
+      if (listing) offer.sellerId = offer.sellerId || listing.sellerId;
+      if (!byListing.has(offer.listingId) || offer.status === 'active') byListing.set(offer.listingId, offer);
+    });
+    ALL_LISTINGS.forEach(function (listing) {
+      const offer = byListing.get(listing.id) || null;
+      listing.offer = offer;
+      listing.offerId = offer ? offer.id : null;
+    });
+    OFFERS.forEach(function (offer) {
+      if (!byListing.has(offer.listingId) || byListing.get(offer.listingId).id !== offer.id) {
+        note('info', 'offer-not-attached', 'Offer "' + offer.id + '" is not the active offer shown for its listing.', offer.id);
+      }
+    });
+
+    /* ---- guides --------------------------------------------------------- */
+    GUIDES = [];
+    Dm.asArray(raw.guides).forEach(function (g) {
+      const result = Dm.normalizeGuide(g, { listingIds: listingIds });
+      collect(g && g.id, result.issues);
+      if (!result.guide) return;
+      collect(result.guide.id, Dm.validateGuide(result.guide).issues);
+      GUIDES.push(result.guide);
+    });
+
+    /* ---- config references must point at real taxonomy ------------------- */
+    const configKeyed = Object.keys(META.considerations || {})
+      .concat(Object.keys(META.goodToKnow || {}))
+      .concat(Object.keys(META.compareGroups || {}));
+    collect(null, Dm.validateConfigReferences(TAXONOMY, configKeyed).issues);
+
+    /* ---- readable catalogue: published listings only --------------------- */
+    LISTINGS = ALL_LISTINGS.filter((l) => l.status === 'published');
+    const hidden = ALL_LISTINGS.length - LISTINGS.length;
+    if (hidden) note('info', 'listings-hidden', hidden + ' listing(s) are not published and stay out of every view.');
+
+    listingById.clear();
+    LISTINGS.forEach((l) => listingById.set(l.id, l));
+    offerById.clear();
+    OFFERS.forEach((o) => offerById.set(o.id, o));
+    guideById.clear();
+    GUIDES.forEach((g) => guideById.set(g.id, g));
+
+    /* ---- version / notice ------------------------------------------------ */
+    /* Payload-level metadata is accepted as well as an adapter meta() block,
+       so an API can report its own version and notice with the data. */
+    META = Object.assign({}, META, {
+      version: Dm.trim(META.version) || Dm.trim(raw.version) || 'demo',
+      notice: Dm.trim(META.demoNotice) || Dm.trim(raw.demoNotice) || 'Demonstration data only.',
+      priceBands: Dm.asArray(META.priceBands),
+      sortOptions: Dm.asArray(META.sortOptions),
+      compareFocus: Dm.asArray(META.compareFocus),
+      compareGroups: META.compareGroups || {},
+      considerations: META.considerations || {},
+      goodToKnow: META.goodToKnow || {},
+      needs: Dm.asArray(META.needs),
+      popularTags: Dm.asArray(META.popularTags),
+      defaultCompareIds: Dm.asArray(META.defaultCompareIds),
+      homeFeaturedIds: Dm.asArray(META.homeFeaturedIds),
+      homeDealIds: Dm.asArray(META.homeDealIds),
+      homeGuideIds: Dm.asArray(META.homeGuideIds)
+    });
+
+    return { listings: LISTINGS.length, offers: OFFERS.length, guides: GUIDES.length };
   }
 
   load();
 
-  /* ------------------------------------------------------------- store --- */
+  /* ------------------------------------------------------------- API ----- */
+  /* The stable surface the pages use today and an API will satisfy tomorrow.
+     Every listing-returning call returns normalised, published listings only. */
   const store = {
     /* ---- adapter boundary ------------------------------------------------ */
-    /** Which source is in use ('demo' today, 'api' later). */
     source: () => adapter.kind,
-    /** True when the source needs to be awaited (an API adapter sets this). */
     isAsync: () => !!adapter.isAsync,
-    /** Swap in another adapter and re-read. The only hook a backend needs. */
     use(nextAdapter) {
       if (!nextAdapter || typeof nextAdapter.catalogue !== 'function') return false;
-      adapter = Object.assign({ kind: 'custom', isAsync: false, guides: () => [], meta: () => ({}) }, nextAdapter);
+      adapter = Object.assign({ kind: 'custom', isAsync: false, meta: () => ({}) }, nextAdapter);
       load();
       return true;
     },
     reload: load,
-    /** Normalisation problems found while reading the source (never rendered). */
     diagnostics: () => diagnostics.slice(),
-    /** Normalise a single raw record the same way the adapter does. */
-    normalize: normalizeItem,
+
+    /* ---- the documented API contract ------------------------------------ */
+    /** getListings({ page, pageSize, …filters }) → the paged envelope. */
+    getListings: (params) => store.query(params),
+    /** getListing(id) → one published listing, or null. */
+    getListing: (id) => {
+      const key = Dm.trim(id);
+      return key && listingById.has(key) ? listingById.get(key) : null;
+    },
+    /** searchListings(query, { page, pageSize }) → the paged envelope. */
+    searchListings: (query, params) => store.query(Object.assign({}, params || {}, { q: Dm.trim(query) })),
+    /** filterListings(filters) → the paged envelope. */
+    filterListings: (filters) => store.query(filters),
+    /** getCategories() → the taxonomy. */
+    getCategories: () => TAXONOMY.slice(),
+    /** getSubcategories(categorySlug?) → canonical subcategories. */
+    getSubcategories: (category) => store.subcategories(category).map((id) => {
+      const found = Dm.findSubcategory(TAXONOMY, category, id);
+      return found || { id: id, slug: id, label: id, category: category || '' };
+    }),
+    /** getDeals() → published listings that carry a live offer. */
+    getDeals: () => store.deals(),
+    /** getDeal(id) → one offer with its listing attached, or null. */
+    getDeal: (id) => {
+      const offer = offerById.get(Dm.trim(id));
+      if (!offer) return null;
+      const listing = store.getListing(offer.listingId);
+      return listing ? Object.assign({}, offer, { listing: listing }) : null;
+    },
+    getGuides: () => GUIDES.slice(),
+    getGuide: (id) => guideById.get(Dm.trim(id)) || null,
+    /** getRelatedListings(id, limit) → deterministic matches with reasons. */
+    getRelatedListings: (id, limit) => {
+      const listing = store.getListing(id);
+      return listing ? store.related(listing, limit) : [];
+    },
+    /** getListingsBySeller(sellerId) → everything a provider publishes here. */
+    getListingsBySeller: (sellerId) => {
+      const key = Dm.trim(sellerId);
+      return key ? LISTINGS.filter((l) => l.sellerId === key) : [];
+    },
+    getSellers: () => store.sellers(),
+    getSeller: (id) => store.sellers().find((s) => s.id === Dm.trim(id)) || null,
 
     /* ---- catalogue ------------------------------------------------------- */
-    all: () => CATALOGUE.slice(),
-    item: (id) => (id && byId.has(String(id)) ? byId.get(String(id)) : null),
-    has: (id) => !!(id && byId.has(String(id))),  /* used by the compare/recent stores' id validation */
-    items: (ids) => asArray(ids).map((id) => store.item(id)).filter(Boolean),
-    byCategory: (slug) => CATALOGUE.filter((i) => i.category === slug),
-    bySubcategory: (name) => CATALOGUE.filter((i) => i.subcategory === name),
-    byType: (type) => CATALOGUE.filter((i) => i.type === type),
-    byTag: (tag) => CATALOGUE.filter((i) => (i.tags || []).indexOf(tag) !== -1),
-    /* The two listing datasets. Discover uses the catalogue, Deals the offers. */
+    all: () => LISTINGS.slice(),
+    item: (id) => store.getListing(id),
+    items: (ids) => Dm.asArray(ids).map((id) => store.getListing(id)).filter(Boolean),
+    byCategory: (slug) => LISTINGS.filter((l) => l.category === slug),
+    /* Accepts the canonical subcategory id or its display label. */
+    bySubcategory: (value) => {
+      const key = Dm.trim(value).toLowerCase();
+      return LISTINGS.filter((l) => l.subcategory.toLowerCase() === key || Dm.slugify(l.subcategory) === key);
+    },
+    byType: (type) => LISTINGS.filter((l) => l.type === type),
+    byTag: (tag) => LISTINGS.filter((l) => l.tags.indexOf(Dm.trim(tag).toLowerCase()) !== -1),
     dataset: (name) => (name === 'deals' ? store.deals() : store.all()),
 
-    /* ---- guides ---------------------------------------------------------- */
-    guides: () => GUIDES.slice(),
-    guide: (id) => GUIDES.find((g) => g.id === id) || null,
-
     /* ---- taxonomy -------------------------------------------------------- */
-    categories: () => META.categories.slice(),
-    category: (slugSlug) => META.categories.find((c) => c.slug === slugSlug) || null,
+    categories: () => TAXONOMY.slice(),
+    category: (slug) => TAXONOMY.find((c) => c.slug === slug || c.id === slug) || null,
+    /* Subcategory values are canonical ids; labels come from the taxonomy so a
+       name is never duplicated in two places. */
     subcategories: (category) => {
-      const seen = [];
-      CATALOGUE.forEach((i) => {
-        if (!i.subcategory) return;
-        if (category && category !== 'all' && i.category !== category) return;
-        if (seen.indexOf(i.subcategory) === -1) seen.push(i.subcategory);
+      const out = [];
+      LISTINGS.forEach((l) => {
+        if (!l.subcategory) return;
+        if (category && category !== 'all' && l.category !== category) return;
+        if (out.indexOf(l.subcategory) === -1) out.push(l.subcategory);
       });
-      return seen.sort((a, b) => a.localeCompare(b));
+      return out.sort((a, b) => store.subcategoryLabel(a).localeCompare(store.subcategoryLabel(b)));
+    },
+    subcategoryLabel: (value) => {
+      const found = Dm.findSubcategory(TAXONOMY, null, value);
+      return found ? found.label : Dm.titleCase(Dm.str(value));
+    },
+    locations: () => LOCATIONS.slice(),
+    /* Filter vocabulary for locations: 'online' plus one entry per place. */
+    locationOptions: () => {
+      const options = [{ code: 'any', label: 'All locations' }, { code: 'online', label: 'Online / nationwide' }];
+      LOCATIONS.filter((l) => l.format === 'local' && l.city).forEach((l) => options.push({ code: Dm.slugify(l.city), label: l.label }));
+      return options;
     },
     tags: () => {
       const map = new Map();
-      CATALOGUE.forEach((i) => (i.tags || []).forEach((t) => map.set(t, (map.get(t) || 0) + 1)));
+      LISTINGS.forEach((l) => l.tags.forEach((t) => map.set(t, (map.get(t) || 0) + 1)));
       return [...map.entries()]
         .map(([tag, count]) => ({ tag: tag, label: store.tagLabel(tag), count: count }))
         .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
     },
-    tagExists: (tag) => !!tag && CATALOGUE.some((i) => (i.tags || []).indexOf(tag) !== -1),
-    tagLabel: (tag) => str(tag).replace(/-/g, ' '),
+    tagExists: (tag) => !!Dm.trim(tag) && LISTINGS.some((l) => l.tags.indexOf(Dm.trim(tag).toLowerCase()) !== -1),
+    tagLabel: (tag) => Dm.str(tag).replace(/-/g, ' '),
     popularTags: () => META.popularTags.slice(),
-    priceBands: () => META.priceBands.slice(),
-    sortOptions: () => META.sortOptions.slice(),
-    locationOptions: () => META.locationOptions.slice(),
-    statuses: () => (META.statuses.length ? META.statuses : FALLBACK_STATUSES).slice(),
-    types: () => (META.types.length
-      ? META.types
-      : [{ code: 'product', label: 'Product' }, { code: 'service', label: 'Service' }]).slice(),
-    sellers: () => {
-      const map = new Map();
-      CATALOGUE.forEach((i) => {
-        if (!map.has(i.seller.id)) map.set(i.seller.id, i.seller);
-      });
-      return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    /* ---- filters vocabulary --------------------------------------------- */
+    priceBands: () => META.priceBands.map((b) => ({ code: b.code, label: store.priceBandLabel(b), min: b.min, max: b.max })),
+    priceBandLabel: (band) => {
+      const b = band || {};
+      if (b.min == null && b.max == null) return 'Any price';
+      if (b.min == null) return 'Under ' + Dm.money(b.max, Dm.DEFAULT_CURRENCY);
+      if (b.max == null) return Dm.money(b.min, Dm.DEFAULT_CURRENCY) + ' and above';
+      return Dm.money(b.min, Dm.DEFAULT_CURRENCY) + ' – ' + Dm.money(b.max, Dm.DEFAULT_CURRENCY);
     },
-    stats: () => ({
-      items: CATALOGUE.length,
-      products: CATALOGUE.filter((i) => i.type === 'product').length,
-      services: CATALOGUE.filter((i) => i.type === 'service').length,
-      categories: META.categories.length,
-      subcategories: store.subcategories('all').length,
-      tags: store.tags().length,
-      guides: GUIDES.length,
-      offers: store.offers().length
-    }),
-    /* The dataset's own labelling, so a page never hard-codes the notice. */
-    notice: () => META.notice,
-    version: () => META.version,
+    sortOptions: () => META.sortOptions.slice(),
+    availabilityOptions: () => Dm.AVAILABILITY.slice(),
+    listingStatuses: () => Dm.LISTING_STATUS.slice(),
+    types: () => Dm.LISTING_TYPES.map((t) => ({ code: t, label: Dm.typeLabel(t) })),
+
+    /* ---- guides ---------------------------------------------------------- */
+    guides: () => GUIDES.filter((g) => g.status === 'published'),
+    guide: (id) => {
+      const found = guideById.get(Dm.trim(id));
+      return found && found.status === 'published' ? found : null;
+    },
+    /* Guides list decision-support copy; listings they point at are always
+       resolved through the store so a stale reference cannot break a page. */
+    guideListings: (guide) => Dm.asArray(guide && guide.relatedListingIds).map((id) => store.getListing(id)).filter(Boolean),
 
     /* ---- offers ---------------------------------------------------------- */
-    /* An offer always carries its item, so the UI can always walk
-       offer → item → details. */
-    /* Offer → underlying item → details. `item` is always attached so the UI
-       never has to look the item up again. */
-    offers: () => CATALOGUE.filter((i) => !!i.deal).map((i) => Object.assign({}, i.deal, { item: i })),
-    offer: (id) => store.offers().find((o) => o.id === id) || null,
-    deals: () => CATALOGUE.filter((i) => !!i.deal && store.dealState(i).code !== 'ended'),
+    /* Offer → underlying listing → details. `listing` is always attached. */
+    offers: () => OFFERS
+      .filter((o) => !!store.getListing(o.listingId) && o.status !== 'withdrawn')
+      .map((o) => Object.assign({}, o, { listing: store.getListing(o.listingId) })),
+    offer: (id) => store.getDeal(id),
+    offerFor: (listingId) => {
+      const listing = store.getListing(listingId);
+      return listing && listing.offer ? listing.offer : null;
+    },
+    deals: () => LISTINGS.filter((l) => !!l.offer && l.offer.status === 'active' || !!l.offer && l.offer.status === 'scheduled'),
 
     /* ---- curated selections --------------------------------------------- */
     home: () => {
@@ -427,14 +400,17 @@ window.PV.store = (function () {
     defaultCompareIds: () => META.defaultCompareIds.slice(),
 
     /* ---- decision support ------------------------------------------------ */
-    /* Subcategory guidance wins over category guidance. */
     considerations: (record) => {
       if (!record) return null;
-      return META.considerations[record.category + ':' + record.subcategory] || META.considerations[record.category] || null;
+      const key = record.category + ':' + store.subcategoryLabel(record.subcategory);
+      const byLabel = record.category + ':' + Dm.titleCase(Dm.str(record.subcategory));
+      return META.considerations[key] || META.considerations[byLabel] || META.considerations[record.category] || null;
     },
     goodToKnow: (record) => {
       if (!record) return [];
-      return META.goodToKnow[record.category + ':' + record.subcategory] || META.goodToKnow[record.category] || [];
+      const key = record.category + ':' + store.subcategoryLabel(record.subcategory);
+      const byLabel = record.category + ':' + Dm.titleCase(Dm.str(record.subcategory));
+      return META.goodToKnow[key] || META.goodToKnow[byLabel] || META.goodToKnow[record.category] || [];
     },
     compareConfig: (category) => META.compareGroups[category] || null,
     compareFocusAreas: () => META.compareFocus.slice(),
@@ -442,77 +418,81 @@ window.PV.store = (function () {
     needs: () => META.needs.slice(),
     related: (item, limit) => relatedFor(item, limit),
 
-    /* ---- presentation primitives ---------------------------------------- */
-    /* Price and label helpers live with the model they describe; the UI layer
-       re-exports them so view code has a single import surface. */
-    money: (amount, currency) => {
-      const n = Number(amount);
-      if (!isFinite(n)) return '';
-      const code = currency || 'KES';
-      return (CURRENCY_SYMBOL[code] || code + ' ') + n.toLocaleString('en-US', { maximumFractionDigits: n % 1 ? 2 : 0 });
+    /* ---- seller references ---------------------------------------------- */
+    /* Sellers with at least one published listing, so a dead reference is
+       never offered in the UI. */
+    sellers: () => {
+      const ids = [...new Set(LISTINGS.map((l) => l.sellerId).filter(Boolean))];
+      return Dm.asArray(adapter.catalogue().sellers)
+        .map((s) => Dm.normalizeSeller(s, TAXONOMY))
+        .filter((s) => ids.indexOf(s.id) !== -1)
+        .sort((a, b) => a.name.localeCompare(b.name));
     },
-    priceText: (record) => {
-      const p = record && record.price;
-      if (!p || (p.amount == null && (p.min == null || p.max == null))) return 'Price on request';
-      const unit = p.unit ? '/' + (UNIT_LABEL[p.unit] || p.unit) : '';
-      if (p.amount != null) return store.money(p.amount, p.currency) + unit;
-      return store.money(p.min, p.currency) + ' – ' + store.money(p.max, p.currency) + unit;
+
+    /* ---- reporting ------------------------------------------------------- */
+    stats: () => ({
+      listings: LISTINGS.length,
+      products: LISTINGS.filter((l) => l.type === 'product').length,
+      services: LISTINGS.filter((l) => l.type === 'service').length,
+      categories: TAXONOMY.length,
+      subcategories: store.subcategories('all').length,
+      tags: store.tags().length,
+      sellers: store.sellers().length,
+      locations: LOCATIONS.filter((l) => l.format === 'local' && l.city).length,
+      guides: store.guides().length,
+      offers: store.deals().length,
+      hidden: ALL_LISTINGS.length - LISTINGS.length
+    }),
+    notice: () => META.notice,
+    version: () => META.version,
+
+    /* ---- model primitives (re-exported so the UI has one import surface) -- */
+    money: Dm.money,
+    defaultCurrency: () => Dm.DEFAULT_CURRENCY,
+    priceText: Dm.priceText,
+    priceValue: Dm.priceValue,
+    priceUnitSuffix: Dm.priceUnitSuffix,
+    categoryLabel: (slug) => {
+      const c = TAXONOMY.find((x) => x.slug === slug);
+      return c ? c.label : Dm.categoryLabel(slug);
     },
-    priceValue: (record) => {
-      const p = record && record.price;
-      if (!p) return Number.MAX_SAFE_INTEGER;
-      if (p.amount != null) return Number(p.amount);
-      if (p.min != null) return Number(p.min);
-      return Number.MAX_SAFE_INTEGER;
-    },
-    categoryLabel: (slugValue) => {
-      const c = META.categories.find((x) => x.slug === slugValue);
-      return c ? c.label : 'Uncategorised';
-    },
-    statusInfo: (code) => store.statuses().find((s) => s.code === code) || { code: code, label: humanise(code) || 'Status not stated', tone: 'info', help: '' },
-    typeLabel: (code) => TYPE_LABEL[code] || 'Item',
-    locationLabel: (record) => {
-      const l = record && record.location;
-      if (!l) return 'Location not stated';
-      if (l.format === 'online' || l.city === 'Online') return 'Online / nationwide';
-      if (l.format === 'nationwide') return 'Nationwide (demo)';
-      return l.city + (l.country && l.country !== 'Online' ? ', ' + l.country : '');
-    },
-    sellerLabel: (record) => (record && record.seller && record.seller.name) || 'Seller not stated',
-    dealKindLabel: (deal) => (deal && deal.kind ? DEAL_KIND_LABEL[deal.kind] || 'Demo offer' : 'Demo offer'),
-    /* Deal window as data only — the UI turns this into tone and wording. */
-    dealState: (record) => {
-      const deal = record && record.deal;
-      if (!deal || !deal.validTo) return { code: 'none', daysLeft: null, validFrom: null, validTo: null };
-      const start = deal.validFrom ? new Date(deal.validFrom + 'T00:00:00') : null;
-      const end = new Date(deal.validTo + 'T23:59:59');
-      if (isNaN(end)) return { code: 'none', daysLeft: null, validFrom: deal.validFrom, validTo: deal.validTo };
-      const now = new Date();
-      const daysLeft = Math.ceil((end - now) / 86400000);
-      if (now > end) return { code: 'ended', daysLeft: daysLeft, validFrom: deal.validFrom, validTo: deal.validTo };
-      if (start && !isNaN(start) && now < start) return { code: 'upcoming', daysLeft: daysLeft, validFrom: deal.validFrom, validTo: deal.validTo };
-      if (daysLeft <= 14) return { code: 'ending', daysLeft: daysLeft, validFrom: deal.validFrom, validTo: deal.validTo };
-      return { code: 'active', daysLeft: daysLeft, validFrom: deal.validFrom, validTo: deal.validTo };
+    typeLabel: Dm.typeLabel,
+    availabilityInfo: Dm.availabilityInfo,
+    listingStatusLabel: Dm.listingStatusLabel,
+    locationLabel: Dm.locationLabel,
+    serviceAreaText: Dm.serviceAreaText,
+    sellerLabel: Dm.sellerLabel,
+    offerKindLabel: Dm.offerKindLabel,
+    formatDate: Dm.formatDate,
+    primaryImage: Dm.primaryImage,
+    /* Offer window as data; the UI adds the wording. */
+    offerState: (record) => {
+      const offer = record && record.offer;
+      if (!offer) return { code: 'none', daysLeft: null, startsAt: null, endsAt: null };
+      return {
+        code: offer.status,
+        daysLeft: Dm.offerDaysLeft(offer),
+        startsAt: offer.startsAt,
+        endsAt: offer.endsAt
+      };
     },
     savingsValue: (record) => {
-      const deal = record && record.deal;
-      if (!deal || deal.dealPrice == null || deal.referencePrice == null) return null;
-      const diff = deal.referencePrice - deal.dealPrice;
+      const offer = record && record.offer;
+      if (!offer || offer.offerPrice == null || offer.originalPrice == null) return null;
+      const diff = offer.originalPrice - offer.offerPrice;
       return diff > 0 ? diff : null;
-    },
-    UNIT_LABEL: UNIT_LABEL
+    }
   };
 
   /* ------------------------------------------------------------- search -- */
-  /* One search implementation for the whole application. Words that carry no
-     filtering value are ignored, a few everyday words map onto catalogue
-     vocabulary, and matching happens on word prefixes. */
+  /* One search implementation for the whole application. Filler words carry no
+     filtering value; a few everyday words map onto catalogue vocabulary; the
+     match itself is word-prefix based over the record's own fields. */
   const STOP_WORDS = ['a', 'an', 'and', 'the', 'for', 'with', 'to', 'of', 'in', 'on', 'my', 'me', 'i',
     'need', 'needing', 'looking', 'want', 'show', 'find', 'some', 'please', 'best', 'good', 'top'];
   const TERM_SYNONYMS = { cheap: 'budget', affordable: 'budget', inexpensive: 'budget', 'high-end': 'premium' };
 
-  /** Lower-case and normalise the spellings the catalogue mixes together. */
-  const norm = (value) => str(value).toLowerCase().replace(/wi[-\s]?fi/g, 'wifi').replace(/['’]/g, '');
+  const norm = (value) => Dm.str(value).toLowerCase().replace(/wi[-\s]?fi/g, 'wifi').replace(/['’]/g, '');
   const tokenize = (value) => norm(value).split(/[^a-z0-9]+/).filter(Boolean);
 
   function normalizeTerms(query) {
@@ -525,26 +505,32 @@ window.PV.store = (function () {
     return kept;
   }
 
+  /** Search fields come from the domain model — including the structured ones. */
+  function searchFields(record) {
+    const l = record.location || {};
+    return {
+      name: norm(record.name),
+      brand: norm(record.brand),
+      category: norm(store.categoryLabel(record.category)),
+      subcategory: norm(store.subcategoryLabel(record.subcategory)),
+      tags: norm(record.tags.join(' ')),
+      seller: norm(record.seller && record.seller.name),
+      location: norm([l.city, l.county, l.area, l.country].concat(l.serviceArea).join(' ')),
+      body: norm(record.shortDescription + ' ' + record.description),
+      specs: norm(record.specifications.map((s) => s.label + ' ' + s.value).join(' '))
+    };
+  }
+
   function search(query, list) {
-    const pool = Array.isArray(list) ? list : CATALOGUE;
-    const q = trim(query);
+    const pool = Array.isArray(list) ? list : LISTINGS;
+    const q = Dm.trim(query);
     if (!q) return pool.slice();
     const terms = normalizeTerms(q);
     if (!terms.length) return pool.slice();
 
     const scored = [];
     pool.forEach((record) => {
-      const fields = {
-        name: norm(record.name),
-        brand: norm(record.brand),
-        category: norm(store.categoryLabel(record.category)),
-        subcategory: norm(record.subcategory),
-        tags: norm((record.tags || []).join(' ')),
-        seller: norm(record.seller && record.seller.name),
-        location: norm(((record.location && record.location.city) || '') + ' ' + ((record.location && record.location.country) || '')),
-        body: norm((record.shortDescription || '') + ' ' + (record.description || '')),
-        specs: norm((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' '))
-      };
+      const fields = searchFields(record);
       const tokens = {};
       Object.keys(fields).forEach((key) => { tokens[key] = tokenize(fields[key]); });
 
@@ -562,17 +548,15 @@ window.PV.store = (function () {
         const strongScore = hit('name', 12, term) + hit('brand', 9, term) + hit('category', 7, term) +
           hit('subcategory', 6, term) + hit('tags', 5, term);
         const weakScore = hit('seller', 5, term) + hit('location', 4, term) + hit('body', 3, term) + hit('specs', 2, term);
-        const termScore = strongScore + weakScore;
-        if (termScore) matched++;
+        if (strongScore + weakScore) matched++;
         if (strongScore) strong = true;
-        score += termScore;
+        score += strongScore + weakScore;
       });
 
       if (!matched) return;
       if (fields.name.indexOf(norm(q)) !== -1) score += 6;
       if (terms.length > 1 && terms.every((t) => fields.name.indexOf(t) !== -1)) score += 4;
-      if (record.deal) score += 2;
-      if (record.badge && record.badge.tone === 'accent') score += 1;
+      if (record.offer) score += 2;
       scored.push({ record: record, score: score, matched: matched, strong: strong });
     });
 
@@ -587,32 +571,35 @@ window.PV.store = (function () {
   }
 
   /* ------------------------------------------------------------ filtering - */
-  /* Location state uses the option codes from the dataset: 'online', 'local'
-     (i.e. anywhere in the country) or a city prefix such as 'mombasa'. */
+  /* Location filtering matches the listing's own place: online, nationwide or a
+     city/county. Service areas are visible detail, not a location claim. */
   function matchesLocation(record, code) {
-    if (!code || code === 'any') return true;
-    const loc = (record && record.location) || {};
-    if (code === 'online') return loc.format === 'online' || loc.city === 'Online';
-    if (code === 'local') return loc.format === 'local' || loc.format === 'nationwide';
-    return (loc.city || '').toLowerCase().indexOf(code) === 0;
+    const key = Dm.trim(code).toLowerCase();
+    if (!key || key === 'any') return true;
+    const l = record.location || {};
+    if (key === 'online') return l.format === 'online';
+    if (key === 'local') return l.format === 'local' || l.format === 'nationwide';
+    return Dm.slugify(l.city) === key || Dm.slugify(l.county) === key;
   }
 
   function applyFilters(list, filters) {
     const f = filters || {};
-    let out = asArray(list).slice();
+    let out = Dm.asArray(list).slice();
 
     if (f.q) out = search(f.q, out);
-    if (f.category && f.category !== 'all') out = out.filter((i) => i.category === f.category);
-    if (f.subcategory && f.subcategory !== 'all') out = out.filter((i) => i.subcategory === f.subcategory);
-    if (f.tag && f.tag !== 'all') out = out.filter((i) => (i.tags || []).indexOf(f.tag) !== -1);
-    if (f.type && f.type !== 'all') out = out.filter((i) => i.type === f.type);
+    if (f.category && f.category !== 'all') out = out.filter((l) => l.category === f.category);
+    if (f.subcategory && f.subcategory !== 'all') {
+      const key = Dm.trim(f.subcategory).toLowerCase();
+      out = out.filter((l) => l.subcategory.toLowerCase() === key || Dm.slugify(l.subcategory) === key);
+    }
+    if (f.tag && f.tag !== 'all') out = out.filter((l) => l.tags.indexOf(Dm.trim(f.tag).toLowerCase()) !== -1);
+    if (f.type && f.type !== 'all') out = out.filter((l) => l.type === f.type);
 
     if (f.band && f.band !== 'any') {
-      const bands = store.priceBands();
-      const band = bands.find((b) => b.code === f.band);
+      const band = META.priceBands.find((b) => b.code === f.band);
       if (band) {
-        out = out.filter((i) => {
-          const v = store.priceValue(i);
+        out = out.filter((l) => {
+          const v = Dm.priceValue(l);
           if (v === Number.MAX_SAFE_INTEGER) return false;
           if (band.min != null && v < band.min) return false;
           if (band.max != null && v > band.max) return false;
@@ -621,8 +608,8 @@ window.PV.store = (function () {
       }
     }
 
-    if (f.location && f.location !== 'any') out = out.filter((i) => matchesLocation(i, f.location));
-    if (f.availability && f.availability !== 'all') out = out.filter((i) => i.status === f.availability);
+    if (f.location && f.location !== 'any') out = out.filter((l) => matchesLocation(l, f.location));
+    if (f.availability && f.availability !== 'all') out = out.filter((l) => l.availability === f.availability);
 
     return out;
   }
@@ -641,17 +628,15 @@ window.PV.store = (function () {
   }
 
   /* --------------------------------------------------------------- sorting */
-  /* Same order as before: newest by default, deals and rating first for
-     relevance, price by numeric value with a stable name tie-break. */
   function applySort(list, code, query) {
-    const out = asArray(list).slice();
+    const out = Dm.asArray(list).slice();
     switch (code) {
       case 'newest':
-        return out.sort((a, b) => String(b.listedAt).localeCompare(String(a.listedAt)));
+        return out.sort((a, b) => Dm.str(b.createdAt).localeCompare(Dm.str(a.createdAt)));
       case 'price-asc':
-        return out.sort((a, b) => store.priceValue(a) - store.priceValue(b) || a.name.localeCompare(b.name));
+        return out.sort((a, b) => Dm.priceValue(a) - Dm.priceValue(b) || a.name.localeCompare(b.name));
       case 'price-desc':
-        return out.sort((a, b) => store.priceValue(b) - store.priceValue(a) || a.name.localeCompare(b.name));
+        return out.sort((a, b) => Dm.priceValue(b) - Dm.priceValue(a) || a.name.localeCompare(b.name));
       case 'name-asc':
         return out.sort((a, b) => a.name.localeCompare(b.name));
       case 'name-desc':
@@ -660,24 +645,16 @@ window.PV.store = (function () {
       default:
         if (query) return search(query, out);
         return out.sort((a, b) => {
-          const da = a.deal ? 1 : 0;
-          const db = b.deal ? 1 : 0;
+          const da = a.offer ? 1 : 0;
+          const db = b.offer ? 1 : 0;
           if (da !== db) return db - da;
-          const ra = (a.rating && a.rating.value) || 0;
-          const rb = (b.rating && b.rating.value) || 0;
-          if (ra !== rb) return rb - ra;
-          return String(b.listedAt).localeCompare(String(a.listedAt));
+          return Dm.str(b.createdAt).localeCompare(Dm.str(a.createdAt));
         });
     }
   }
 
   /* --------------------------------------------------------------- related */
-  const midPrice = (record) => {
-    const p = (record && record.price) || {};
-    if (p.amount != null) return Number(p.amount);
-    if (p.min != null) return Number(p.min);
-    return null;
-  };
+  const midPrice = (record) => Dm.priceValue(record) === Number.MAX_SAFE_INTEGER ? null : Dm.priceValue(record);
 
   /** Deterministic matches with human reasons — never a ranking or a score. */
   function relatedFor(item, limit) {
@@ -686,7 +663,7 @@ window.PV.store = (function () {
     const mine = midPrice(item);
     const scored = [];
 
-    CATALOGUE.forEach((r) => {
+    LISTINGS.forEach((r) => {
       if (r.id === item.id) return;
       let score = 0;
       const reasons = [];
@@ -695,7 +672,7 @@ window.PV.store = (function () {
       if (item.subcategory && r.subcategory === item.subcategory) { score += 4; reasons.push('same kind of item'); }
       if (r.type === item.type) { score += 1; reasons.push(r.type === 'product' ? 'both products' : 'both services'); }
 
-      const shared = (r.tags || []).filter((t) => (item.tags || []).indexOf(t) !== -1);
+      const shared = r.tags.filter((t) => item.tags.indexOf(t) !== -1);
       if (shared.length) {
         score += 3 * Math.min(shared.length, 2);
         reasons.push('shares ' + shared.slice(0, 2).join(' + '));
@@ -718,89 +695,84 @@ window.PV.store = (function () {
     });
 
     return scored
-      .sort((a, b) =>
-        b.score - a.score ||
-        ((b.record.rating && b.record.rating.value) || 0) - ((a.record.rating && a.record.rating.value) || 0) ||
-        a.record.name.localeCompare(b.record.name)
-      )
+      .sort((a, b) => b.score - a.score || Dm.str(b.record.createdAt).localeCompare(Dm.str(a.record.createdAt)) || a.record.name.localeCompare(b.record.name))
       .slice(0, max);
   }
 
   /* ----------------------------------------------------------- query API -- */
   /**
-   * The one call listing pages make. Returns the envelope a future API will
-   * return too:
+   * The one call listing pages make. Returns the envelope a future API returns:
    *   { ok, items, total, page, pageSize, hasNext, hasPrev, error }
-   * Paging is honoured but not surfaced: with pageSize unset the whole result
-   * set is returned, exactly as today.
    */
   function query(state, opts) {
     const s = state || {};
     const o = opts || {};
     const empty = { ok: false, items: [], total: 0, page: 1, pageSize: 0, hasNext: false, hasPrev: false, error: null };
     try {
-      if (!s.q && s.page != null) {
+      if (s.page != null) {
         const p = parseInt(s.page, 10);
-        if (!Number.isFinite(p) || p < 1) note('invalid-page-ignored', String(s.page));
+        if (!Number.isFinite(p) || p < 1) note('warning', 'invalid-page-ignored', 'Ignored an invalid page value ("' + s.page + '").');
       }
       const pool = store.dataset(o.dataset);
       let list = applyFilters(pool, s);
       list = applySort(list, s.sort, s.q);
       const total = list.length;
-      const validPageSize = Number.isFinite(Number(s.pageSize)) && Number(s.pageSize) > 0 ? Number(s.pageSize) : null;
+      const size = Number.isFinite(Number(s.pageSize)) && Number(s.pageSize) > 0 ? Number(s.pageSize) : null;
       const page = Math.max(1, parseInt(s.page, 10) || 1);
-      const pageCount = validPageSize ? Math.max(1, Math.ceil(total / validPageSize)) : 1;
+      const pageCount = size ? Math.max(1, Math.ceil(total / size)) : 1;
       const current = Math.min(page, pageCount);
-      const items = validPageSize ? list.slice((current - 1) * validPageSize, current * validPageSize) : list;
+      const items = size ? list.slice((current - 1) * size, current * size) : list;
       return {
         ok: true,
         items: items,
         total: total,
         page: current,
-        pageSize: validPageSize || total,
-        hasNext: validPageSize ? current * validPageSize < total : false,
+        pageSize: size || total,
+        hasNext: size ? current * size < total : false,
         hasPrev: current > 1,
         error: null
       };
     } catch (err) {
-      /* Never fail silently: the caller gets an envelope it can render. */
+      /* Never fail silently: the caller always gets an envelope it can render. */
       const message = err && err.message ? err.message : 'The catalogue could not be read.';
-      note('query-failed', message);
+      note('error', 'query-failed', message);
       return Object.assign({}, empty, { error: message });
     }
   }
 
   /* -------------------------------------------------------- typeahead ----- */
   function suggest(query, limit) {
-    const q = trim(query).toLowerCase();
+    const q = Dm.trim(query).toLowerCase();
     const max = limit || 6;
-    if (!q) return META.categories.slice(0, 4).map((c) => ({ label: c.label, meta: 'Category', href: 'discover.html?category=' + c.slug, icon: c.icon }));
+    if (!q) return TAXONOMY.slice(0, 4).map((c) => ({ label: c.label, meta: 'Category', href: 'discover.html?category=' + c.slug, icon: c.icon }));
 
     const out = [];
     const push = (row) => {
       if (out.length < max && !out.some((r) => r.label.toLowerCase() === row.label.toLowerCase())) out.push(row);
     };
 
-    search(q, CATALOGUE).slice(0, 3).forEach((r) => push({
-      label: r.name, meta: store.typeLabel(r.type) + ' · ' + store.categoryLabel(r.category),
-      href: 'detail.html?id=' + encodeURIComponent(r.id), icon: r.image.icon
+    search(q, LISTINGS).slice(0, 3).forEach((r) => push({
+      label: r.name,
+      meta: Dm.typeLabel(r.type) + ' · ' + store.categoryLabel(r.category),
+      href: 'detail.html?id=' + encodeURIComponent(r.id),
+      icon: (Dm.primaryImage(r) || {}).icon
     }));
-    META.categories.filter((c) => c.label.toLowerCase().indexOf(q) !== -1).forEach((c) => push({ label: c.label, meta: 'Category', href: 'discover.html?category=' + c.slug, icon: c.icon }));
+    TAXONOMY.filter((c) => c.label.toLowerCase().indexOf(q) !== -1).forEach((c) => push({ label: c.label, meta: 'Category', href: 'discover.html?category=' + c.slug, icon: c.icon }));
     store.sellers().filter((s) => s.name.toLowerCase().indexOf(q) !== -1).slice(0, 2)
-      .forEach((s) => push({ label: s.name, meta: s.type || 'Seller', href: 'discover.html?q=' + encodeURIComponent(s.name), icon: '🏬' }));
-    GUIDES.filter((g) => g.title.toLowerCase().indexOf(q) !== -1).slice(0, 2)
+      .forEach((s) => push({ label: s.name, meta: s.typeLabel, href: 'discover.html?q=' + encodeURIComponent(s.name), icon: '🏬' }));
+    store.guides().filter((g) => g.title.toLowerCase().indexOf(q) !== -1).slice(0, 2)
       .forEach((g) => push({ label: g.title, meta: 'Guide outline', href: 'guides.html?q=' + encodeURIComponent(g.title), icon: g.icon }));
     return out.slice(0, max);
   }
 
-  /* Expose the search/filter/sort trio the listing controller needs. */
   Object.assign(store, {
     search: search,
     filter: applyFilters,
     sort: applySort,
     query: query,
     suggest: suggest,
-    activeFilterCount: activeFilterCount
+    activeFilterCount: activeFilterCount,
+    matchesLocation: matchesLocation
   });
 
   return store;

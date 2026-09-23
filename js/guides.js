@@ -29,7 +29,7 @@ PV.util.ready(function () {
   function matches(guide) {
     if (state.category !== 'all' && guide.category !== state.category) return false;
     if (!state.q) return true;
-    const hay = [guide.title, guide.question || '', guide.summary, U.categoryLabel(guide.category), guide.covers.join(' ')]
+    const hay = [guide.title, guide.question || '', guide.summary, U.categoryLabel(guide.category), guide.sections.map(function (s) { return s.title; }).join(' ')]
       .join(' ')
       .toLowerCase();
     const tokens = hay.split(/[^a-z0-9]+/).filter(Boolean);

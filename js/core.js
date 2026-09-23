@@ -29,45 +29,46 @@ window.PV = Object.assign(window.PV || {}, (function () {
   }
 
   /* ------------------------------------------------------ data-derived values */
-  /* Formatting that belongs to the catalogue model (prices, labels, deal
-     windows) is implemented once, in the data-access layer, and re-exported
-     here so view code has a single import surface: PV.util.*. */
+  /* Formatting that belongs to the catalogue model (prices, labels, availability
+     and offer windows) is implemented once — in js/domain.js and re-exported by
+     js/store.js — and surfaced here as PV.util.* so view code has one import
+     surface. */
   const S = window.PV.store;
   if (!S) throw new Error('PickVanta: js/store.js must load before js/core.js');
 
   const money = S.money;
+  const defaultCurrency = S.defaultCurrency;
   const priceText = S.priceText;
   const priceValue = S.priceValue;
+  const priceUnitSuffix = S.priceUnitSuffix;
   const categoryLabel = S.categoryLabel;
-  const statusInfo = S.statusInfo;
+  const subcategoryLabel = S.subcategoryLabel;
+  const availabilityInfo = S.availabilityInfo;
+  const listingStatusLabel = S.listingStatusLabel;
   const typeLabel = S.typeLabel;
   const locationLabel = S.locationLabel;
+  const serviceAreaText = S.serviceAreaText;
   const sellerLabel = S.sellerLabel;
-  const dealKindLabel = S.dealKindLabel;
-  const UNIT_LABEL = S.UNIT_LABEL;
+  const offerKindLabel = S.offerKindLabel;
+  const formatDate = S.formatDate;
+  const primaryImage = S.primaryImage;
 
-  function formatDate(iso) {
-    if (!iso) return '';
-    const d = new Date(iso + 'T00:00:00');
-    if (isNaN(d)) return iso;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
-  }
-
-  /* Deal window as the interface shows it: the store returns the state as
-     data, this adds the tone and the wording. */
-  function dealState(record) {
-    const state = S.dealState(record);
+  /* Offer window as the interface shows it. The store returns the offer's own
+     status and days left; this adds the tone and the wording — and never adds
+     urgency the data does not contain. */
+  function offerState(record) {
+    const state = S.offerState(record);
     if (!state || state.code === 'none') return null;
-    if (state.code === 'ended') return { code: 'ended', tone: 'muted', label: 'Demo offer ended ' + formatDate(state.validTo) };
-    if (state.code === 'upcoming') return { code: 'upcoming', tone: 'info', label: 'Starts ' + formatDate(state.validFrom) };
-    if (state.code === 'ending') return { code: 'ending', tone: 'warn', label: 'Ends ' + formatDate(state.validTo) };
-    return { code: 'active', tone: 'ok', label: 'Ends ' + formatDate(state.validTo) };
+    if (state.code === 'ended') return { code: 'ended', tone: 'muted', label: 'Demo offer ended ' + formatDate(state.endsAt) };
+    if (state.code === 'scheduled') return { code: 'scheduled', tone: 'info', label: 'Starts ' + formatDate(state.startsAt) };
+    if (state.code === 'withdrawn') return { code: 'withdrawn', tone: 'muted', label: 'Demo offer withdrawn' };
+    if (state.daysLeft != null && state.daysLeft <= 14) return { code: 'ending', tone: 'warn', label: 'Ends ' + formatDate(state.endsAt) };
+    return { code: 'active', tone: 'ok', label: 'Ends ' + formatDate(state.endsAt) };
   }
 
   function savings(record) {
     const value = S.savingsValue(record);
-    return value == null ? null : money(value, record.price && record.price.currency);
+    return value == null ? null : money(value, record.currency || defaultCurrency());
   }
 
   /* Search, filtering, sorting and related-option logic live in the data-access
@@ -95,7 +96,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
          link to "detail.html?id=undefined". */
       return '<div class="card-media"><span class="media-icon" aria-hidden="true">📦</span></div>';
     }
-    const img = rec.image || {};
+    const img = primaryImage(rec) || {};
     const style = img.gradient ? ' style="background:' + img.gradient + '"' : '';
     const inner = img.src
       ? '<img class="media-img" src="' + esc(img.src) + '" alt="' + esc(img.alt || rec.name || 'Listing image') + '" loading="lazy" decoding="async" />' +
@@ -103,8 +104,8 @@ window.PV = Object.assign(window.PV || {}, (function () {
       : '<span class="media-icon" aria-hidden="true">' + esc(img.icon || '📦') + '</span>';
     const flags =
       '<span class="type-flag">' + esc(typeLabel(rec.type)) + '</span>' +
-      (o.deal && rec.deal
-        ? '<span class="discount">-' + rec.deal.discountPercent + '% · Demo</span>'
+      (o.offer && rec.offer
+        ? '<span class="discount">-' + rec.offer.discountPercent + '% · Demo</span>'
         : rec.badge
         ? '<span class="badge-pill ' + esc(rec.badge.tone || 'neutral') + ' flag-right">' + esc(rec.badge.label) + '</span>'
         : '');
@@ -122,21 +123,21 @@ window.PV = Object.assign(window.PV || {}, (function () {
   /**
    * Discovery card.
    * Visual hierarchy: category + type → name → description → price →
-   * seller/location → availability → actions. A card with a deal also gets a
+   * seller/location → availability → actions. A card with an offer also gets a
    * discount flag and a "Demo offer" pill so the offer is never mistaken for
    * the item itself.
    */
   function cardItem(record, opts) {
     const o = opts || {};
-    const status = statusInfo(record.status);
-    const offer = record.deal ? dealState(record) : null;
+    const status = availabilityInfo(record.availability);
+    const offer = record.offer ? offerState(record) : null;
     return (
       '<article class="product-card" data-card="' + esc(record.id) + '">' +
-      mediaMarkup(record, { deal: !!record.deal }) +
+      mediaMarkup(record, { offer: !!record.offer }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
       '<span class="store">' + esc(categoryLabel(record.category)) +
-      (record.subcategory ? ' <span class="store-sub">· ' + esc(record.subcategory) + '</span>' : '') +
+      (record.subcategory ? ' <span class="store-sub">· ' + esc(subcategoryLabel(record.subcategory)) + '</span>' : '') +
       '</span>' +
       '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
@@ -148,7 +149,6 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
       '<span class="status-pill ' + esc(status.tone) + '">' + esc(status.label) + '</span>' +
       (offer ? '<span class="status-pill offers">Demo offer · ' + esc(offer.label.toLowerCase()) + '</span>' : '') +
-      (record.rating ? '<span class="meta-item meta-rating">★ ' + record.rating.value.toFixed(1) + ' demo</span>' : '') +
       '</div>' +
       (o.reasons && o.reasons.length
         ? '<p class="card-reason"><span aria-hidden="true">↳</span> <strong>' + esc(o.reasonLabel || 'Matched on') + '</strong> ' +
@@ -163,26 +163,26 @@ window.PV = Object.assign(window.PV || {}, (function () {
     );
   }
 
-  /** Deal card — same family as the homepage deal card, plus offer fields. */
   /**
-   * Deal card. A deal is never presented as its own product: the card shows
-   * the underlying item name, then an explicit "special offer" block with
-   * reference price → deal price → saving, then seller, location, validity
-   * and conditions. Everything is labelled as demo data.
+   * Offer card. An offer is never presented as its own product: the card shows
+   * the underlying listing, then an explicit "special offer" block with
+   * original price → offer price → saving, then seller, location, validity and
+   * conditions. Everything is labelled as demo data, and no urgency is shown
+   * unless the offer's own dates provide it.
    */
-  function cardDeal(record) {
-    const deal = record.deal;
-    const state = dealState(record) || { tone: 'info', label: 'Demo offer' };
+  function cardOffer(record) {
+    const offer = record.offer;
+    const state = offerState(record) || { tone: 'info', label: 'Demo offer' };
     const saved = savings(record);
-    const currency = record.price && record.price.currency;
-    const unit = record.price && record.price.unit ? '/' + (UNIT_LABEL[record.price.unit] || record.price.unit) : '';
+    const currency = record.currency || S.defaultCurrency();
+    const unit = priceUnitSuffix(record.price && record.price.priceType);
     return (
       '<article class="deal-card" data-card="' + esc(record.id) + '">' +
-      mediaMarkup(record, { deal: true }) +
+      mediaMarkup(record, { offer: true }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
       '<span class="store">' + esc(categoryLabel(record.category)) +
-      (record.subcategory ? ' <span class="store-sub">· ' + esc(record.subcategory) + '</span>' : '') +
+      (record.subcategory ? ' <span class="store-sub">· ' + esc(subcategoryLabel(record.subcategory)) + '</span>' : '') +
       '</span>' +
       '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
@@ -190,20 +190,20 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
       '<div class="offer-block">' +
       '<span class="offer-flag">Special offer · demo</span>' +
-      (deal.headline ? '<p class="offer-headline">' + esc(deal.headline) + '</p>' : '') +
+      (offer.title ? '<p class="offer-headline">' + esc(offer.title) + '</p>' : '') +
       '<div class="offer-prices">' +
-      '<span class="offer-was">Was <s>' + esc(money(deal.referencePrice, currency)) + unit + '</s></span>' +
-      '<span class="offer-now">Now <strong>' + esc(money(deal.dealPrice, currency)) + unit + '</strong></span>' +
-      (deal.discountPercent ? '<span class="save-pill">Save ' + deal.discountPercent + '%' + (saved ? ' · ' + esc(saved) : '') + '</span>' : '') +
+      '<span class="offer-was">Was <s>' + esc(money(offer.originalPrice, currency)) + unit + '</s></span>' +
+      '<span class="offer-now">Now <strong>' + esc(money(offer.offerPrice, currency)) + unit + '</strong></span>' +
+      (offer.discountPercent ? '<span class="save-pill">Save ' + offer.discountPercent + '%' + (saved ? ' · ' + esc(saved) : '') + '</span>' : '') +
       '</div>' +
       '</div>' +
       '<div class="card-meta">' +
       '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '<span class="meta-demo">demo</span></span>' +
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
-      '<span class="meta-item">' + ICON_CAL + 'Offer ends ' + esc(formatDate(deal.validTo)) + '</span>' +
+      '<span class="meta-item">' + ICON_CAL + (offer.endsAt ? 'Offer ends ' + esc(formatDate(offer.endsAt)) : 'No end date given') + '</span>' +
       '<span class="status-pill ' + esc(state.tone) + '">' + esc(state.label) + '</span>' +
-      (deal.conditions && deal.conditions.length
-        ? '<span class="meta-item">' + deal.conditions.length + ' condition' + (deal.conditions.length === 1 ? '' : 's') + ' (demo)</span>'
+      (offer.conditions.length
+        ? '<span class="meta-item">' + offer.conditions.length + ' condition' + (offer.conditions.length === 1 ? '' : 's') + ' (demo)</span>'
         : '<span class="meta-item">No conditions listed</span>') +
       '</div>' +
       '<div class="card-actions">' +
@@ -216,17 +216,18 @@ window.PV = Object.assign(window.PV || {}, (function () {
   }
 
   function priceRow(record) {
-    const ref = record.referencePrice || (record.deal && record.deal.referencePrice);
-    const isDeal = !!(record.deal && record.deal.dealPrice != null);
+    const offer = record.offer || null;
+    const ref = record.referencePrice != null ? record.referencePrice : (offer ? offer.originalPrice : null);
+    const currency = record.currency || S.defaultCurrency();
     return (
       '<div class="price-row">' +
       '<span class="price">' + esc(priceText(record)) + '</span>' +
-      (isDeal
-        ? '<span class="price-old">' + esc(money(record.deal.referencePrice, record.price && record.price.currency)) + '</span>'
-        : ref
-        ? '<span class="price-old">ref. ' + esc(money(ref, record.price && record.price.currency)) + '</span>'
+      (offer && offer.offerPrice != null
+        ? '<span class="price-old">' + esc(money(offer.originalPrice, currency)) + '</span>'
+        : ref != null
+        ? '<span class="price-old">ref. ' + esc(money(ref, currency)) + '</span>'
         : '') +
-      (record.deal && savings(record) ? '<span class="save-pill">Save ' + esc(savings(record)) + '</span>' : '') +
+      (offer && savings(record) ? '<span class="save-pill">Save ' + esc(savings(record)) + '</span>' : '') +
       '</div>'
     );
   }
@@ -263,7 +264,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<p class="card-desc">' + esc(guide.summary) + '</p>' +
       '<details class="guide-details">' +
       '<summary>What it covers</summary>' +
-      '<ul class="guide-covers">' + guide.covers.map((c) => '<li>' + esc(c) + '</li>').join('') + '</ul>' +
+      '<ul class="guide-covers">' + guide.sections.map((c) => '<li>' + esc(c.title) + '</li>').join('') + '</ul>' +
       '</details>' +
       '<div class="guide-foot">' +
       '<span class="rating">' + esc(guide.level) + ' · ' + esc(guide.readTime) + '</span>' +
@@ -271,10 +272,19 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '</div>' +
       /* Guides are decision-support entry points: each one opens a matching
          slice of the catalogue using the existing filters. */
-      (guide.link && guide.link.href
-        ? '<a class="guide-link" href="' + esc(guide.link.href) + '">' + esc(guide.link.label) +
+      (guide.cta && guide.cta.href
+        ? '<a class="guide-link" href="' + esc(guide.cta.href) + '">' + esc(guide.cta.label) +
           ' <span aria-hidden="true">→</span></a>'
         : '') +
+      /* The listings a guide actually discusses, resolved through the store:
+         decision support that never turns into an advertisement. */
+      (function () {
+        const examples = S.guideListings(guide).slice(0, 3);
+        return examples.length
+          ? '<p class="guide-related">Listings mentioned: ' + examples.map((r) =>
+              '<a href="' + hrefDetail(r.id) + '">' + esc(r.name) + '</a>').join(', ') + '</p>'
+          : '';
+      })() +
       '<p class="guide-note">Outline only — the full article is not written yet.</p>' +
       '</article>'
     );
@@ -323,10 +333,13 @@ window.PV = Object.assign(window.PV || {}, (function () {
 
   function emptyState(opts) {
     const o = opts || {};
+    /* Inline empty states sit under an existing heading (h3); a state that
+       replaces a whole page takes the page heading (h1). */
+    const level = o.level === 1 ? 1 : 3;
     return (
       '<div class="empty" role="status">' +
       '<div class="empty-icon" aria-hidden="true">' + esc(o.icon || '🔍') + '</div>' +
-      '<h3>' + esc(o.title || 'No matches found') + '</h3>' +
+      '<h' + level + '>' + esc(o.title || 'No matches found') + '</h' + level + '>' +
       '<p>' + esc(o.text || 'Try a different search term or category.') + '</p>' +
       (o.suggestions && o.suggestions.length
         ? '<div class="empty-chips">' +
@@ -577,7 +590,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
 
   function footerMarkup() {
     const col = (title, links) =>
-      '<div class="footer-col"><h4>' + esc(title) + '</h4>' +
+      '<div class="footer-col"><h2>' + esc(title) + '</h2>' +
       links
         .map((l) =>
           l.later
@@ -702,7 +715,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
           '<div class="tray-chips" id="trayItems">' +
             items.map((i) =>
               '<span class="tray-chip">' +
-                '<span class="tray-thumb" aria-hidden="true">' + esc((i.image && i.image.icon) || '📦') + '</span>' +
+                '<span class="tray-thumb" aria-hidden="true">' + esc((primaryImage(i) || {}).icon || '📦') + '</span>' +
                 '<span class="tray-chip-text">' +
                   '<span class="tray-chip-name">' + esc(i.name) + '</span>' +
                   '<span class="tray-chip-meta">' + esc(categoryLabel(i.category)) + ' · ' + esc(priceText(i)) + '</span>' +
@@ -937,8 +950,8 @@ window.PV = Object.assign(window.PV || {}, (function () {
         '</div>';
     }
     if (has('availability')) {
-      html += radioGroup('Availability', 'f-availability', 'status', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
-        S.statuses().map((s) => ({ key: 'availability', value: s.code, label: s.label }))
+      html += radioGroup('Availability', 'f-availability', 'availability', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
+        S.availabilityOptions().map((s) => ({ key: 'availability', value: s.code, label: s.label }))
       ));
     }
     html += '<button type="button" class="filter-reset" data-filter-reset>Clear all filters</button>';
@@ -1133,13 +1146,14 @@ window.PV = Object.assign(window.PV || {}, (function () {
     /* Presentation helpers. The format/label helpers are re-exports of the
        data layer's model helpers — there is one implementation of each. */
     util: {
-      $, $$, esc, money, priceText, priceValue, formatDate,
-      categoryLabel, statusInfo, typeLabel, locationLabel, sellerLabel, dealState, savings, dealKindLabel,
-      params, updateUrl, ready, UNIT_LABEL
+      $, $$, esc, money, defaultCurrency, priceText, priceValue, priceUnitSuffix, formatDate,
+      categoryLabel, subcategoryLabel, typeLabel, locationLabel, serviceAreaText, sellerLabel,
+      availabilityInfo, listingStatusLabel, offerState, savings, offerKindLabel, primaryImage,
+      params, updateUrl, ready
     },
     /* The data-access layer, re-exported for pages that want it by name. */
     store: S,
-    card: { item: cardItem, deal: cardDeal, guide: cardGuide, media: mediaMarkup, empty: emptyState, loading: loadingState, error: errorState },
+    card: { item: cardItem, offer: cardOffer, guide: cardGuide, media: mediaMarkup, empty: emptyState, loading: loadingState, error: errorState },
     compare,
     onCompareChange,
     recent,
