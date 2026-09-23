@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="Discover products, services and offers on PickVanta. Browse by category, filter the demo dataset and open any option for detail." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Discover | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head">
+      <div class="shell">
+        <div class="page-head-grid">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Find · Discover</div>
+            <h1>Discover</h1>
+            <p class="page-lead">
+              Explore products, services and offers available through PickVanta. Browse by category, narrow the list with filters,
+              then open any option to see its details and decide what is worth comparing.
+            </p>
+          </div>
+          <div class="page-side">
+            <div class="dataset-stat" id="datasetStat" aria-live="polite"></div>
+            <p class="notice">Demonstration data only. No live listings, live prices, real sellers or real availability.</p>
+          </div>
+        </div>
+
+        <div class="search-wrap wide" id="searchWrap">
+          <form id="searchForm" role="search" aria-label="Search the demo dataset">
+            <label for="pageSearch" class="visually-hidden">Search products, services, brands or deals</label>
+            <div class="search-row">
+              <div class="search-input-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
+                <input id="pageSearch" type="search" placeholder="Search products, services, brands or deals..." autocomplete="off" aria-autocomplete="list" aria-controls="suggestions" aria-expanded="false" />
+              </div>
+              <button class="search-btn" type="submit">
+                Search
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+            <div class="suggestions" id="suggestions" role="listbox" aria-label="Search suggestions"></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATEGORY NAVIGATION -->
+    <section class="section section-tight" id="categories" aria-labelledby="cats-title">
+      <div class="shell">
+        <div class="section-head compact">
+          <div>
+            <h2 id="cats-title">Browse by category</h2>
+            <p>Pick a broad category, or stay on “All” to see everything in the demo dataset.</p>
+          </div>
+        </div>
+        <nav class="cat-strip" id="categoryStrip" aria-label="Categories"></nav>
+      </div>
+    </section>
+
+    <!-- RESULTS + FILTERS -->
+    <section class="section section-tight" aria-labelledby="results-title">
+      <div class="shell">
+        <h2 id="results-title" class="visually-hidden">Results</h2>
+        <div class="listing-layout">
+          <aside class="filters" id="filtersPanel" aria-label="Filters">
+            <div class="filters-head">
+              <h3>Filters</h3>
+              <button type="button" class="filters-close" id="filtersClose">Done</button>
+            </div>
+            <div id="filterPanel"></div>
+            <p class="filters-note">Filters run on the demo dataset inside this page. Nothing is queried from a server.</p>
+          </aside>
+
+          <div class="results-col">
+            <div class="toolbar">
+              <div class="toolbar-left">
+                <button type="button" class="filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersPanel">
+                  Filters <span class="count" id="filtersCount" hidden>0</span>
+                </button>
+                <p class="results-meta" id="resultsMeta"></p>
+              </div>
+              <div class="toolbar-right">
+                <label class="sort-label" for="sortSelect">Sort by</label>
+                <select class="select" id="sortSelect" aria-label="Sort results"></select>
+              </div>
+            </div>
+
+            <div class="active-filters" id="activeFilters" hidden></div>
+
+            <div class="products-grid grid-3" id="resultsGrid"></div>
+          </div>
+        </div>
+        <div class="filters-backdrop" id="filtersBackdrop" hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/listing.js"></script>
+  <script src="js/discover.js"></script>
+</body>
+</html>

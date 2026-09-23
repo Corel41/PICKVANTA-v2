@@ -13,50 +13,13 @@
 <body>
   <a href="#main" class="visually-hidden">Skip to content</a>
 
-  <header class="topbar" role="banner">
-    <div class="shell">
-      <nav class="nav" aria-label="Primary">
-        <a href="#" class="brand" aria-label="PickVanta home">
-          <span class="brand-mark" aria-hidden="true">P</span>
-          <span>PickVanta</span>
-        </a>
-
-        <div class="navlinks" role="navigation" aria-label="Main">
-          <a href="#discover" data-toast="Discover">Discover</a>
-          <a href="#categories" data-toast="Categories">Categories</a>
-          <a href="#deals" data-toast="Deals">Deals</a>
-          <a href="#compare-preview" data-toast="Compare">Compare</a>
-          <a href="#guides" data-toast="Guides">Guides</a>
-        </div>
-
-        <div class="nav-actions">
-          <button class="icon-btn" id="headerSearchBtn" data-toast="Search" aria-label="Search">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
-          </button>
-          <button class="btn-secondary" data-toast="Sign In" aria-label="Sign in">Sign In</button>
-          <button class="btn-primary" data-toast="Search" style="display:none" aria-hidden="true">Search</button>
-          <button class="hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false" aria-controls="mobilePanel">
-            <span></span>
-          </button>
-        </div>
-      </nav>
-    </div>
-
-    <div class="mobile-panel" id="mobilePanel" hidden>
-      <div class="shell">
-        <div class="mobile-links">
-          <a href="#discover" data-toast="Discover">Discover <span aria-hidden="true">→</span></a>
-          <a href="#categories" data-toast="Categories">Categories <span aria-hidden="true">→</span></a>
-          <a href="#deals" data-toast="Deals">Deals <span aria-hidden="true">→</span></a>
-          <a href="#compare-preview" data-toast="Compare">Compare <span aria-hidden="true">→</span></a>
-          <a href="#guides" data-toast="Guides">Guides <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="mobile-actions">
-          <button class="btn-secondary" data-toast="Sign In">Sign In</button>
-          <button class="btn-primary" id="mobileSearchFocus" data-toast="Search">Search</button>
-        </div>
+  <!-- Shared navigation (rendered by js/core.js so every view stays consistent) -->
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
       </div>
-    </div>
+    </noscript>
   </header>
 
   <main id="main">
@@ -93,12 +56,12 @@
 
             <div class="quick" aria-label="Example searches">
               <span class="quick-label">Try:</span>
-              <button class="chip" data-fill="Smartphones">Smartphones</button>
-              <button class="chip" data-fill="Laptops">Laptops</button>
-              <button class="chip" data-fill="Apartments">Apartments</button>
-              <button class="chip" data-fill="Travel deals">Travel deals</button>
-              <button class="chip" data-fill="Internet providers">Internet providers</button>
-              <button class="chip" data-fill="Furniture">Furniture</button>
+              <button class="chip" data-fill="headphones">Headphones</button>
+              <button class="chip" data-fill="laptop">Laptops</button>
+              <button class="chip" data-fill="furniture">Furniture</button>
+              <button class="chip" data-fill="internet">Internet providers</button>
+              <button class="chip" data-fill="travel">Travel</button>
+              <button class="chip" data-fill="insurance">Insurance</button>
             </div>
           </div>
 
@@ -130,7 +93,7 @@
                   <div class="option-main">
                     <div class="option-icon" aria-hidden="true">🎧</div>
                     <div class="option-meta">
-                      <div class="option-name">SoundCore Q45</div>
+                      <div class="option-name">QuietMax 700</div>
                       <div class="option-spec">40h · ANC · USB-C</div>
                     </div>
                   </div>
@@ -196,53 +159,12 @@
         <div class="section-head">
           <div>
             <h2 id="cat-title">Explore by category</h2>
-            <p>Broad categories to start your discovery. More detailed filtering will come later.</p>
+            <p>Broad categories to start your discovery. Each one opens Discover with that category already selected.</p>
           </div>
-          <a href="#" class="link-arrow" data-toast="Categories">View all <span aria-hidden="true">→</span></a>
+          <a href="discover.html" class="link-arrow">View all <span aria-hidden="true">→</span></a>
         </div>
 
-        <div class="categories" role="list">
-          <div class="category" role="listitem" tabindex="0" data-toast="Technology category">
-            <div class="cat-icon" aria-hidden="true">💻</div>
-            <strong>Technology</strong>
-            <span>Phones, laptops, audio, wearables</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Home category">
-            <div class="cat-icon" aria-hidden="true">🏠</div>
-            <strong>Home</strong>
-            <span>Appliances, furniture, decor</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Automotive category">
-            <div class="cat-icon" aria-hidden="true">🚗</div>
-            <strong>Automotive</strong>
-            <span>Cars, EVs, accessories, services</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Travel category">
-            <div class="cat-icon" aria-hidden="true">✈️</div>
-            <strong>Travel</strong>
-            <span>Stays, flights, experiences</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Business category">
-            <div class="cat-icon" aria-hidden="true">💼</div>
-            <strong>Business</strong>
-            <span>Software, services, tools</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Education category">
-            <div class="cat-icon" aria-hidden="true">🎓</div>
-            <strong>Education</strong>
-            <span>Courses, programs, resources</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Fashion category">
-            <div class="cat-icon" aria-hidden="true">👕</div>
-            <strong>Fashion</strong>
-            <span>Apparel, footwear, accessories</span>
-          </div>
-          <div class="category" role="listitem" tabindex="0" data-toast="Services category">
-            <div class="cat-icon" aria-hidden="true">🛠️</div>
-            <strong>Services</strong>
-            <span>Internet, repairs, local pros</span>
-          </div>
-        </div>
+        <div class="categories" id="homeCategories" role="list"></div>
       </div>
     </section>
 
@@ -252,78 +174,12 @@
         <div class="deal-banner">
           <div>
             <h3 id="deals-title">Deals worth a look</h3>
-            <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing or real merchants yet.</p>
+            <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
           </div>
-          <button class="btn-secondary" style="background:white" data-toast="Deals">Browse demo deals</button>
+          <a class="btn-secondary" style="background:white" href="deals.html">Browse demo deals</a>
         </div>
 
-        <div class="deals-grid">
-          <article class="deal-card">
-            <div class="card-media">
-              <span class="discount">-28% · Demo</span>
-              <span class="media-icon" aria-hidden="true">📱</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top">
-                <span class="store">TechHub · Demo store</span>
-                <span class="rating">★ 4.7</span>
-              </div>
-              <h3>PixelEdge 8 — 128GB, Midnight</h3>
-              <div class="price-row">
-                <span class="price">$549</span>
-                <span class="price-old">$759</span>
-              </div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Deal details">Details</button>
-                <button class="small-btn primary" data-toast="Compare deal">Compare</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="deal-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A)">
-              <span class="discount">-18% · Demo</span>
-              <span class="media-icon" aria-hidden="true">💺</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top">
-                <span class="store">HomeNest · Demo store</span>
-                <span class="rating">★ 4.5</span>
-              </div>
-              <h3>ErgoForm Office Chair — Mesh, Adjustable</h3>
-              <div class="price-row">
-                <span class="price">$219</span>
-                <span class="price-old">$269</span>
-              </div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Deal details">Details</button>
-                <button class="small-btn primary" data-toast="Compare deal">Compare</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="deal-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#DCFCE7,#BBF7D0)">
-              <span class="discount">-35% · Demo</span>
-              <span class="media-icon" aria-hidden="true">🧳</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top">
-                <span class="store">Wander & Co · Demo store</span>
-                <span class="rating">★ 4.8</span>
-              </div>
-              <h3>Alpine 22" Cabin — Carry-on, 2.1kg</h3>
-              <div class="price-row">
-                <span class="price">$89</span>
-                <span class="price-old">$139</span>
-              </div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Deal details">Details</button>
-                <button class="small-btn primary" data-toast="Compare deal">Compare</button>
-              </div>
-            </div>
-          </article>
-        </div>
+        <div class="deals-grid" id="homeDeals"></div>
       </div>
     </section>
 
@@ -333,92 +189,33 @@
         <div class="section-head">
           <div>
             <h2 id="discover-title">Discover what fits you</h2>
-            <p>Static examples showing the card system. No database yet — just the foundation for discovery.</p>
+            <p>A small slice of the demo dataset. Products and services are stored as structured records, ready to be replaced by a real source later.</p>
           </div>
-          <a href="#" class="link-arrow" data-toast="Discover">See more <span aria-hidden="true">→</span></a>
+          <a href="discover.html" class="link-arrow">See more <span aria-hidden="true">→</span></a>
         </div>
 
-        <div class="products-grid">
-          <article class="product-card">
-            <div class="card-media">
-              <span class="media-icon" aria-hidden="true">📱</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top"><span class="store">Smartphones</span><span class="rating">Demo</span></div>
-              <h3>EdgePhone 14 Pro — 256GB</h3>
-              <div class="price-row"><span class="price">$899</span><span class="price-old">ref. $999</span></div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Product details">View</button>
-                <button class="small-btn primary" data-toast="Compare product">Compare</button>
-              </div>
-            </div>
-          </article>
+        <div class="products-grid" id="homeDiscover"></div>
+        <p class="dataset-note" id="homeDatasetNote"></p>
+      </div>
+    </section>
 
-          <article class="product-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#E0E7FF,#C7D2FE)">
-              <span class="media-icon" aria-hidden="true">💻</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top"><span class="store">Laptops</span><span class="rating">Demo</span></div>
-              <h3>BookAir M3 — 14", 16GB / 512GB</h3>
-              <div class="price-row"><span class="price">$1,199</span></div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Product details">View</button>
-                <button class="small-btn primary" data-toast="Compare product">Compare</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="product-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#F3E8FF,#E9D5FF)">
-              <span class="media-icon" aria-hidden="true">🎧</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top"><span class="store">Headphones</span><span class="rating">Demo</span></div>
-              <h3>QuietMax 700 — ANC, 40h</h3>
-              <div class="price-row"><span class="price">$249</span></div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Product details">View</button>
-                <button class="small-btn primary" data-toast="Compare product">Compare</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="product-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#FFE4E6,#FECDD3)">
-              <span class="media-icon" aria-hidden="true">⌚</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top"><span class="store">Smartwatches</span><span class="rating">Demo</span></div>
-              <h3>PulseFit Watch 6 — GPS, LTE</h3>
-              <div class="price-row"><span class="price">$329</span></div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Product details">View</button>
-                <button class="small-btn primary" data-toast="Compare product">Compare</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="product-card">
-            <div class="card-media" style="background:linear-gradient(135deg,#CCFBF1,#99F6E0)">
-              <span class="media-icon" aria-hidden="true">🧊</span>
-            </div>
-            <div class="card-body">
-              <div class="card-top"><span class="store">Home appliances</span><span class="rating">Demo</span></div>
-              <h3>ChillBox Mini Fridge — 45L, Silent</h3>
-              <div class="price-row"><span class="price">$179</span></div>
-              <div class="card-actions">
-                <button class="small-btn" data-toast="Product details">View</button>
-                <button class="small-btn primary" data-toast="Compare product">Compare</button>
-              </div>
-            </div>
-          </article>
+    <!-- GUIDES -->
+    <section class="section" id="guides" aria-labelledby="guides-title">
+      <div class="shell">
+        <div class="section-head">
+          <div>
+            <h2 id="guides-title">Guides</h2>
+            <p>Short, practical buying guides that explain what to check before you compare options.</p>
+          </div>
+          <a href="guides.html" class="link-arrow">All guides <span aria-hidden="true">→</span></a>
         </div>
+
+        <div class="guides-grid" id="homeGuides"></div>
       </div>
     </section>
 
     <!-- WHY -->
-    <section class="section" id="guides" aria-labelledby="why-title">
+    <section class="section" id="why" aria-labelledby="why-title">
       <div class="shell">
         <div class="section-head">
           <div>
@@ -433,74 +230,34 @@
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 2"/></svg>
             </div>
             <h3>Search naturally</h3>
-            <p>Describe what you need in plain language. No complicated menus or filters to learn first.</p>
+            <p>Search across the demo dataset by name, description, category, brand or seller — then land on Discover with your query applied.</p>
           </div>
           <div class="why-card">
             <div class="why-icon" aria-hidden="true">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
             </div>
             <h3>Compare clearly</h3>
-            <p>See important differences side-by-side — price, key features, and fit — without the noise.</p>
+            <p>Put two or three options side by side and see which rows actually differ — the interface shows differences, you decide what matters.</p>
           </div>
           <div class="why-card">
             <div class="why-icon" aria-hidden="true">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
             </div>
             <h3>Choose confidently</h3>
-            <p>Understand your options before you decide. PickVanta is built to help you make the smarter pick.</p>
+            <p>Understand your options before you decide. Any purchase happens with the seller or provider later — PickVanta does not check out yet.</p>
           </div>
         </div>
       </div>
     </section>
   </main>
 
-  <footer role="contentinfo">
-    <div class="shell">
-      <div class="footer-grid">
-        <div class="footer-brand">
-          <a href="#" class="brand" aria-label="PickVanta home">
-            <span class="brand-mark" aria-hidden="true" style="background:white;color:#0B1220">P</span>
-            <span>PickVanta</span>
-          </a>
-          <p>Modern discovery and deals platform. Find, compare, and choose products, services, and deals in one place. Foundation stage — more coming soon.</p>
-        </div>
-        <div class="footer-col">
-          <h4>Product</h4>
-          <a href="#discover" data-toast="Discover">Discover</a>
-          <a href="#categories" data-toast="Categories">Categories</a>
-          <a href="#deals" data-toast="Deals">Deals</a>
-          <a href="#compare-preview" data-toast="Compare">Compare</a>
-          <a href="#guides" data-toast="Guides">Guides</a>
-        </div>
-        <div class="footer-col">
-          <h4>Company</h4>
-          <a href="#" data-toast="Account">Account</a>
-          <a href="#" data-toast="Contact">Contact</a>
-          <a href="#" data-toast="About">About</a>
-          <a href="#" data-toast="Careers">Careers</a>
-        </div>
-        <div class="footer-col">
-          <h4>Legal</h4>
-          <a href="#" data-toast="Privacy">Privacy</a>
-          <a href="#" data-toast="Terms">Terms</a>
-          <a href="#" data-toast="Cookies">Cookies</a>
-          <a href="#" data-toast="Help">Help</a>
-        </div>
-      </div>
-
-      <div class="footer-bottom">
-        <p>© 2026 PickVanta. Foundation build — no real products, prices, or merchants yet.</p>
-        <div class="footer-bottom-links">
-          <a href="#" data-toast="Privacy">Privacy</a>
-          <a href="#" data-toast="Terms">Terms</a>
-          <a href="#" data-toast="Contact">Contact</a>
-        </div>
-      </div>
-    </div>
-  </footer>
+  <!-- Shared footer (rendered by js/core.js) -->
+  <footer id="siteFooter"></footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
+  <script src="js/data.js"></script>
+  <script src="js/core.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
