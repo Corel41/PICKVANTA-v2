@@ -47,10 +47,10 @@ PV.util.ready(function () {
   }
 
   /* ----------------------------------------------------------- row builder */
-  /* Reads a named attribute straight off the record — used for rows such as
-     "Service area" that exist in the data but not on every record type. */
-  function attrValue(record, label) {
-    const found = (record.attributes || []).find(function (a) { return a.label === label; });
+  /* Reads a named specification straight off the record — used for rows that
+     exist in the data but not on every record type. */
+  function specValue(record, label) {
+    const found = (record.specifications || []).find(function (a) { return a.label === label; });
     return found && found.value ? found.value : '—';
   }
 
@@ -120,42 +120,43 @@ PV.util.ready(function () {
     const rows = [
       { key: 'type', section: 'Overview', label: 'Type', values: list.map(function (i) { return U.typeLabel(i.type); }) },
       { key: 'category', label: 'Category', values: list.map(function (i) {
-          return U.categoryLabel(i.category) + (i.subcategory ? ' · ' + i.subcategory : '');
+          return U.categoryLabel(i.category) + (i.subcategory ? ' · ' + U.subcategoryLabel(i.subcategory) : '');
         }) },
       { key: 'brand', label: 'Brand / provider', values: list.map(function (i) {
           /* Services often have no brand — show the provider instead of a dash. */
           return i.brand || U.sellerLabel(i) || '—';
         }) },
       { key: 'price', section: 'Price & offer', label: 'Price', strong: true, values: list.map(function (i) { return U.priceText(i); }) },
-      { key: 'reference', label: 'Reference price', values: list.map(function (i) {
-          const ref = i.deal && i.deal.referencePrice != null ? i.deal.referencePrice : i.referencePrice;
-          return ref != null ? U.money(ref, (i.price && i.price.currency) || 'KES') : '—';
+      { key: 'originalPrice', label: 'Original price', values: list.map(function (i) {
+          const offer = i.offer;
+          const ref = offer && offer.originalPrice != null ? offer.originalPrice : i.referencePrice;
+          return ref != null ? U.money(ref, i.currency || U.defaultCurrency()) : '—';
         }) },
-      { key: 'dealPrice', label: 'Deal price (demo)', values: list.map(function (i) {
-          return i.deal && i.deal.dealPrice != null
-            ? U.money(i.deal.dealPrice, (i.price && i.price.currency) || 'KES') + (i.price && i.price.unit ? '/' + (U.UNIT_LABEL[i.price.unit] || i.price.unit) : '')
+      { key: 'offerPrice', label: 'Offer price (demo)', values: list.map(function (i) {
+          return i.offer && i.offer.offerPrice != null
+            ? U.money(i.offer.offerPrice, i.currency || U.defaultCurrency()) + U.priceUnitSuffix(i.price && i.price.priceType)
             : '—';
         }) },
       { key: 'offer', label: 'Offer status', values: list.map(function (i) {
-          const st = U.dealState(i);
-          return st ? st.label : 'No demo offer';
+          const st = U.offerState(i);
+          return st && st.code !== 'none' ? st.label : 'No demo offer';
         }) },
       { key: 'seller', section: 'Provider & availability', label: 'Seller / provider', values: list.map(function (i) { return U.sellerLabel(i); }) },
-      { key: 'sellerType', label: 'Seller type', values: list.map(function (i) { return (i.seller && i.seller.type) || '—'; }) },
+      { key: 'sellerType', label: 'Seller type', values: list.map(function (i) { return (i.seller && i.seller.typeLabel) || '—'; }) },
       /* Service area is only a row when at least one compared record states it,
          so unrelated rows are never forced into the table. */
-      { key: 'serviceArea', label: 'Service area', values: list.map(function (i) { return attrValue(i, 'Service area'); }) },
+      { key: 'serviceArea', label: 'Service area', values: list.map(function (i) { return U.serviceAreaText(i) || '—'; }) },
       { key: 'location', label: 'Location', values: list.map(function (i) { return U.locationLabel(i); }) },
-      { key: 'availability', label: 'Availability', values: list.map(function (i) { return U.statusInfo(i.status).label; }) },
-      { key: 'listed', label: 'Listed', values: list.map(function (i) { return U.formatDate(i.listedAt); }) }
+      { key: 'availability', label: 'Availability', values: list.map(function (i) { return U.availabilityInfo(i.availability).label; }) },
+      { key: 'createdAt', label: 'Listed', values: list.map(function (i) { return U.formatDate(i.createdAt) || '—'; }) }
     ];
 
-    /* Attribute rows are built from whatever the records actually contain, so
+    /* Specification rows are built from whatever the records actually contain, so
        new categories with new specifications need no changes here. */
     const labels = [];
     const groupOf = {};
     list.forEach(function (i) {
-      (i.attributes || []).forEach(function (a) {
+      (i.specifications || []).forEach(function (a) {
         if (labels.indexOf(a.label) === -1) {
           labels.push(a.label);
           groupOf[a.label] = a.group || '';
@@ -169,7 +170,7 @@ PV.util.ready(function () {
         label: label,
         attrGroup: groupOf[label],
         values: list.map(function (i) {
-          const found = (i.attributes || []).find(function (a) { return a.label === label; });
+          const found = (i.specifications || []).find(function (a) { return a.label === label; });
           return found ? found.value : '—';
         })
       });
@@ -227,12 +228,12 @@ PV.util.ready(function () {
       if (record) {
         html += '<div class="cmp-picker-body">' +
           '<a class="cmp-picker-name" href="' + U.esc(PV.hrefDetail(record.id)) + '">' +
-          '<span class="cmp-picker-icon" aria-hidden="true">' + U.esc((record.image && record.image.icon) || '📦') + '</span>' +
+          '<span class="cmp-picker-icon" aria-hidden="true">' + U.esc((U.primaryImage(record) || {}).icon || '📦') + '</span>' +
           '<span>' + U.esc(record.name) + '</span></a>' +
           '<div class="cmp-picker-meta">' + U.esc(U.priceText(record)) + ' · ' + U.esc(U.sellerLabel(record)) + '</div>' +
           '<div class="cmp-picker-tags">' +
-          '<span class="status-pill ' + U.esc(U.statusInfo(record.status).tone) + '">' + U.esc(U.statusInfo(record.status).label) + '</span>' +
-          (U.dealState(record) ? '<span class="status-pill ' + U.esc(U.dealState(record).tone) + '">' + U.esc(U.dealState(record).label) + '</span>' : '') +
+          '<span class="status-pill ' + U.esc(U.availabilityInfo(record.availability).tone) + '">' + U.esc(U.availabilityInfo(record.availability).label) + '</span>' +
+          (U.offerState(record) ? '<span class="status-pill ' + U.esc(U.offerState(record).tone) + '">' + U.esc(U.offerState(record).label) + '</span>' : '') +
           '</div></div>';
       } else {
         html += '<p class="cmp-picker-empty">Empty slot — pick a record to compare.</p>';
@@ -426,7 +427,7 @@ PV.util.ready(function () {
       '<thead><tr><th scope="col" class="cmp-corner"><span>Feature</span></th>' +
       list.map(function (i, idx) {
         return '<th scope="col" class="cmp-col-head">' +
-          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
+          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((U.primaryImage(i) || {}).icon || '📦') + '</span>' +
           '<span class="cmp-slot">Option ' + letters[idx] + '</span>' +
           '<a class="cmp-head-name" href="' + U.esc(PV.hrefDetail(i.id)) + '">' + U.esc(i.name) + '</a>' +
           '<span class="cmp-head-price">' + U.esc(U.priceText(i)) + '</span>' +
@@ -469,11 +470,11 @@ PV.util.ready(function () {
       list.map(function (i, idx) {
         return '<article class="cmp-stack-card">' +
           '<header>' +
-          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
+          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((U.primaryImage(i) || {}).icon || '📦') + '</span>' +
           '<div class="cmp-stack-head">' +
           '<span class="cmp-slot">Option ' + letters[idx] + '</span>' +
           '<a href="' + U.esc(PV.hrefDetail(i.id)) + '">' + U.esc(i.name) + '</a>' +
-          '<span class="cmp-head-meta">' + U.esc(U.priceText(i)) + ' · ' + U.esc(U.statusInfo(i.status).label) + '</span>' +
+          '<span class="cmp-head-meta">' + U.esc(U.priceText(i)) + ' · ' + U.esc(U.availabilityInfo(i.availability).label) + '</span>' +
           '</div></header>' +
           '<dl>' + rows.map(function (r) {
             const v = r.values[idx];
@@ -529,7 +530,7 @@ PV.util.ready(function () {
         '<div class="suggest-list">' +
         others.slice(0, 3).map(function (i) {
           return '<button type="button" class="suggest-row is-disabled" data-full-hint>' +
-            '<span class="suggest-icon" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
+            '<span class="suggest-icon" aria-hidden="true">' + U.esc((U.primaryImage(i) || {}).icon || '📦') + '</span>' +
             '<span class="suggest-text"><strong>' + U.esc(i.name) + '</strong><small>' + U.esc(U.categoryLabel(i.category)) + ' · ' + U.esc(U.priceText(i)) + '</small></span>' +
             '<span class="suggest-plus" aria-hidden="true">+</span></button>';
         }).join('') +
@@ -547,7 +548,7 @@ PV.util.ready(function () {
       '<div class="suggest-list">' +
       others.map(function (i) {
         return '<button type="button" class="suggest-row" data-add-option="' + U.esc(i.id) + '">' +
-          '<span class="suggest-icon" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
+          '<span class="suggest-icon" aria-hidden="true">' + U.esc((U.primaryImage(i) || {}).icon || '📦') + '</span>' +
           '<span class="suggest-text"><strong>' + U.esc(i.name) + '</strong><small>' + U.esc(U.categoryLabel(i.category)) + ' · ' + U.esc(U.priceText(i)) + '</small></span>' +
           '<span class="suggest-plus" aria-hidden="true">+</span>' +
           '</button>';

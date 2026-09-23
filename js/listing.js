@@ -75,11 +75,11 @@ PV.listing = (function () {
     /* Counts shown next to filter options come from the unfiltered dataset, so
        they describe the catalogue rather than the current result list. */
     function filterCounts() {
-      const counts = { category: {}, type: {}, status: {} };
+      const counts = { category: {}, type: {}, availability: {} };
       baseList().forEach(function (i) {
         counts.category[i.category] = (counts.category[i.category] || 0) + 1;
         counts.type[i.type] = (counts.type[i.type] || 0) + 1;
-        counts.status[i.status] = (counts.status[i.status] || 0) + 1;
+        counts.availability[i.availability] = (counts.availability[i.availability] || 0) + 1;
       });
       return counts;
     }
@@ -216,7 +216,7 @@ PV.listing = (function () {
       const chips = [];
       if (state.q) chips.push(chip('Search: ' + state.q, 'q'));
       if (state.category !== 'all') chips.push(chip(U.categoryLabel(state.category), 'category'));
-      if (state.subcategory !== 'all') chips.push(chip(state.subcategory, 'subcategory'));
+      if (state.subcategory !== 'all') chips.push(chip(PV.store.subcategoryLabel(state.subcategory), 'subcategory'));
       if (state.tag !== 'all') chips.push(chip('Tag: ' + PV.store.tagLabel(state.tag), 'tag'));
       if (state.type !== 'all') chips.push(chip(U.typeLabel(state.type) + 's', 'type'));
       if (state.band !== 'any') {
@@ -227,7 +227,7 @@ PV.listing = (function () {
         const loc = PV.store.locationOptions().find(function (l) { return l.code === state.location; });
         if (loc) chips.push(chip(loc.label, 'location'));
       }
-      if (state.availability !== 'all') chips.push(chip(U.statusInfo(state.availability).label, 'availability'));
+      if (state.availability !== 'all') chips.push(chip(U.availabilityInfo(state.availability).label, 'availability'));
 
       activeRow.innerHTML = chips.length
         ? '<span class="active-label">Active filters:</span>' + chips.join('') +

@@ -12,7 +12,7 @@ PV.util.ready(function () {
     countLabel: 'demo offer',
     filters: ['category', 'type', 'tag', 'band', 'location', 'availability'],
     dataset: 'deals',
-    cardFn: PV.card.deal,
+    cardFn: PV.card.offer,
     hintDefault: 'Every offer here is attached to a product or a service. Open the item to see its full detail, or compare up to <strong>3 offers</strong>.'
   });
 
@@ -20,12 +20,12 @@ PV.util.ready(function () {
   if (stat) {
     const deals = PV.store.deals();
     const biggest = deals.reduce(function (best, d) {
-      return !best || d.deal.discountPercent > best.deal.discountPercent ? d : best;
+      return !best || d.offer.discountPercent > best.offer.discountPercent ? d : best;
     }, null);
     stat.innerHTML =
       '<span><b>' + deals.length + '</b> demo offers</span>' +
       '<span><b>' + deals.filter(function (d) { return d.type === 'product'; }).length + '</b> on products</span>' +
       '<span><b>' + deals.filter(function (d) { return d.type === 'service'; }).length + '</b> on services</span>' +
-      (biggest ? '<span>Largest demo discount <b>-' + biggest.deal.discountPercent + '%</b></span>' : '');
+      (biggest ? '<span>Largest demo discount <b>-' + biggest.offer.discountPercent + '%</b></span>' : '');
   }
 });
