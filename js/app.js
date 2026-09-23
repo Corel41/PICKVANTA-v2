@@ -55,21 +55,46 @@ PV.util.ready(function () {
   const dealHost = U.$('#homeDeals');
   if (dealHost) {
     const deals = PV.data.deals().slice(0, 3);
-    dealHost.innerHTML = deals.map(PV.card.deal).join('');
+    dealHost.innerHTML = deals.map(function (record) { return PV.card.deal(record); }).join('');
   }
 
   /* ------------------------------------------------------ discover preview */
   const discoverHost = U.$('#homeDiscover');
   if (discoverHost) {
     const featured = PV.sort.apply(PV.data.all(), 'relevance').slice(0, 5);
-    discoverHost.innerHTML = featured.map(PV.card.item).join('');
+    discoverHost.innerHTML = featured.map(function (record) { return PV.card.item(record); }).join('');
   }
 
   /* ------------------------------------------------------- guides preview */
   const guideHost = U.$('#homeGuides');
   if (guideHost) {
-    guideHost.innerHTML = PV.data.guides().slice(0, 3).map(PV.card.guide).join('');
+    guideHost.innerHTML = PV.data.guides().slice(0, 3).map(function (guide) { return PV.card.guide(guide); }).join('');
   }
+
+  /* ---------------------------------------------- live compare state on home */
+  /* If the visitor has already picked options, the homepage reflects it so the
+     journey continues instead of restarting. */
+  const ctaSide = U.$('.compare-cta-side');
+  function renderCompareState() {
+    const count = PV.compare.count();
+    const existing = U.$('#homeCompareState');
+
+    if (!count) {
+      if (existing) existing.remove();
+      if (ctaSide) ctaSide.classList.remove('has-selection');
+      return;
+    }
+    const html =
+      '<div class="cta-state" id="homeCompareState">' +
+      '<span class="cta-state-label">' + count + ' of ' + PV.compare.max + ' selected for comparison</span>' +
+      '<a class="link-arrow" href="compare.html?ids=' + encodeURIComponent(PV.compare.ids().join(',')) + '">Open your comparison <span aria-hidden="true">→</span></a>' +
+      '</div>';
+    if (existing) existing.outerHTML = html;
+    else if (ctaSide) ctaSide.insertAdjacentHTML('afterbegin', html);
+    if (ctaSide) ctaSide.classList.add('has-selection');
+  }
+  renderCompareState();
+  PV.onCompareChange(renderCompareState);
 
   /* The homepage previews are a small slice of the demo dataset. */
   const countHost = U.$('#homeDatasetNote');

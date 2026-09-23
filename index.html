@@ -34,7 +34,8 @@
             </div>
             <h1 id="hero-title">Make the smarter <span class="accent">pick.</span></h1>
             <p class="hero-copy">
-              PickVanta helps you discover, compare, and find better options for products, services, and deals — all in one clean, trustworthy place.
+              Search once, then discover, compare and shortlist products, services and deals before you decide.
+              PickVanta does not sell anything — it helps you make the smarter pick.
             </p>
 
             <div class="search-wrap" id="searchWrap">
@@ -55,7 +56,7 @@
             </div>
 
             <div class="quick" aria-label="Example searches">
-              <span class="quick-label">Try:</span>
+              <span class="quick-label">Search for:</span>
               <button class="chip" data-fill="headphones">Headphones</button>
               <button class="chip" data-fill="laptop">Laptops</button>
               <button class="chip" data-fill="furniture">Furniture</button>
@@ -78,7 +79,7 @@
               <div class="compare-head">
                 <div>
                   <div class="compare-title">Compare options</div>
-                  <div class="compare-sub">Interface preview — demo data</div>
+                  <div class="compare-sub">No scores, no ranking — demo data</div>
                 </div>
                 <span style="font-size:11px;color:#94A3B8;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);padding:4px 8px;border-radius:999px">3 options</span>
               </div>
@@ -94,30 +95,27 @@
                     <div class="option-icon" aria-hidden="true">🎧</div>
                     <div class="option-meta">
                       <div class="option-name">QuietMax 700</div>
-                      <div class="option-spec">40h · ANC · USB-C</div>
+                      <div class="option-spec">QuietMax · $249</div>
                     </div>
                   </div>
                   <div class="option-right">
-                    <div style="font-size:11px;color:#64748B">Demo</div>
-                    <div class="score-bars" aria-hidden="true">
-                      <div class="bar-row"><span>Value</span><div class="bar"><span style="width:72%"></span></div><strong>7.2</strong></div>
+                    <div class="option-facts">
+                      <span>ANC</span><span>40h</span><span>253 g</span>
                     </div>
                   </div>
                 </div>
 
-                <div class="option featured">
+                <div class="option">
                   <div class="option-main">
-                    <div class="option-icon" aria-hidden="true" style="background:#EEF2FF;border:1px solid #E0E7FF">✨</div>
+                    <div class="option-icon" aria-hidden="true">✨</div>
                     <div class="option-meta">
                       <div class="option-name">AirFlow Studio Pro</div>
-                      <div class="option-spec">60h · Spatial · App EQ</div>
+                      <div class="option-spec">AirFlow · $349</div>
                     </div>
                   </div>
                   <div class="option-right">
-                    <span class="match-pill"><i aria-hidden="true">✓</i> PickVanta Match</span>
-                    <div class="score-bars" aria-hidden="true">
-                      <div class="bar-row"><span>Value</span><div class="bar"><span style="width:92%"></span></div><strong>9.2</strong></div>
-                      <div class="bar-row"><span>Comfort</span><div class="bar"><span style="width:88%"></span></div><strong>8.8</strong></div>
+                    <div class="option-facts">
+                      <span>ANC</span><span>60h</span><span>268 g</span>
                     </div>
                   </div>
                 </div>
@@ -127,13 +125,12 @@
                     <div class="option-icon" aria-hidden="true">🎵</div>
                     <div class="option-meta">
                       <div class="option-name">BassWave 700</div>
-                      <div class="option-spec">30h · Bass boost</div>
+                      <div class="option-spec">BassWave · $179</div>
                     </div>
                   </div>
                   <div class="option-right">
-                    <div style="font-size:11px;color:#64748B">Demo</div>
-                    <div class="score-bars" aria-hidden="true">
-                      <div class="bar-row"><span>Value</span><div class="bar"><span style="width:65%"></span></div><strong>6.5</strong></div>
+                    <div class="option-facts">
+                      <span>No ANC</span><span>30h</span><span>286 g</span>
                     </div>
                   </div>
                 </div>
@@ -141,7 +138,8 @@
             </div>
 
             <div class="demo-note">
-              Visual concept only. Scores and “PickVanta Match” are interface demo content — no recommendation algorithm is running yet.
+              Interface preview only: the same three demo headphones, lined up row by row. PickVanta shows what differs — it does not score,
+              rank or declare a winner.
             </div>
 
             <div class="floating-stat" aria-hidden="true">
@@ -183,6 +181,26 @@
       </div>
     </section>
 
+    <!-- COMPARE CTA -->
+    <section class="section section-tight" aria-labelledby="compare-cta-title">
+      <div class="shell">
+        <div class="compare-cta">
+          <div class="compare-cta-main">
+            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Compare</span>
+            <h2 id="compare-cta-title">Two or three options? See them side by side.</h2>
+            <p>
+              Add anything you are considering with the <strong>Compare</strong> button. PickVanta lines the options up row by row,
+              flags what differs, and leaves the decision with you — no scores, no winners.
+            </p>
+          </div>
+          <div class="compare-cta-side">
+            <a class="btn-primary btn-large" href="compare.html">Open Compare</a>
+            <a class="btn-secondary btn-large" href="discover.html">Find options to compare</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- DISCOVERY / PRODUCTS -->
     <section class="section" id="discover" aria-labelledby="discover-title">
       <div class="shell">
@@ -214,38 +232,50 @@
       </div>
     </section>
 
-    <!-- WHY -->
-    <section class="section" id="why" aria-labelledby="why-title">
+    <!-- HOW IT WORKS -->
+    <section class="section" id="how" aria-labelledby="how-title">
       <div class="shell">
         <div class="section-head">
           <div>
-            <h2 id="why-title">Why PickVanta?</h2>
-            <p>A simple, trustworthy flow to help you make a more informed choice — without clutter or hype.</p>
+            <h2 id="how-title">How PickVanta works</h2>
+            <p>One path from a question to a decision — no checkout, no pressure, no ranking of options.</p>
           </div>
+          <a href="discover.html" class="link-arrow">Start with Discover <span aria-hidden="true">→</span></a>
         </div>
 
-        <div class="why-grid">
-          <div class="why-card">
-            <div class="why-icon" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 2"/></svg>
+        <div class="steps" role="list">
+          <a class="step" role="listitem" href="discover.html?focus=search">
+            <span class="step-num" aria-hidden="true">1</span>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
             </div>
-            <h3>Search naturally</h3>
-            <p>Search across the demo dataset by name, description, category, brand or seller — then land on Discover with your query applied.</p>
-          </div>
-          <div class="why-card">
-            <div class="why-icon" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+            <h3>Find</h3>
+            <p>Search by name, brand, seller, category or keyword — from the homepage or Discover.</p>
+          </a>
+          <a class="step" role="listitem" href="discover.html">
+            <span class="step-num" aria-hidden="true">2</span>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
             </div>
-            <h3>Compare clearly</h3>
-            <p>Put two or three options side by side and see which rows actually differ — the interface shows differences, you decide what matters.</p>
-          </div>
-          <div class="why-card">
-            <div class="why-icon" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            <h3>Discover</h3>
+            <p>Filter products, services and offers by category, price, location, type and availability.</p>
+          </a>
+          <a class="step" role="listitem" href="compare.html">
+            <span class="step-num" aria-hidden="true">3</span>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10"/><path d="m11 4 3 3-3 3"/><path d="M20 17H10"/><path d="m13 14-3 3 3 3"/></svg>
             </div>
-            <h3>Choose confidently</h3>
-            <p>Understand your options before you decide. Any purchase happens with the seller or provider later — PickVanta does not check out yet.</p>
-          </div>
+            <h3>Compare</h3>
+            <p>Put up to three options side by side and see exactly which rows differ.</p>
+          </a>
+          <a class="step" role="listitem" href="guides.html">
+            <span class="step-num" aria-hidden="true">4</span>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            </div>
+            <h3>Choose</h3>
+            <p>Use the guides and your own priorities to decide — then continue with the seller or provider.</p>
+          </a>
         </div>
       </div>
     </section>

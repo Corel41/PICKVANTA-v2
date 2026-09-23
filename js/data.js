@@ -13,12 +13,17 @@
      description, price, referencePrice, location, seller, image, attributes,
      deal, status, badge, tags, listedAt, rating, highlights
 
+   tags       : short stable keywords used for search and related discovery
+
    type       : 'product' | 'service'   (products/services are distinct)
    category   : slug from categories[]
    price      : { amount } | { min, max } | { amount, unit: 'month' }
    attributes : [{ group, label, value }]  → flexible, not category specific
    deal       : null | { dealPrice, referencePrice, discountPercent,
                          validFrom, validTo, conditions: [] }
+                An offer attached to a product or service — never its own item.
+   guides     : { id, title, question, category, icon, summary, readTime,
+                  level, covers[] }
    ========================================================================== */
 (() => {
   'use strict';
@@ -99,6 +104,7 @@
         { group: 'Connectivity', label: 'Connectivity', value: 'Bluetooth 5.3, multipoint' },
         { group: 'Support', label: 'Warranty', value: '2 years' }
       ],
+      tags: ['audio', 'wireless', 'noise cancelling'],
       deal: {
         dealPrice: 249,
         referencePrice: 299,
@@ -137,6 +143,7 @@
         { group: 'Connectivity', label: 'Connectivity', value: 'Bluetooth 5.0' },
         { group: 'Support', label: 'Warranty', value: '1 year' }
       ],
+      tags: ['audio', 'bass', 'budget'],
       deal: null
     },
     {
@@ -168,6 +175,7 @@
         { group: 'Connectivity', label: 'Connectivity', value: 'Bluetooth 5.4, multipoint, 3.5 mm' },
         { group: 'Support', label: 'Warranty', value: '2 years' }
       ],
+      tags: ['audio', 'premium', 'spatial'],
       deal: null
     },
     {
@@ -198,6 +206,7 @@
         { group: 'Design', label: 'Weight', value: '198 g' },
         { group: 'Support', label: 'Warranty', value: '2 years' }
       ],
+      tags: ['smartphone', 'camera', 'mobile'],
       deal: {
         dealPrice: 899,
         referencePrice: 999,
@@ -236,6 +245,7 @@
         { group: 'Connectivity', label: 'Connectivity', value: 'Wi-Fi 6E, 2× USB-C, HDMI' },
         { group: 'Support', label: 'Warranty', value: '2 years' }
       ],
+      tags: ['laptop', 'portable', 'work and study'],
       deal: null
     },
 
@@ -267,6 +277,7 @@
         { group: 'Design', label: 'Weight limit', value: '120 kg' },
         { group: 'Support', label: 'Warranty', value: '5 years' }
       ],
+      tags: ['furniture', 'office', 'ergonomics'],
       deal: {
         dealPrice: 219,
         referencePrice: 269,
@@ -303,6 +314,7 @@
         { group: 'Design', label: 'Dimensions', value: '50 × 45 × 51 cm' },
         { group: 'Support', label: 'Warranty', value: '3 years' }
       ],
+      tags: ['appliance', 'kitchen', 'compact living'],
       deal: null
     },
 
@@ -334,6 +346,7 @@
         { group: 'Features', label: 'Weather rating', value: 'IP54' },
         { group: 'Support', label: 'Warranty', value: '3 years' }
       ],
+      tags: ['electric vehicle', 'home charging', 'installation'],
       deal: {
         dealPrice: 649,
         referencePrice: 749,
@@ -369,6 +382,7 @@
         { group: 'Service', label: 'Appointment', value: 'Required' },
         { group: 'Service', label: 'Warranty', value: '6 months on work' }
       ],
+      tags: ['car service', 'maintenance', 'local garage'],
       deal: null
     },
 
@@ -400,6 +414,7 @@
         { group: 'Features', label: 'Included', value: 'Wi-Fi, kitchen, air conditioning' },
         { group: 'Conditions', label: 'Cancellation', value: 'Free up to 7 days (demo)' }
       ],
+      tags: ['apartment', 'short stay', 'coastal'],
       deal: null
     },
     {
@@ -430,6 +445,7 @@
         { group: 'Features', label: 'Lock', value: 'Combination lock' },
         { group: 'Support', label: 'Warranty', value: '5 years' }
       ],
+      tags: ['luggage', 'travel gear', 'cabin baggage'],
       deal: {
         dealPrice: 89,
         referencePrice: 139,
@@ -468,6 +484,7 @@
         { group: 'Plan', label: 'Contract', value: 'Monthly, cancel anytime (demo)' },
         { group: 'Support', label: 'Support', value: 'Email, 48 h response' }
       ],
+      tags: ['cloud', 'backup', 'software'],
       deal: {
         dealPrice: 12,
         referencePrice: 18,
@@ -503,6 +520,7 @@
         { group: 'Plan', label: 'Contract', value: 'Monthly (demo)' },
         { group: 'Support', label: 'Support', value: 'Email and chat' }
       ],
+      tags: ['software', 'invoicing', 'small business'],
       deal: null
     },
 
@@ -534,6 +552,7 @@
         { group: 'Course', label: 'Class size', value: 'Max 8' },
         { group: 'Course', label: 'Certificate', value: 'On completion (demo)' }
       ],
+      tags: ['language', 'course', 'travel skills'],
       deal: {
         dealPrice: 89,
         referencePrice: 120,
@@ -569,6 +588,7 @@
         { group: 'Course', label: 'Modules', value: '6 modules, 1 mentor session each' },
         { group: 'Course', label: 'Certificate', value: 'On completion (demo)' }
       ],
+      tags: ['certificate', 'data skills', 'online learning'],
       deal: {
         dealPrice: 149,
         referencePrice: 199,
@@ -606,6 +626,7 @@
         { group: 'Product', label: 'Sizes', value: 'XS – XXL' },
         { group: 'Conditions', label: 'Returns', value: '30 days (demo)' }
       ],
+      tags: ['clothing', 'linen', 'everyday'],
       deal: null
     },
     {
@@ -634,6 +655,7 @@
         { group: 'Product', label: 'Drop', value: '8 mm' },
         { group: 'Product', label: 'Sizes', value: '38 – 47' }
       ],
+      tags: ['footwear', 'lightweight', 'everyday'],
       deal: null
     },
 
@@ -665,6 +687,7 @@
         { group: 'Plan', label: 'Setup fee', value: '$0 (demo)' },
         { group: 'Support', label: 'Support', value: 'Phone, 7 days' }
       ],
+      tags: ['broadband', 'internet', 'home'],
       deal: {
         dealPrice: 39,
         referencePrice: 50,
@@ -700,6 +723,7 @@
         { group: 'Service', label: 'Warranty', value: '6 months on parts' },
         { group: 'Service', label: 'Availability', value: 'Quote required' }
       ],
+      tags: ['repair', 'wearables', 'local service'],
       deal: null
     },
     {
@@ -729,6 +753,7 @@
         { group: 'Cover', label: 'Excess', value: 'From $75 (demo)' },
         { group: 'Conditions', label: 'Exclusions', value: 'Listed before purchase (demo)' }
       ],
+      tags: ['insurance', 'travel cover', 'policy'],
       deal: null
     }
   ];
@@ -741,6 +766,7 @@
       title: 'How to choose a smartphone',
       category: 'technology',
       icon: '📱',
+      question: "What should I check before choosing a phone?",
       summary: 'What actually matters when comparing phones, and which specs rarely change your day-to-day experience.',
       readTime: '6 min read',
       level: 'Beginner',
@@ -751,6 +777,7 @@
       title: 'What to look for when buying a laptop',
       category: 'technology',
       icon: '💻',
+      question: "How do I balance weight, battery, memory and price?",
       summary: 'A short framework for balancing weight, battery, memory and price before you compare models.',
       readTime: '7 min read',
       level: 'Beginner',
@@ -761,6 +788,7 @@
       title: 'How to compare internet providers',
       category: 'services',
       icon: '🛜',
+      question: "How do I read an internet contract and compare providers?",
       summary: 'Speeds are only one line in the contract. Here is how to read contract length, fees and support.',
       readTime: '5 min read',
       level: 'Beginner',
@@ -771,6 +799,7 @@
       title: 'What to consider before buying furniture',
       category: 'home',
       icon: '🪑',
+      question: "What should I measure and check before ordering furniture?",
       summary: 'Measurements, materials and delivery conditions to check before committing to a large item.',
       readTime: '5 min read',
       level: 'Beginner',
@@ -781,6 +810,7 @@
       title: 'How to read a deal: reference price vs deal price',
       category: 'business',
       icon: '🏷️',
+      question: "Is this discount claim actually a saving?",
       summary: 'Understand what a discount claim is measured against, and when an offer is not really a saving.',
       readTime: '4 min read',
       level: 'Beginner',
@@ -791,6 +821,7 @@
       title: 'Travel cover: comparing policies that look the same',
       category: 'travel',
       icon: '🧾',
+      question: "How do I compare travel policies that look identical?",
       summary: 'Excess, exclusions and claim limits matter more than the headline price of a travel policy.',
       readTime: '6 min read',
       level: 'Beginner',

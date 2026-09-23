@@ -142,40 +142,78 @@ window.PV = (function () {
       });
       return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
     },
-    related: (item, limit) => {
-      if (!item) return [];
-      return D.items
-        .filter((i) => i.id !== item.id && (i.category === item.category || i.type === item.type))
-        .sort((a, b) => (a.category === item.category ? -1 : 1) - (b.category === item.category ? -1 : 1))
-        .slice(0, limit || 4);
-    },
+    /* Related options: deterministic matching on category, subcategory, type,
+       tags, brand and price band. Returns { record, reasons[] } so the UI can
+       say *why* something is related. No ranking, scoring or recommendation. */
+    related: (item, limit) => relatedFor(item, limit),
     notice: D.demoNotice || 'Demonstration data only.',
     version: D.version || 'demo'
   };
 
+  /* ---------------------------------------------------- related discovery */
+  const midPrice = (record) => {
+    const p = (record && record.price) || {};
+    if (p.amount != null) return Number(p.amount);
+    if (p.min != null) return Number(p.min);
+    return null;
+  };
+
+  function relatedFor(item, limit) {
+    if (!item) return [];
+    const max = limit || 4;
+    const mine = midPrice(item);
+    const scored = [];
+
+    D.items.forEach((r) => {
+      if (r.id === item.id) return;
+      let score = 0;
+      const reasons = [];
+
+      if (r.category === item.category) { score += 5; reasons.push('same category'); }
+      if (item.subcategory && r.subcategory === item.subcategory) { score += 4; reasons.push('same kind of item'); }
+      if (r.type === item.type) { score += 1; reasons.push(r.type === 'product' ? 'both products' : 'both services'); }
+
+      const shared = (r.tags || []).filter((t) => (item.tags || []).indexOf(t) !== -1);
+      if (shared.length) {
+        score += 3 * Math.min(shared.length, 2);
+        reasons.push('shares ' + shared.slice(0, 2).join(' + '));
+      }
+
+      if (item.brand && r.brand === item.brand) { score += 2; reasons.push('same brand'); }
+
+      const theirs = midPrice(r);
+      if (mine != null && theirs != null && Math.abs(theirs - mine) / Math.max(mine, 1) <= 0.35) {
+        score += 2;
+        reasons.push('similar price');
+      }
+
+      if (score > 0) scored.push({ record: r, score: score, reasons: reasons });
+    });
+
+    return scored
+      .sort((a, b) =>
+        b.score - a.score ||
+        ((b.record.rating && b.record.rating.value) || 0) - ((a.record.rating && a.record.rating.value) || 0) ||
+        a.record.name.localeCompare(b.record.name)
+      )
+      .slice(0, max);
+  }
+
   /* ---------------------------------------------------------------- search */
-  const haystack = (record) =>
-    [
-      record.name,
-      record.brand,
-      record.subcategory,
-      categoryLabel(record.category),
-      record.shortDescription,
-      record.description,
-      record.seller && record.seller.name,
-      record.location && record.location.city,
-      record.location && record.location.country,
-      (record.attributes || []).map((a) => a.label + ' ' + a.value).join(' '),
-      (record.tags || []).join(' ')
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+  const tokenize = (value) => String(value == null ? '' : value).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
   /**
-   * Keyword search across the demo dataset.
-   * Matches names, descriptions, categories, brands and sellers.
-   * Every term must match somewhere (AND); scores decide the order.
+   * Lightweight keyword search over the demo dataset.
+   *
+   * Matching rules (deliberately simple — no engine, no index, no backend):
+   *   • case-insensitive, punctuation-tolerant
+   *   • word-prefix matching, so "cancel" finds "cancelling" and "phone"
+   *     finds "EdgePhone" / "Smartphones"
+   *   • partial-word and cross-word matches are accepted with a lower score
+   *   • every query term must match somewhere (AND), then results are ranked
+   *
+   * Fields searched: name, brand, category, subcategory, tags, seller,
+   * location, description and specification values.
    */
   function search(query, list) {
     const pool = list || D.items;
@@ -186,43 +224,47 @@ window.PV = (function () {
     const scored = [];
 
     pool.forEach((record) => {
-      const name = record.name.toLowerCase();
-      const brand = (record.brand || '').toLowerCase();
-      const cat = categoryLabel(record.category).toLowerCase();
-      const sub = (record.subcategory || '').toLowerCase();
-      const seller = ((record.seller && record.seller.name) || '').toLowerCase();
-      const body = ((record.shortDescription || '') + ' ' + (record.description || '')).toLowerCase();
-      const specs = ((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' ') || '').toLowerCase();
-      const loc = ((record.location && record.location.city) || '').toLowerCase();
-      const all = haystack(record);
+      const fields = {
+        name: (record.name || '').toLowerCase(),
+        brand: (record.brand || '').toLowerCase(),
+        category: categoryLabel(record.category).toLowerCase(),
+        subcategory: (record.subcategory || '').toLowerCase(),
+        tags: (record.tags || []).join(' ').toLowerCase(),
+        seller: ((record.seller && record.seller.name) || '').toLowerCase(),
+        location: ((record.location && record.location.city + ' ' + record.location.country) || '').toLowerCase(),
+        body: ((record.shortDescription || '') + ' ' + (record.description || '')).toLowerCase(),
+        specs: ((record.attributes || []).map((a) => a.label + ' ' + a.value).join(' ') || '').toLowerCase()
+      };
+      const tokens = {};
+      Object.keys(fields).forEach((key) => { tokens[key] = tokenize(fields[key]); });
+
+      const hit = (key, weight, term) => {
+        if (tokens[key].some((t) => t.indexOf(term) === 0)) return weight;          // word prefix
+        if (tokens[key].some((t) => t.indexOf(term) !== -1)) return weight - 1;     // inside a word
+        if (fields[key].indexOf(term) !== -1) return Math.max(1, weight - 2);      // spans words
+        return 0;
+      };
 
       let score = 0;
       let matchedAll = true;
 
       terms.forEach((term) => {
-        let termScore = 0;
-        if (name.startsWith(term)) termScore += 14;
-        else if (new RegExp('\\b' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(name)) termScore += 11;
-        else if (name.includes(term)) termScore += 8;
-        if (brand.includes(term)) termScore += 9;
-        if (cat.includes(term)) termScore += 7;
-        if (sub.includes(term)) termScore += 6;
-        if (seller.includes(term)) termScore += 5;
-        if (loc.includes(term)) termScore += 4;
-        if (body.includes(term)) termScore += 3;
-        if (specs.includes(term)) termScore += 2;
-        if (!termScore && !all.includes(term)) matchedAll = false;
+        const termScore =
+          hit('name', 12, term) + hit('brand', 9, term) + hit('category', 7, term) + hit('subcategory', 6, term) +
+          hit('tags', 5, term) + hit('seller', 5, term) + hit('location', 4, term) + hit('body', 3, term) + hit('specs', 2, term);
+        if (!termScore) matchedAll = false;
         score += termScore;
       });
 
       if (!matchedAll) return;
-      if (name.includes(q)) score += 6; // whole-phrase bonus
+      if (fields.name.indexOf(q) !== -1) score += 6;                                    // whole phrase in the name
+      if (terms.length > 1 && terms.every((t) => fields.name.indexOf(t) !== -1)) score += 4;
       if (record.deal) score += 2;
       if (record.badge && record.badge.tone === 'accent') score += 1;
       scored.push({ record: record, score: score });
     });
 
-    return scored.sort((a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name)).map((s) => s.record);
+    return scored.sort((a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name)).map((x) => x.record);
   }
 
   /** Typeahead suggestions: records, categories, brands/sellers and guides. */
@@ -352,27 +394,40 @@ window.PV = (function () {
 
   const hrefDetail = (id) => 'detail.html?id=' + encodeURIComponent(id);
 
-  /** Discovery card — reuses the homepage product card design. */
-  function cardItem(record) {
+  /**
+   * Discovery card.
+   * Visual hierarchy: category + type → name → description → price →
+   * seller/location → availability → actions. A card with a deal also gets a
+   * discount flag and a "Demo offer" pill so the offer is never mistaken for
+   * the item itself.
+   */
+  function cardItem(record, opts) {
+    const o = opts || {};
     const status = statusInfo(record.status);
+    const offer = record.deal ? dealState(record) : null;
     return (
       '<article class="product-card" data-card="' + esc(record.id) + '">' +
-      mediaMarkup(record, {}) +
+      mediaMarkup(record, { deal: !!record.deal }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
-      '<span class="store">' + esc(categoryLabel(record.category)) + ' · ' + esc(record.subcategory || typeLabel(record.type)) + '</span>' +
-      (record.rating ? '<span class="rating">★ ' + record.rating.value.toFixed(1) + '</span>' : '') +
+      '<span class="store">' + esc(categoryLabel(record.category)) + '</span>' +
+      '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
       '<h3><a href="' + hrefDetail(record.id) + '">' + esc(record.name) + '</a></h3>' +
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
       priceRow(record) +
       '<div class="card-meta">' +
-      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '</span>' +
+      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '<span class="meta-demo">demo</span></span>' +
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
       '<span class="status-pill ' + esc(status.tone) + '">' + esc(status.label) + '</span>' +
+      (offer ? '<span class="status-pill offers">Demo offer · ' + esc(offer.label.toLowerCase()) + '</span>' : '') +
+      (record.rating ? '<span class="meta-item meta-rating">★ ' + record.rating.value.toFixed(1) + ' demo</span>' : '') +
       '</div>' +
+      (o.reasons && o.reasons.length
+        ? '<p class="card-reason"><span aria-hidden="true">↳</span> Matched on ' + esc(o.reasons.slice(0, 3).join(', ')) + '</p>'
+        : '') +
       '<div class="card-actions">' +
-      '<a class="small-btn" href="' + hrefDetail(record.id) + '">View details</a>' +
+      '<a class="small-btn primary" href="' + hrefDetail(record.id) + '">View details</a>' +
       compareButton(record.id) +
       '</div>' +
       '</div>' +
@@ -381,32 +436,47 @@ window.PV = (function () {
   }
 
   /** Deal card — same family as the homepage deal card, plus offer fields. */
+  /**
+   * Deal card. A deal is never presented as its own product: the card shows
+   * the underlying item name, then an explicit "special offer" block with
+   * reference price → deal price → saving, then seller, location, validity
+   * and conditions. Everything is labelled as demo data.
+   */
   function cardDeal(record) {
     const deal = record.deal;
     const state = dealState(record) || { tone: 'info', label: 'Demo offer' };
     const saved = savings(record);
+    const currency = record.price && record.price.currency;
+    const unit = record.price && record.price.unit ? '/' + (UNIT_LABEL[record.price.unit] || record.price.unit) : '';
     return (
       '<article class="deal-card" data-card="' + esc(record.id) + '">' +
       mediaMarkup(record, { deal: true }) +
       '<div class="card-body">' +
       '<div class="card-top">' +
-      '<span class="store">' + esc(sellerLabel(record)) + ' · Demo seller</span>' +
-      '<span class="status-pill ' + esc(state.tone) + '">' + esc(state.label) + '</span>' +
+      '<span class="store">' + esc(categoryLabel(record.category)) + ' · Offer on a ' + esc(record.type) + '</span>' +
+      '<span class="type-chip">' + esc(typeLabel(record.type)) + '</span>' +
       '</div>' +
       '<h3><a href="' + hrefDetail(record.id) + '">' + esc(record.name) + '</a></h3>' +
-      '<div class="price-row">' +
-      '<span class="price">' + esc(money(deal.dealPrice, record.price && record.price.currency)) + (record.price && record.price.unit ? '/' + (UNIT_LABEL[record.price.unit] || record.price.unit) : '') + '</span>' +
-      (deal.referencePrice ? '<span class="price-old">' + esc(money(deal.referencePrice, record.price && record.price.currency)) + '</span>' : '') +
-      (saved ? '<span class="save-pill">Save ' + esc(saved) + '</span>' : '') +
-      '</div>' +
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
+      '<div class="offer-block">' +
+      '<span class="offer-flag">Special offer · demo</span>' +
+      '<div class="offer-prices">' +
+      '<span class="offer-was">Was <s>' + esc(money(deal.referencePrice, currency)) + unit + '</s></span>' +
+      '<span class="offer-now">Now <strong>' + esc(money(deal.dealPrice, currency)) + unit + '</strong></span>' +
+      (deal.discountPercent ? '<span class="save-pill">Save ' + deal.discountPercent + '%' + (saved ? ' · ' + esc(saved) : '') + '</span>' : '') +
+      '</div>' +
+      '</div>' +
       '<div class="card-meta">' +
+      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '<span class="meta-demo">demo</span></span>' +
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
       '<span class="meta-item">' + ICON_CAL + 'Offer ends ' + esc(formatDate(deal.validTo)) + '</span>' +
-      '<span class="meta-item">' + esc(deal.conditions && deal.conditions.length ? deal.conditions.length + ' condition' + (deal.conditions.length === 1 ? '' : 's') + ' (demo)' : 'No conditions listed') + '</span>' +
+      '<span class="status-pill ' + esc(state.tone) + '">' + esc(state.label) + '</span>' +
+      (deal.conditions && deal.conditions.length
+        ? '<span class="meta-item">' + deal.conditions.length + ' condition' + (deal.conditions.length === 1 ? '' : 's') + ' (demo)</span>'
+        : '<span class="meta-item">No conditions listed</span>') +
       '</div>' +
       '<div class="card-actions">' +
-      '<a class="small-btn" href="' + hrefDetail(record.id) + '">View offer</a>' +
+      '<a class="small-btn primary" href="' + hrefDetail(record.id) + '">View item &amp; offer</a>' +
       compareButton(record.id) +
       '</div>' +
       '</div>' +
@@ -430,29 +500,57 @@ window.PV = (function () {
     );
   }
 
+  /** Compare toggle used on every card and on the detail page. */
   function compareButton(id) {
-    return '<button type="button" class="small-btn primary" data-compare-toggle="' + esc(id) + '">Compare</button>';
+    const record = data.item(id);
+    const name = record ? record.name : 'this option';
+    return (
+      '<button type="button" class="small-btn compare-btn" data-compare-toggle="' + esc(id) + '"' +
+      ' data-compare-name="' + esc(name) + '" aria-pressed="false">' +
+      '<span class="cmp-btn-icon" aria-hidden="true">+</span>' +
+      '<span class="cmp-btn-label">Compare</span>' +
+      '</button>'
+    );
   }
 
+  /**
+   * Guide card: what question it answers, which category it belongs to and
+   * what it covers. The outline sits in a native <details> element — no fake
+   * article page, no JavaScript needed to open it.
+   */
   function cardGuide(guide) {
+    const category = categoryHref(guide.category);
     return (
       '<article class="guide-card" data-guide="' + esc(guide.id) + '">' +
-      '<div class="guide-media" aria-hidden="true">' + esc(guide.icon) + '</div>' +
-      '<div class="card-body">' +
-      '<div class="card-top">' +
-      '<span class="store">' + esc(categoryLabel(guide.category)) + '</span>' +
-      '<span class="rating">' + esc(guide.level) + ' · ' + esc(guide.readTime) + '</span>' +
+      '<div class="guide-head">' +
+      '<span class="guide-media" aria-hidden="true">' + esc(guide.icon) + '</span>' +
+      '<a class="guide-cat" href="' + esc(category) + '">' + esc(categoryLabel(guide.category)) + '</a>' +
       '</div>' +
       '<h3>' + esc(guide.title) + '</h3>' +
+      (guide.question ? '<p class="guide-question">Answers: ' + esc(guide.question) + '</p>' : '') +
       '<p class="card-desc">' + esc(guide.summary) + '</p>' +
+      '<details class="guide-details">' +
+      '<summary>What it covers</summary>' +
       '<ul class="guide-covers">' + guide.covers.map((c) => '<li>' + esc(c) + '</li>').join('') + '</ul>' +
-      '<p class="guide-note">Guide outline — full articles are not part of this stage.</p>' +
+      '</details>' +
+      '<div class="guide-foot">' +
+      '<span class="rating">' + esc(guide.level) + ' · ' + esc(guide.readTime) + '</span>' +
+      '<button type="button" class="link-btn guide-open" data-later="Guide articles">Read outline</button>' +
       '</div>' +
+      '<p class="guide-note">Outline only — the full article is not written yet.</p>' +
       '</article>'
     );
   }
 
-  /** Reusable empty state. */
+  /** Category link used by guide cards and empty states. */
+  function categoryHref(slug) {
+    return 'discover.html?category=' + encodeURIComponent(slug);
+  }
+
+  /**
+   * Reusable empty state with a recovery path: optional category suggestions,
+   * a primary recovery action (button, handled by the caller) and links.
+   */
   function emptyState(opts) {
     const o = opts || {};
     return (
@@ -461,11 +559,18 @@ window.PV = (function () {
       '<h3>' + esc(o.title || 'No matches found') + '</h3>' +
       '<p>' + esc(o.text || 'Try a different search term or category.') + '</p>' +
       (o.suggestions && o.suggestions.length
-        ? '<div class="empty-chips">' + o.suggestions.map((s) => '<a class="chip" href="' + esc(s.href) + '">' + esc(s.label) + '</a>').join('') + '</div>'
+        ? '<div class="empty-chips">' +
+          '<span class="empty-chip-label">' + esc(o.suggestLabel || 'Browse a category:') + '</span>' +
+          o.suggestions.map((s) => '<a class="chip" href="' + esc(s.href) + '">' + esc(s.label) + '</a>').join('') +
+          '</div>'
         : '') +
-      (o.actions && o.actions.length
-        ? '<div class="empty-actions">' + o.actions.map((a) => '<a class="btn-secondary" href="' + esc(a.href) + '">' + esc(a.label) + '</a>').join('') + '</div>'
+      ((o.buttons && o.buttons.length) || (o.actions && o.actions.length)
+        ? '<div class="empty-actions">' +
+          (o.buttons || []).map((b) => '<button type="button" class="btn-primary" data-empty-action="' + esc(b.action) + '">' + esc(b.label) + '</button>').join('') +
+          (o.actions || []).map((a) => '<a class="btn-secondary" href="' + esc(a.href) + '">' + esc(a.label) + '</a>').join('') +
+          '</div>'
         : '') +
+      (o.footnote ? '<p class="empty-footnote">' + esc(o.footnote) + '</p>' : '') +
       '</div>'
     );
   }
@@ -498,29 +603,42 @@ window.PV = (function () {
     ids: () => compareIds.slice(),
     count: () => compareIds.length,
     has: (id) => compareIds.indexOf(id) !== -1,
+    full: () => compareIds.length >= COMPARE_MAX,
     add(id) {
-      if (!data.item(id)) return false;
+      const record = data.item(id);
+      if (!record) return false;
       if (compareIds.indexOf(id) !== -1) return true;
       if (compareIds.length >= COMPARE_MAX) {
-        toast('You can compare up to ' + COMPARE_MAX + ' options in this build.');
+        toast('You can compare up to ' + COMPARE_MAX + ' options. Remove one from the tray below to swap it for “' + record.name + '”.');
         return false;
       }
       compareIds.push(id);
       writeStore(compareIds);
+      announce('Added “' + record.name + '”. ' + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
       changed();
       return true;
     },
     remove(id) {
+      const record = data.item(id);
       compareIds = compareIds.filter((x) => x !== id);
       writeStore(compareIds);
+      announce((record ? 'Removed “' + record.name + '”. ' : 'Removed an option. ') + compareIds.length + ' of ' + COMPARE_MAX + ' selected for comparison.');
       changed();
     },
     toggle(id) {
+      const record = data.item(id);
       if (compare.has(id)) {
         compare.remove(id);
-        toast('Removed from comparison — nothing is saved on a server.');
+        toast('Removed from comparison. This selection only exists in your browser — nothing is saved on a server.');
       } else if (compare.add(id)) {
-        toast('Added to comparison (' + compareIds.length + '/' + COMPARE_MAX + '). Demo selection only.');
+        const left = COMPARE_MAX - compareIds.length;
+        toast(
+          'Added to comparison (' + compareIds.length + ' of ' + COMPARE_MAX + '). ' +
+            (left > 0
+              ? 'Add ' + left + ' more option' + (left === 1 ? '' : 's') + ', or open the comparison now.'
+              : 'Tray full — open Compare, or remove an option to swap.') +
+            (record ? '' : '')
+        );
       }
     },
     set(ids) {
@@ -551,12 +669,21 @@ window.PV = (function () {
     });
   }
 
+  /** Keeps every compare control on the page in sync with the selection. */
   function syncCompareButtons() {
     $$('[data-compare-toggle]').forEach((btn) => {
-      const on = compare.has(btn.getAttribute('data-compare-toggle'));
+      const id = btn.getAttribute('data-compare-toggle');
+      const on = compare.has(id);
+      const name = btn.getAttribute('data-compare-name') || (data.item(id) || {}).name || 'this option';
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-pressed', String(on));
-      if (!btn.dataset.locked) btn.textContent = on ? 'In compare ✓' : 'Compare';
+      btn.setAttribute('aria-label', (on ? 'Remove from comparison: ' : 'Add to comparison: ') + name);
+
+      const icon = $('.cmp-btn-icon', btn);
+      const label = $('.cmp-btn-label', btn);
+      if (icon) icon.textContent = on ? '✓' : '+';
+      if (label) label.textContent = on ? 'Added' : 'Compare';
+      else btn.textContent = on ? 'Added ✓' : 'Compare';
     });
   }
 
@@ -671,6 +798,29 @@ window.PV = (function () {
   }
 
   /* --------------------------------------------------------- compare tray */
+  /**
+   * Screen-reader announcement for comparison changes. Written immediately so
+   * assistive technology picks it up without waiting; a zero-width space keeps
+   * repeated identical messages from being swallowed.
+   */
+  function announce(message) {
+    let el = $('#trayAnnounce');
+    if (!el) {
+      el = document.createElement('p');
+      el.id = 'trayAnnounce';
+      el.className = 'visually-hidden';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      document.body.appendChild(el);
+    }
+    el.textContent = el.textContent === message ? message + '\u200B' : message;
+  }
+
+  /**
+   * The compare tray: a compact, dismissible bar that shows how many options
+   * are selected, lets each one be removed, and links into the Compare view.
+   * It never covers content (the page gets bottom padding while it is shown).
+   */
   function renderTray() {
     let tray = $('#compareTray');
     if (!tray) {
@@ -680,33 +830,65 @@ window.PV = (function () {
       document.body.appendChild(tray);
     }
     const items = data.items(compare.ids());
+    const open = tray.classList.contains('tray-open');
+
     if (!items.length) {
       tray.hidden = true;
+      tray.classList.remove('tray-open');
       tray.innerHTML = '';
-      document.body.classList.remove('has-tray');
+      document.body.classList.remove('has-tray', 'tray-expanded');
       return;
     }
+
     tray.hidden = false;
     document.body.classList.add('has-tray');
+    const two = items.length >= 2;
+
     tray.innerHTML =
       '<div class="shell tray-inner">' +
-      '<div class="tray-left">' +
-      '<span class="tray-label">Compare <b>' + items.length + '/' + compare.max + '</b></span>' +
-      '<div class="tray-chips">' +
-      items
-        .map(
-          (i) =>
-            '<span class="tray-chip"><span aria-hidden="true">' + esc((i.image && i.image.icon) || '📦') + '</span><span class="tray-chip-name">' + esc(i.name) + '</span>' +
-            '<button type="button" class="tray-x" data-tray-remove="' + esc(i.id) + '" aria-label="Remove ' + esc(i.name) + ' from comparison">×</button></span>'
-        )
-        .join('') +
-      '</div>' +
-      '</div>' +
-      '<div class="tray-right">' +
-      '<button type="button" class="btn-ghost" data-tray-clear>Clear</button>' +
-      '<a class="btn-primary" href="compare.html?ids=' + encodeURIComponent(compare.ids().join(',')) + '">Compare ' + items.length + ' option' + (items.length === 1 ? '' : 's') + '</a>' +
-      '</div>' +
+        '<div class="tray-left">' +
+          '<span class="tray-label">' +
+            '<span class="tray-title">Compare</span>' +
+            '<b>' + items.length + ' of ' + compare.max + '</b> selected' +
+          '</span>' +
+          '<button type="button" class="tray-toggle" data-tray-toggle aria-expanded="' + (open ? 'true' : 'false') + '" aria-controls="trayItems">' +
+            (open ? 'Hide selected' : 'Show selected') +
+          '</button>' +
+          '<div class="tray-chips" id="trayItems">' +
+            items.map((i) =>
+              '<span class="tray-chip">' +
+                '<span class="tray-thumb" aria-hidden="true">' + esc((i.image && i.image.icon) || '📦') + '</span>' +
+                '<span class="tray-chip-text">' +
+                  '<span class="tray-chip-name">' + esc(i.name) + '</span>' +
+                  '<span class="tray-chip-meta">' + esc(categoryLabel(i.category)) + ' · ' + esc(priceText(i)) + '</span>' +
+                '</span>' +
+                '<button type="button" class="tray-x" data-tray-remove="' + esc(i.id) + '" aria-label="Remove ' + esc(i.name) + ' from the comparison">×</button>' +
+              '</span>'
+            ).join('') +
+          '</div>' +
+        '</div>' +
+        '<div class="tray-right">' +
+          (two
+            ? '<span class="tray-hint">You decide what matters — PickVanta does not rank these.</span>'
+            : '<span class="tray-hint">Add one more option to compare side by side.</span>') +
+          '<button type="button" class="btn-ghost" data-tray-clear>Clear</button>' +
+          '<a class="btn-primary" href="compare.html?ids=' + encodeURIComponent(compare.ids().join(',')) + '">' +
+            (two ? 'Compare now' : 'Open comparison') +
+          '</a>' +
+        '</div>' +
       '</div>';
+  }
+
+  function toggleTray() {
+    const tray = $('#compareTray');
+    if (!tray || tray.hidden) return;
+    const open = tray.classList.toggle('tray-open');
+    document.body.classList.toggle('tray-expanded', open);
+    const btn = $('[data-tray-toggle]', tray);
+    if (btn) {
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Hide selected' : 'Show selected';
+    }
   }
 
   /* ------------------------------------------------------- search binding */
@@ -800,12 +982,16 @@ window.PV = (function () {
   /**
    * Render the demo filter set. opts = { groups: ['category','type','band','location','availability'] }
    */
-  function renderFilters(host, state, groups, onChange) {
+  function renderFilters(host, state, groups, onChange, counts) {
     if (!host) return;
     const active = state || {};
     const has = (g) => !groups || groups.indexOf(g) !== -1;
+    const countFor = (kind, value) => {
+      const c = counts && counts[kind] ? counts[kind][value] : null;
+      return typeof c === 'number' ? '<span class="check-count">' + c + '</span>' : '';
+    };
 
-    const radioGroup = (legend, name, options) =>
+    const radioGroup = (legend, name, kind, options) =>
       '<div class="filter-group">' +
       '<span class="filter-legend">' + esc(legend) + '</span>' +
       '<div class="filter-options">' +
@@ -814,30 +1000,32 @@ window.PV = (function () {
           (o) =>
             '<label class="check"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
             (String(active[o.key]) === String(o.value) ? ' checked' : '') +
-            ' /><span>' + esc(o.label) + '</span></label>'
+            ' /><span class="check-label">' + esc(o.label) + '</span>' +
+            (o.value === 'all' || o.value === 'any' ? '' : countFor(kind, o.value)) +
+            '</label>'
         )
         .join('') +
       '</div></div>';
 
     let html = '';
     if (has('category')) {
-      html += radioGroup('Category', 'f-category', [{ key: 'category', value: 'all', label: 'All categories' }].concat(
+      html += radioGroup('Category', 'f-category', 'category', [{ key: 'category', value: 'all', label: 'All categories' }].concat(
         D.categories.map((c) => ({ key: 'category', value: c.slug, label: c.icon + '  ' + c.label }))
       ));
     }
     if (has('type')) {
-      html += radioGroup('Type', 'f-type', [{ key: 'type', value: 'all', label: 'Products & services' }].concat(
+      html += radioGroup('Type', 'f-type', 'type', [{ key: 'type', value: 'all', label: 'Products & services' }].concat(
         D.types.map((t) => ({ key: 'type', value: t.code, label: t.label + 's' }))
       ));
     }
     if (has('band')) {
-      html += radioGroup('Price range', 'f-band', D.priceBands.map((b) => ({ key: 'band', value: b.code, label: b.label })));
+      html += radioGroup('Price range', 'f-band', null, D.priceBands.map((b) => ({ key: 'band', value: b.code, label: b.label })));
     }
     if (has('location')) {
-      html += radioGroup('Location', 'f-location', D.locationOptions.map((l) => ({ key: 'location', value: l.code, label: l.label })));
+      html += radioGroup('Location', 'f-location', null, D.locationOptions.map((l) => ({ key: 'location', value: l.code, label: l.label })));
     }
     if (has('availability')) {
-      html += radioGroup('Availability', 'f-availability', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
+      html += radioGroup('Availability', 'f-availability', 'status', [{ key: 'availability', value: 'all', label: 'Any availability' }].concat(
         D.statuses.map((s) => ({ key: 'availability', value: s.code, label: s.label }))
       ));
     }
@@ -968,8 +1156,13 @@ window.PV = (function () {
         compare.remove(remove.getAttribute('data-tray-remove'));
         return;
       }
+      if (e.target.closest('[data-tray-toggle]')) {
+        toggleTray();
+        return;
+      }
       if (e.target.closest('[data-tray-clear]')) {
         compare.clear();
+        announce('Comparison cleared.');
         toast('Comparison cleared.');
         return;
       }
@@ -1031,8 +1224,8 @@ window.PV = (function () {
     compare,
     onCompareChange,
     ui: {
-      toast, mountChrome, bindSearch, renderFilters, renderSort, bindFiltersDrawer,
-      syncCompareButtons, renderTray, headerMarkup, footerMarkup
+      toast, announce, mountChrome, bindSearch, renderFilters, renderSort, bindFiltersDrawer,
+      syncCompareButtons, renderTray, toggleTray, headerMarkup, footerMarkup
     },
     hrefDetail
   };

@@ -46,10 +46,10 @@ PV.util.ready(function () {
   /* ----------------------------------------------------------- row builder */
   function coreRows(list) {
     const rows = [
-      { key: 'type', label: 'Type', values: list.map(function (i) { return U.typeLabel(i.type); }) },
+      { key: 'type', section: 'Overview', label: 'Type', values: list.map(function (i) { return U.typeLabel(i.type); }) },
       { key: 'category', label: 'Category', values: list.map(function (i) { return U.categoryLabel(i.category); }) },
       { key: 'brand', label: 'Brand', values: list.map(function (i) { return i.brand || '—'; }) },
-      { key: 'price', label: 'Price', strong: true, values: list.map(function (i) { return U.priceText(i); }) },
+      { key: 'price', section: 'Price & offer', label: 'Price', strong: true, values: list.map(function (i) { return U.priceText(i); }) },
       { key: 'reference', label: 'Reference price', values: list.map(function (i) {
           const ref = i.deal && i.deal.referencePrice != null ? i.deal.referencePrice : i.referencePrice;
           return ref != null ? U.money(ref, (i.price && i.price.currency) || 'USD') : '—';
@@ -63,7 +63,7 @@ PV.util.ready(function () {
           const st = U.dealState(i);
           return st ? st.label : 'No demo offer';
         }) },
-      { key: 'seller', label: 'Seller', values: list.map(function (i) { return U.sellerLabel(i); }) },
+      { key: 'seller', section: 'Provider & availability', label: 'Seller / provider', values: list.map(function (i) { return U.sellerLabel(i); }) },
       { key: 'sellerType', label: 'Seller type', values: list.map(function (i) { return (i.seller && i.seller.type) || '—'; }) },
       { key: 'location', label: 'Location', values: list.map(function (i) { return U.locationLabel(i); }) },
       { key: 'availability', label: 'Availability', values: list.map(function (i) { return U.statusInfo(i.status).label; }) },
@@ -81,6 +81,7 @@ PV.util.ready(function () {
     labels.forEach(function (label) {
       rows.push({
         key: 'attr:' + label,
+        section: 'Specifications',
         label: label,
         values: list.map(function (i) {
           const found = (i.attributes || []).find(function (a) { return a.label === label; });
@@ -176,11 +177,11 @@ PV.util.ready(function () {
       return;
     }
     toolsHost.innerHTML =
-      '<label class="switch"><input type="checkbox" id="diffsOnly"' + (diffsOnly ? ' checked' : '') + ' /><span>Show only differences</span></label>' +
+      '<label class="switch"><input type="checkbox" id="diffsOnly"' + (diffsOnly ? ' checked' : '') + ' /><span>Show differences only</span></label>' +
       '<span class="tools-spacer"></span>' +
-      '<a class="btn-secondary" href="discover.html">Add more options</a>' +
+      '<a class="btn-secondary" href="discover.html">Find more options</a>' +
       '<button type="button" class="btn-ghost" data-clear-compare>Clear all</button>' +
-      '<span class="tools-count">' + list.length + ' of ' + MAX + ' slots used</span>';
+      '<span class="tools-count">' + list.length + ' of ' + MAX + ' selected</span>';
 
     const box = U.$('#diffsOnly');
     if (box) {
@@ -206,7 +207,11 @@ PV.util.ready(function () {
       matrixHost.innerHTML = PV.card.empty({
         icon: '⚖️',
         title: 'Nothing selected to compare yet',
-        text: 'Choose up to three products or services in the slots above, or start from Discover and add options with the Compare button.',
+        text: 'Choose up to three products or services in the slots above, or add options with the Compare button while you browse Discover or Deals.',
+        suggestions: PV.data.categories().slice(0, 4).map(function (c) {
+          return { label: c.icon + '  ' + c.label, href: 'discover.html?category=' + c.slug };
+        }),
+        suggestLabel: 'Start from a category:',
         actions: [
           { label: 'Browse Discover', href: 'discover.html' },
           { label: 'See demo deals', href: 'deals.html' }
@@ -217,7 +222,7 @@ PV.util.ready(function () {
 
     if (list.length === 1) {
       matrixHost.innerHTML =
-        '<div class="cmp-hint" role="status">One option selected. Add at least one more from the slots above to see a side-by-side view.</div>' +
+        '<div class="cmp-hint" role="status">One option selected. Add at least one more using the slots above, the quick picks below, or <a href="discover.html">Discover</a> to see a side-by-side view.</div>' +
         renderSingle(list[0]);
       return;
     }
@@ -234,13 +239,16 @@ PV.util.ready(function () {
       '<thead><tr><th scope="col" class="cmp-corner"><span>Feature</span></th>' +
       list.map(function (i, idx) {
         return '<th scope="col" class="cmp-col-head">' +
+          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
           '<span class="cmp-slot">Option ' + letters[idx] + '</span>' +
           '<a class="cmp-head-name" href="' + U.esc(PV.hrefDetail(i.id)) + '">' + U.esc(i.name) + '</a>' +
           '<span class="cmp-head-price">' + U.esc(U.priceText(i)) + '</span>' +
+          '<span class="cmp-head-meta">' + U.esc(U.categoryLabel(i.category)) + ' · ' + U.esc(U.sellerLabel(i)) + '</span>' +
           '</th>';
       }).join('') +
       '</tr></thead>';
 
+    let lastSection = null;
     const body =
       '<tbody>' +
       rows.map(function (r) {
@@ -249,7 +257,13 @@ PV.util.ready(function () {
           const strong = r.strong || r.key === 'dealPrice';
           return '<td data-label="' + U.esc(r.label) + '"' + (strong ? ' class="cmp-strong"' : '') + '>' + U.esc(v) + '</td>';
         }).join('');
-        return '<tr class="' + (isDiff ? 'row-differs' : 'row-same') + '">' +
+        let group = '';
+        if (r.section && r.section !== lastSection) {
+          lastSection = r.section;
+          group = '<tr class="cmp-group"><th scope="colgroup" colspan="' + (list.length + 1) + '">' + U.esc(r.section) + '</th></tr>';
+        }
+        return group +
+          '<tr class="' + (isDiff ? 'row-differs' : 'row-same') + '">' +
           '<th scope="row"><span class="row-label">' + U.esc(r.label) + '</span><em class="row-flag">' + (isDiff ? 'Differs' : 'Same') + '</em></th>' +
           tds + '</tr>';
       }).join('') +
@@ -262,8 +276,13 @@ PV.util.ready(function () {
       '<div class="cmp-stack">' +
       list.map(function (i, idx) {
         return '<article class="cmp-stack-card">' +
-          '<header><span class="cmp-slot">Option ' + letters[idx] + '</span>' +
-          '<a href="' + U.esc(PV.hrefDetail(i.id)) + '">' + U.esc(i.name) + '</a></header>' +
+          '<header>' +
+          '<span class="cmp-thumb" aria-hidden="true">' + U.esc((i.image && i.image.icon) || '📦') + '</span>' +
+          '<div class="cmp-stack-head">' +
+          '<span class="cmp-slot">Option ' + letters[idx] + '</span>' +
+          '<a href="' + U.esc(PV.hrefDetail(i.id)) + '">' + U.esc(i.name) + '</a>' +
+          '<span class="cmp-head-meta">' + U.esc(U.priceText(i)) + ' · ' + U.esc(U.statusInfo(i.status).label) + '</span>' +
+          '</div></header>' +
           '<dl>' + rows.map(function (r) {
             const v = r.values[idx];
             return '<div class="' + (differs(r) ? 'differs' : '') + '"><dt>' + U.esc(r.label) + '</dt><dd' + (r.strong ? ' class="cmp-strong"' : '') + '>' + U.esc(v) + '</dd></div>';
@@ -278,7 +297,7 @@ PV.util.ready(function () {
       '<table class="cmp-table"><caption class="visually-hidden">Side-by-side comparison of ' + list.length + ' options from the demo dataset</caption>' +
       head + body + '</table></div>' +
       stacked +
-      '<p class="cmp-footnote">Rows marked “Differs” are simply rows where the demo values are not identical — PickVanta is not ranking them, and no option is rated better or worse.</p>';
+      '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” are only rows where the demo values are not identical — PickVanta does not score, rank or recommend any option here.</p>';
   }
 
   function renderSingle(record) {

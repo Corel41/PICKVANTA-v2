@@ -1,7 +1,7 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 2 — Discovery experience (frontend structure + demo data).
+**Stage:** Step 3 — Discovery and decision flow (Find → Discover → Inspect → Compare → Choose).
 No database, no backend, no accounts, no payments, no external services, no live pricing.
 
 ---
@@ -10,12 +10,12 @@ No database, no backend, no accounts, no payments, no external services, no live
 
 | View | File | Purpose |
 | ---- | ---- | ------- |
-| Home | `index.html` | Existing landing page. Every section now leads into a real view: categories → Discover (pre-filtered), deals → Deals, cards → Detail, search → Discover results. |
+| Home | `index.html` | Landing page and primary entry point. Search → Discover results, categories → Discover (pre-filtered), deals → Deals, a how-it-works strip and a compare call-to-action that reflects any options already selected in the tray. |
 | Discover | `discover.html` | Browse the whole demo dataset: search, category strip, filters (category, type, price range, location, availability), sort, result cards, empty states. |
 | Deals | `deals.html` | Offers attached to products and services: deal price, reference price, discount, seller, location, validity and conditions. |
-| Detail | `detail.html?id=…` | One reusable detail template for any record: main information, key attributes (grouped from the record), seller/availability, deal block, actions, related records. |
-| Compare | `compare.html?ids=a,b,c` | Up to three options side by side. Rows that differ are flagged; a “differences only” filter and a mobile stacked layout are included. No scoring, no ranking, no winner. |
-| Guides | `guides.html` | Guide outlines with category filtering and search. Full articles are intentionally not written yet. |
+| Detail | `detail.html?id=…` | One reusable detail template for any record, ordered as breadcrumb → identity → visual → type/category → price → seller → location → availability → highlights → actions → offer → specifications → related options. Related records explain *why* they appear (“same category”, “shares audio”). |
+| Compare | `compare.html?ids=a,b,c` | Up to three options side by side, grouped into Overview / Price & offer / Provider & availability / Specifications. Rows that differ are flagged, “Show differences only” hides identical rows, and small screens get a stacked card layout instead of a cramped table. No scoring, no ranking, no winner. |
+| Guides | `guides.html` | Guide outlines with category filtering and search. Each card states the question it answers and hides its topics behind a disclosure. Full articles are intentionally not written yet. |
 
 ## Data model (`js/data.js`)
 
@@ -28,14 +28,18 @@ shortDescription, description, price { amount | min/max, unit }, referencePrice,
 location { city, country, format }, seller { name, type, rating, verified },
 image { icon | src, gradient, alt }, attributes [{ group, label, value }],
 deal { dealPrice, referencePrice, discountPercent, validFrom, validTo, conditions[] } | null,
-status, badge, tags, listedAt, rating, highlights
+status, badge, tags[], listedAt, rating, highlights[]
+
+guide: { id, title, question, category, icon, summary, readTime, level, covers[] }
 ```
 
 Products and services are distinct `type` values. A **deal** is an offer attached
 to a product or a service — it is never modelled as a product on its own.
 
+`tags` are short keywords used only for local search and related-option matching.
 Everything is demonstration data: no real products, prices, sellers, offers or
-availability. The dataset is deliberately small (20 records, 9 offers, 6 guides).
+availability. The dataset is deliberately small (20 records, 9 offers, 6 guides);
+every seller shown on a card or detail page is labelled as demo data.
 
 ## Frontend structure (`js/`)
 
@@ -51,11 +55,28 @@ availability. The dataset is deliberately small (20 records, 9 offers, 6 guides)
 “STEP 2 — discovery experience” section that reuses the same tokens, buttons,
 cards, radii and shadows.
 
+### Search rules
+
+One implementation in `js/core.js` serves the homepage, Discover, Deals and Guides:
+
+* case-insensitive and punctuation-tolerant;
+* **word-prefix** matching, so `cancel` finds “cancelling” and `phone` finds “EdgePhone”;
+* partial-word and cross-word matches are accepted with a lower score;
+* every query term must match somewhere (AND), then results are ordered by relevance;
+* fields searched: name, brand, category, subcategory, tags, seller, location, description and specification values.
+
+### Compare tray and related options
+
+* The tray is a compact bar that shows “N of 3 selected”, each selected option, individual remove buttons, Clear and a link into Compare. The page gets bottom padding while it is visible, so it never covers content, and on phones it collapses to a single row that expands on demand.
+* A fourth selection is refused with an explanation and a hint to swap an option out.
+* Related options on the detail page are deterministic matches on category, subcategory, type, tags, brand and price band. They are labelled “More in Technology” and each card shows its match reasons — there is no scoring, ranking or recommendation.
+
 ### Conventions
 
 * Filter/sort/search state lives in the URL (`?q=&category=&type=&band=&location=&availability=&sort=`), so a filtered view can be linked and reloaded.
 * Comparison selection is a browser-only demo list (`localStorage`, max 3). It is not a favourites feature and is not stored on a server.
-* Search matches names, descriptions, categories, brands, sellers and specification values over the local dataset. No network requests are made anywhere in this build.
+* Toasts and `aria-live` regions announce selections; nothing is written anywhere else.
+* Card actions stay deliberately unequal: one primary action plus the Compare toggle, so no card competes with itself.
 
 ## Running it
 
@@ -67,7 +88,8 @@ python3 -m http.server 8000
 ```
 
 Opening `index.html` directly from the filesystem also works (no build step, no
-bundler, no dependencies).
+bundler, no dependencies). The site is plain static HTML/CSS/JS, so it deploys to
+Vercel (or any static host) without configuration.
 
 ## Deliberately not built in this stage
 

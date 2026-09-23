@@ -14,7 +14,8 @@ PV.util.ready(function () {
     list: function () {
       return PV.data.deals();
     },
-    cardFn: PV.card.deal
+    cardFn: PV.card.deal,
+    hintDefault: 'Every offer here is attached to a product or a service. Open the item to see its full detail, or compare up to <strong>3 offers</strong>.'
   });
 
   const stat = PV.util.$('#datasetStat');
