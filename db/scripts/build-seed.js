@@ -275,16 +275,18 @@ begin;
       q(g.level || ''),
       q(g.readTime || ''),
       g.cta ? jsonb(g.cta) : 'NULL',
-      q(g.status || 'published'),
-      tsOrNull(g.createdAt),
-      tsOrNull(g.updatedAt || g.createdAt)
+      q(g.status || 'published')
+      /* Guide outlines carry no authored dates, so created_at / updated_at are
+         deliberately not inserted here: the table's own `default now()` records
+         when the row was seeded, and re-running the seed leaves created_at
+         alone (the trigger keeps updated_at honest). */
     ];
   });
   out.push(header('6. guides (' + guides.length + ')'));
   out.push('-- Guides are written before guide_listings so every relationship below\n-- resolves against rows that already exist.\n');
   out.push(upsert('guides', [
     'id', 'slug', 'title', 'category_id', 'question', 'summary', 'content',
-    'tags', 'icon', 'level', 'read_time', 'cta', 'status', 'created_at', 'updated_at'
+    'tags', 'icon', 'level', 'read_time', 'cta', 'status'
   ], guides, 'id'));
 
   /* --------------------------------------------------- 7b. guide_listings -- */
