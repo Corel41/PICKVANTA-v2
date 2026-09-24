@@ -33,7 +33,7 @@ PV.admin = (function () {
 
   const QUEUE_PAGE = 50;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const SECTIONS = ['dashboard', 'sellers', 'sources'];
+  const SECTIONS = ['dashboard', 'sellers', 'sources', 'jobs'];
 
   /* The panel's structure. `active` items work today; `planned` items are the
      intended architecture and are deliberately not clickable — a dead control
@@ -59,11 +59,12 @@ PV.admin = (function () {
       label: 'Deal Engine',
       items: [
         { id: 'sources', label: 'Sources', active: true },
+        { id: 'jobs', label: 'Jobs', active: true },
         { id: 'imports', label: 'Import Deals' },
         { id: 'review', label: 'Review Queue' },
-        { id: 'scans', label: 'Scheduled Scans' },
+        { id: 'history', label: 'Import History' },
         { id: 'affiliates', label: 'Affiliate Links' },
-        { id: 'history', label: 'Import History' }
+        { id: 'scans', label: 'Scheduled Scans' }
       ]
     },
     {
@@ -102,6 +103,13 @@ PV.admin = (function () {
     sources: [],
     sourcesLoaded: false,
     sourcesError: '',
+    /* The source form: null when closed. Every keystroke is kept here so a
+       re-render never loses what the operator typed. */
+    form: null,
+    jobs: [],
+    jobsLoaded: false,
+    jobsError: '',
+    importedTotal: null,
     action: null,          /* the review action awaiting confirmation */
     note: '',
     noteError: '',
@@ -225,6 +233,7 @@ PV.admin = (function () {
   function activeSectionTitle() {
     if (state.section === 'sellers') return state.selectedId ? 'Application' : 'Seller & provider review';
     if (state.section === 'sources') return 'Sources';
+    if (state.section === 'jobs') return 'Jobs';
     return 'Dashboard';
   }
 
@@ -359,10 +368,10 @@ PV.admin = (function () {
 
   /* ------------------------------------------------- Deal Engine: sources --
      The first operational piece of the Deal Engine: where imported deals will
-     come from. It reads real rows, and says plainly that nothing imports
-     anything yet — no connector, no scraper, no schedule, no affiliate
-     network. Nothing on this page contacts an endpoint; a recorded URL is
-     shown as a reference an operator may open, never fetched by the page.
+     come from. It reads real rows and writes through the database's own
+     function (public.deal_source_save, 0006) — never a table write, never a
+     status column patched from here. Nothing on this page contacts an
+     endpoint, and no job is started by anything an operator does here.
      ------------------------------------------------------------------------ */
 
   /** The host part of a recorded endpoint, or the value itself if unreadable. */
@@ -388,6 +397,21 @@ PV.admin = (function () {
       'rel="noopener noreferrer">' + esc(endpointLabel(value)) + '</a>';
   }
 
+  /* Configuration is non-secret by construction: 0005 refuses a
+     credential-shaped key and 0006's validator refuses credential-shaped
+     values. It is shown as text, escaped, and never as markup. */
+  function configCell(config) {
+    const keys = config && typeof config === 'object' ? Object.keys(config) : [];
+    if (!keys.length) return '<span class="admin-muted">None recorded</span>';
+    return '<code class="admin-source-config">' + esc(JSON.stringify(config)) + '</code>';
+  }
+
+  function configSummary(config) {
+    const keys = config && typeof config === 'object' ? Object.keys(config) : [];
+    if (!keys.length) return 'No configuration';
+    return keys.length + (keys.length === 1 ? ' key' : ' keys');
+  }
+
   function pipelineStrip() {
     return '<h3 class="admin-subhead">The pipeline this feeds</h3>' +
       '<ol class="admin-pipeline">' +
@@ -404,7 +428,84 @@ PV.admin = (function () {
       'publishes itself — an imported record waits for a person.</p>';
   }
 
+  /* --------------------------------------------------------- source form -- */
+  /* The one place in the panel that writes. It sends what the operator typed
+     to the database and shows what the database sent back; a refusal is a
+     refusal, and the form says so rather than pretending. */
+
+  function sourceField(name, label, help, control, helpId) {
+    const error = state.form.errors[name] || '';
+    return '<div class="field">' +
+      '<label for="source' + name.charAt(0).toUpperCase() + name.slice(1) + '">' + esc(label) + '</label>' +
+      control +
+      /* The two list fields update this sentence in place when the choice
+         changes, so the explanation follows the selection without a re-render
+         that would move the operator's focus. */
+      '<p class="field-help"' + (helpId ? ' id="' + helpId + '"' : '') + '>' + esc(help) + '</p>' +
+      (error ? '<p class="form-error" role="alert">' + esc(error) + '</p>' : '') +
+      '</div>';
+  }
+
+  function inputAttrs(name, extra) {
+    const error = state.form.errors[name] || '';
+    return ' id="source' + name.charAt(0).toUpperCase() + name.slice(1) + '"' +
+      ' name="' + name + '" data-source-field="' + name + '"' +
+      (error ? ' aria-invalid="true"' : '') + (extra || '');
+  }
+
+  function optionList(values, current, copyFor) {
+    return values.map(function (value) {
+      const copy = copyFor ? copyFor(value) : { label: value };
+      return '<option value="' + esc(value) + '"' + (value === current ? ' selected' : '') + '>' +
+        esc(copy.label) + '</option>';
+    }).join('');
+  }
+
+  function sourceFormMarkup() {
+    const f = state.form;
+    const v = f.values;
+    const type = D.dealSourceTypeCopy(v.sourceType);
+    const status = D.dealSourceStatusCopy(v.status);
+
+    return '<div class="admin-panel panel">' +
+      '<h3>' + (f.mode === 'edit' ? 'Edit source' : 'New source') + '</h3>' +
+      '<p class="panel-text">A source is an agreement and an address, not a fetcher: saving one here ' +
+      'connects PickVanta to nothing and starts no job. Credentials do not belong in this form — a key ' +
+      'or token goes in the server environment, and the database refuses one that is pasted here.</p>' +
+      (f.message ? '<p class="form-error" role="alert">' + esc(f.message) + '</p>' : '') +
+      '<form class="admin-source-form" novalidate>' +
+      sourceField('name', 'Name', 'What this source is called in the panel.',
+        '<input type="text" maxlength="120"' + inputAttrs('name',
+          ' value="' + esc(v.name) + '" autocomplete="off"') + ' />') +
+      sourceField('sourceType', 'Source type', type.blurb,
+        '<select' + inputAttrs('sourceType') + '>' +
+        optionList(D.DEAL_SOURCE_TYPES, v.sourceType, D.dealSourceTypeCopy) + '</select>', 'sourceTypeHelp') +
+      sourceField('providerName', 'Provider or network', 'The marketplace, network or merchant this comes from. Blank is allowed.',
+        '<input type="text" maxlength="120"' + inputAttrs('providerName',
+          ' value="' + esc(v.providerName) + '" autocomplete="off"') + ' />') +
+      sourceField('marketCountry', 'Market country', 'Two letters, such as GB or KE. Blank means not recorded.',
+        '<input type="text" maxlength="2"' + inputAttrs('marketCountry',
+          ' value="' + esc(v.marketCountry) + '" autocomplete="off" spellcheck="false"') + ' />') +
+      sourceField('endpointUrl', 'Endpoint', 'Where the source is read from. Nothing on this page opens it.',
+        '<input type="text" maxlength="400"' + inputAttrs('endpointUrl',
+          ' value="' + esc(v.endpointUrl) + '" autocomplete="off" spellcheck="false"') + ' />') +
+      sourceField('status', 'State', status.blurb,
+        '<select' + inputAttrs('status') + '>' +
+        optionList(D.DEAL_SOURCE_STATUS, v.status, D.dealSourceStatusCopy) + '</select>', 'statusHelp') +
+      sourceField('configText', 'Configuration', 'A JSON object of non-secret settings, such as {"market": "GB", "page_limit": 50}. Leave it empty if there is none.',
+        '<textarea rows="4" spellcheck="false"' + inputAttrs('configText') + '>' + esc(v.configText) + '</textarea>') +
+      '<div class="admin-actions">' +
+      '<button type="submit" class="btn-primary"' + (f.busy ? ' disabled' : '') + '>' +
+      (f.mode === 'edit' ? 'Save changes' : 'Add source') + '</button>' +
+      '<button type="button" class="btn-secondary" data-cancel-source-form="1"' + (f.busy ? ' disabled' : '') + '>' +
+      'Cancel</button>' +
+      '</div>' +
+      '</form></div>';
+  }
+
   function sourcesView() {
+    if (state.form) return sourceFormMarkup();
+
     if (state.sourcesError) {
       return '<div class="admin-panel panel">' +
         '<h3>Sources could not be read</h3>' +
@@ -424,20 +525,20 @@ PV.admin = (function () {
       'permitted to read. This page lists them; it does not contact them.</p>' +
       '<p class="panel-note">Nothing is imported yet. There is no connector, no scraper and no schedule ' +
       'in this build, and an imported record could never be published automatically: it would wait in a ' +
-      'review queue for an administrator. Configure a source in the database (see the README) until a ' +
-      'connector exists.</p>' +
+      'review queue for an administrator.</p>' +
       '<p class="panel-note">A source row never carries a credential: an agreement’s key or token belongs ' +
-      'in the server environment. This page does not even ask the database for a source’s configuration, ' +
-      'so there is nothing here to leak.</p>' +
+      'in the server environment. The configuration column holds non-secret settings only — a market, a ' +
+      'page limit — and the database refuses a credential-shaped key or value in it, so there is nothing ' +
+      'secret here to read or to leak.</p>' +
+      '<div class="admin-actions"><button type="button" class="btn-primary" data-new-source="1">New source</button></div>' +
       '</div>';
 
     if (!state.sources.length) {
       return head +
         '<div class="admin-panel panel">' +
         '<h3>No sources are configured</h3>' +
-        '<p class="panel-text">None is recorded in the database, so there is nothing to list. A source ' +
-        'is added by an operator with SQL for now; the panel does not create them, and no credential is ' +
-        'ever stored in a source row or in this page.</p>' +
+        '<p class="panel-text">None is recorded in the database, so there is nothing to list. Add one ' +
+        'with the button above when an agreement exists — adding it connects nothing and starts nothing.</p>' +
         '</div>' + pipelineStrip();
     }
 
@@ -446,8 +547,9 @@ PV.admin = (function () {
       '<caption class="visually-hidden">Deal Engine sources, by name</caption>' +
       '<thead><tr>' +
       '<th scope="col">Source</th><th scope="col">Type</th><th scope="col">Provider</th>' +
-      '<th scope="col">Market</th><th scope="col">Endpoint</th><th scope="col">Status</th>' +
-      '<th scope="col">Added</th>' +
+      '<th scope="col">Market</th><th scope="col">Endpoint</th><th scope="col">State</th>' +
+      '<th scope="col">Configuration</th><th scope="col">Added</th>' +
+      '<th scope="col"><span class="visually-hidden">Actions</span></th>' +
       '</tr></thead><tbody>' +
       state.sources.map(function (source) {
         const type = D.dealSourceTypeCopy(source.sourceType);
@@ -460,9 +562,12 @@ PV.admin = (function () {
           '<td data-label="Market">' + (source.marketCountry ? esc(source.marketCountry)
             : '<span class="admin-muted">Not recorded</span>') + '</td>' +
           '<td data-label="Endpoint">' + endpointCell(source.endpointUrl) + '</td>' +
-          '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
+          '<td data-label="State"><span class="status-pill status-' + esc(status.tone) + '">' +
             esc(status.label) + '</span></td>' +
+          '<td data-label="Configuration">' + configCell(source.config) + '</td>' +
           '<td data-label="Added">' + esc(formatDateTime(source.createdAt)) + '</td>' +
+          '<td data-label="Actions"><button type="button" class="admin-row-action" data-edit-source="' +
+            esc(source.id) + '">Edit</button></td>' +
           '</tr>';
       }).join('') +
       '</tbody></table>' +
@@ -470,6 +575,109 @@ PV.admin = (function () {
       (state.sources.length === 1 ? '' : 's') + ' recorded. Imported deals are a later stage — the ' +
       'records and their history are already modelled in the database, and no interface reads them yet.</p>' +
       pipelineStrip();
+  }
+
+  /* ---------------------------------------------------- Deal Engine: jobs --
+     One run of one task. Nothing in this build creates a row here: there is no
+     worker and no schedule, so an empty list is the truth and this page says
+     so. Progress, statistics and errors are the database's own values, shown
+     as they were recorded — nothing animates, polls or advances them.
+     ------------------------------------------------------------------------ */
+
+  function jobSourceName(job) {
+    if (!job.sourceId) return '';
+    const found = state.sources.filter(function (source) { return source.id === job.sourceId; })[0];
+    return found ? found.name : '';
+  }
+
+  function jobProgressText(job) {
+    if (typeof job.progress !== 'number') return 'Not recorded';
+    return job.progress + '%';
+  }
+
+  function jobStatsText(stats) {
+    const keys = stats && typeof stats === 'object' ? Object.keys(stats) : [];
+    if (!keys.length) return '';
+    return '<code class="admin-job-stats">' + esc(JSON.stringify(stats)) + '</code>';
+  }
+
+  function importedTotalText() {
+    if (typeof state.importedTotal === 'number') return String(state.importedTotal);
+    return 'Not available';
+  }
+
+  function jobsView() {
+    if (state.jobsError) {
+      return '<div class="admin-panel panel">' +
+        '<h3>Jobs could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.jobsError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-jobs="1">Try again</button></div>' +
+        '</div>';
+    }
+    if (!state.jobsLoaded) {
+      return PV.card.loading({ title: 'Reading jobs…', text: 'Fetching the Deal Engine job records from the database.' });
+    }
+
+    const head =
+      '<div class="admin-panel panel">' +
+      '<h3>Runs the engine has recorded</h3>' +
+      '<p class="panel-text">A job is one run of one task — reading a feed, checking a price, looking ' +
+      'at a link. <strong>Nothing in this build runs one.</strong> There is no worker, no scheduler and ' +
+      'no connector, so a job row can only appear when a later step creates it, and this page will ' +
+      'report exactly what that run recorded.</p>' +
+      '<p class="panel-note">Progress, statistics and errors below are the database’s own values. ' +
+      'Nothing here advances a percentage, retries a job or reports a success that was not recorded.</p>' +
+      '</div>';
+
+    if (!state.jobs.length) {
+      return head +
+        '<div class="admin-panel panel">' +
+        '<h3>No jobs have been recorded</h3>' +
+        '<p class="panel-text">Nothing has ever run, which is what this build does. When a connector ' +
+        'and a worker exist, their runs will be listed here: what ran, against which source, how far it ' +
+        'got, and what it reported if it failed.</p>' +
+        '</div>' + jobSummary();
+    }
+
+    return head +
+      '<table class="admin-table">' +
+      '<caption class="visually-hidden">Deal Engine jobs, newest first</caption>' +
+      '<thead><tr>' +
+      '<th scope="col">Job</th><th scope="col">Source</th><th scope="col">Type</th>' +
+      '<th scope="col">Status</th><th scope="col">Progress</th><th scope="col">Reported</th>' +
+      '<th scope="col">Started</th><th scope="col">Finished</th>' +
+      '</tr></thead><tbody>' +
+      state.jobs.map(function (job) {
+        const status = D.dealJobStatusCopy(job.status);
+        const type = D.dealJobTypeCopy(job.jobType);
+        const name = jobSourceName(job);
+        const reported = (job.detail ? '<span class="admin-job-detail">' + esc(job.detail) + '</span>' : '') +
+          (job.error ? '<span class="admin-job-error">' + esc(job.error) + '</span>' : '') +
+          jobStatsText(job.stats);
+        return '<tr>' +
+          '<td data-label="Job"><code class="admin-job-id">' + esc(String(job.id).slice(0, 8)) + '</code></td>' +
+          '<td data-label="Source">' + (name ? esc(name)
+            : (job.sourceId ? '<span class="admin-muted">A source no longer listed</span>'
+              : '<span class="admin-muted">No source</span>')) + '</td>' +
+          '<td data-label="Type">' + esc(type.label) + '</td>' +
+          '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
+            esc(status.label) + '</span></td>' +
+          '<td data-label="Progress">' + esc(jobProgressText(job)) + '</td>' +
+          '<td data-label="Reported">' + (reported || '<span class="admin-muted">Nothing recorded</span>') + '</td>' +
+          '<td data-label="Started">' + (job.startedAt ? esc(formatDateTime(job.startedAt))
+            : '<span class="admin-muted">Not started</span>') + '</td>' +
+          '<td data-label="Finished">' + (job.finishedAt ? esc(formatDateTime(job.finishedAt))
+            : '<span class="admin-muted">Not finished</span>') + '</td>' +
+          '</tr>';
+      }).join('') +
+      '</tbody></table>' + jobSummary();
+  }
+
+  function jobSummary() {
+    return '<p class="admin-table-foot">' + state.jobs.length + ' job' +
+      (state.jobs.length === 1 ? '' : 's') + ' recorded. Imported records recorded so far: ' +
+      esc(importedTotalText()) + '. The review queue for those records is a later step, so none of them ' +
+      'is shown yet.</p>';
   }
 
   /* ------------------------------------------------------------- queue --- */
@@ -684,6 +892,8 @@ PV.admin = (function () {
       main = state.selectedId ? detailView() : queueView();
     } else if (state.section === 'sources') {
       main = sourcesView();
+    } else if (state.section === 'jobs') {
+      main = jobsView();
     } else {
       main = dashboardView();
     }
@@ -769,12 +979,41 @@ PV.admin = (function () {
     });
   }
 
+  function loadJobs() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.jobsError = '';
+    state.jobsLoaded = false;
+    /* Three reads, all of them the database's: the jobs, the sources (so a job
+       can name where it ran) and the count of imported records. Nothing polls
+       and nothing ticks: a job's state changes when the database says so, and
+       this view shows what it said the last time it was asked. */
+    return Promise.all([
+      PV.store.dealEngine.jobs(s),
+      PV.store.dealEngine.sources(s),
+      PV.store.dealEngine.importedDeals(s, { limit: 1 })
+    ]).then(function (results) {
+      state.jobs = (results[0] && results[0].jobs) || [];
+      state.sources = (results[1] && results[1].sources) || [];
+      state.sourcesLoaded = true;
+      state.importedTotal = results[2] ? results[2].total : null;
+      state.jobsLoaded = true;
+      render();
+    }).catch(function (err) {
+      state.jobs = [];
+      state.jobsLoaded = true;
+      state.jobsError = messageFor(err);
+      render();
+    });
+  }
+
   function loadForSection() {
     if (!isAdmin()) return Promise.resolve();
     if (state.section === 'sellers') {
       return Promise.all([loadCounts(), state.selectedId ? loadDetail() : loadQueue()]);
     }
     if (state.section === 'sources') return loadSources();
+    if (state.section === 'jobs') return loadJobs();
     return loadCounts();
   }
 
@@ -783,6 +1022,8 @@ PV.admin = (function () {
     const o = options || {};
     state.section = SECTIONS.indexOf(id) !== -1 ? id : 'dashboard';
     state.message = '';
+    /* An open form belongs to the section it was opened in. */
+    state.form = null;
     state.action = null;
     state.note = '';
     state.noteError = '';
@@ -911,6 +1152,177 @@ PV.admin = (function () {
     });
   }
 
+  /* ------------------------------------------------- sources: the write ---
+     Everything below is the source form's behaviour: what it sends, what it
+     refuses to send, and what it reports afterwards. The request itself is one
+     call into the store, which calls one database function.
+     ------------------------------------------------------------------------ */
+
+  function sourceFormValues(source) {
+    const src = source || {};
+    const config = src.config && typeof src.config === 'object' ? src.config : {};
+    return {
+      name: src.name || '',
+      sourceType: src.sourceType || D.DEAL_SOURCE_TYPES[0],
+      providerName: src.providerName || '',
+      marketCountry: src.marketCountry || '',
+      endpointUrl: src.endpointUrl || '',
+      status: src.status || 'paused',
+      /* Formatted for a person to read and correct; parsed back on save. */
+      configText: Object.keys(config).length ? JSON.stringify(config, null, 2) : ''
+    };
+  }
+
+  /** The configuration as the operator typed it. Invalid JSON never leaves. */
+  function parseConfigText(text) {
+    const raw = String(text === undefined || text === null ? '' : text).trim();
+    if (!raw) return { ok: true, value: {} };
+    let value;
+    try {
+      value = JSON.parse(raw);
+    } catch (err) {
+      return { ok: false, error: 'That is not valid JSON. Use an object such as {"market": "GB"}, or leave it empty.' };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { ok: false, error: 'Configuration has to be a JSON object, such as {"market": "GB"}.' };
+    }
+    return { ok: true, value: value };
+  }
+
+  function fieldSelector(name) {
+    return '#source' + String(name).charAt(0).toUpperCase() + String(name).slice(1);
+  }
+
+  function openSourceForm(mode, source) {
+    state.form = {
+      mode: mode === 'edit' ? 'edit' : 'create',
+      id: source ? source.id : '',
+      values: sourceFormValues(source),
+      errors: {},
+      message: '',
+      busy: false
+    };
+    state.message = '';
+    focusAfterRender = '#sourceName';
+    render();
+  }
+
+  function cancelSourceForm() {
+    const wasEditing = state.form && state.form.mode === 'edit' ? state.form.id : '';
+    state.form = null;
+    focusAfterRender = wasEditing ? '[data-edit-source="' + wasEditing + '"]' : '[data-new-source]';
+    render();
+  }
+
+  /* A refusal is answered in plain words — the database's own sentence is not
+     shown to an operator, and nothing is ever reported as saved unless the
+     database returned the saved row. */
+  function sourceFormMessage(err) {
+    const code = err && err.code ? err.code : '';
+    if (code === 'api-400') {
+      return 'The database refused those values, so nothing was saved. Check the form and try again.';
+    }
+    if (code === 'api-403') {
+      return 'Only an administrator can change a Deal Engine source, and the database decides that — not this page.';
+    }
+    if (code === 'api-401') return 'Your session has expired. Sign in again to continue.';
+    if (code === 'api-404') return 'That source is no longer in the database. Cancel and reload the list.';
+    if (code === 'api-409') return 'That source was changed by someone else a moment ago. Cancel and reload the list.';
+    if (code === 'api-unreachable') return 'We could not reach the database. Check your connection and try again.';
+    if (code === 'not-signed-in') return 'Sign in again to continue.';
+    if (code === 'api-not-configured') {
+      return 'The admin panel needs the live database connection. This build is running on the bundled demonstration catalogue.';
+    }
+    return 'That did not go through and nothing was changed. Try again in a moment.';
+  }
+
+  function saveSource() {
+    if (!state.form || state.form.busy) return;
+    const s = session();
+    if (!s) {
+      state.form.message = 'Your session has expired. Sign in again to continue.';
+      render();
+      return;
+    }
+    const values = state.form.values;
+    const parsed = parseConfigText(values.configText);
+    if (!parsed.ok) {
+      state.form.errors = { configText: parsed.error };
+      state.form.message = '';
+      focusAfterRender = fieldSelector('configText');
+      render();
+      return;
+    }
+
+    const candidate = {
+      name: values.name,
+      sourceType: values.sourceType,
+      providerName: values.providerName,
+      marketCountry: values.marketCountry,
+      endpointUrl: values.endpointUrl,
+      status: values.status,
+      config: parsed.value
+    };
+    const check = D.validateDealSource(candidate);
+    if (!check.valid) {
+      state.form.errors = check.fields;
+      state.form.message = 'Correct the highlighted fields. Nothing was sent.';
+      const first = Object.keys(check.fields)[0];
+      focusAfterRender = first ? fieldSelector(first) : '#sourceName';
+      render();
+      return;
+    }
+
+    /* What is sent is what the database will store: trimmed, and a country
+       code in the case the column requires. */
+    candidate.name = D.trim(values.name);
+    candidate.providerName = D.trim(values.providerName);
+    candidate.marketCountry = D.trim(values.marketCountry).toUpperCase();
+    candidate.endpointUrl = D.trim(values.endpointUrl);
+
+    const editing = state.form.mode === 'edit';
+    const id = state.form.id;
+    const asked = candidate.status;
+    state.form.busy = true;
+    state.form.errors = {};
+    state.form.message = '';
+    render();
+
+    const call = editing
+      ? PV.store.dealEngine.updateSource(s, id, candidate)
+      : PV.store.dealEngine.createSource(s, candidate);
+
+    call.then(function (saved) {
+      if (!state.form) return null;
+      if (!saved) {
+        state.form.busy = false;
+        state.form.message = 'The database did not confirm that change, so nothing is reported as saved. Try again.';
+        render();
+        return null;
+      }
+      /* The list is re-read from the database; what is displayed is what it
+         holds, not what the form asked for. */
+      const label = D.dealSourceStatusCopy(saved.status).label.toLowerCase();
+      state.form = null;
+      state.message = '“' + saved.name + '” is recorded as ' + label + '.';
+      state.messageTone = 'good';
+      if (saved.status !== asked) {
+        state.message = 'The database returned a different state than the form asked for: ' + label +
+          '. That is what is shown.';
+        state.messageTone = 'warning';
+        focusAfterRender = '#adminMessage';
+      }
+      PV.ui.announce(state.message);
+      PV.ui.toast(state.message);
+      return loadSources();
+    }).catch(function (err) {
+      if (!state.form) return;
+      state.form.busy = false;
+      state.form.message = sourceFormMessage(err);
+      render();
+    });
+  }
+
   /* ------------------------------------------------------------- wiring -- */
   root.addEventListener('click', function (e) {
     const target = e.target;
@@ -938,6 +1350,16 @@ PV.admin = (function () {
     if (review) { beginAction(review.getAttribute('data-review-action')); return; }
     if (target.closest('[data-cancel-action]')) { cancelAction(); return; }
     if (target.closest('[data-confirm-action]')) { confirmAction(); return; }
+    if (target.closest('[data-new-source]')) { openSourceForm('create'); return; }
+    const edit = target.closest('[data-edit-source]');
+    if (edit) {
+      const wanted = edit.getAttribute('data-edit-source');
+      const found = state.sources.filter((source) => source.id === wanted)[0];
+      if (found) openSourceForm('edit', found);
+      return;
+    }
+    if (target.closest('[data-cancel-source-form]')) { cancelSourceForm(); return; }
+    if (target.closest('[data-retry-jobs]')) { loadJobs(); return; }
     if (target.closest('[data-retry-counts]')) { loadCounts(); return; }
     if (target.closest('[data-retry-sources]')) { loadSources(); return; }
     if (target.closest('[data-retry-queue]')) { loadQueue(); return; }
@@ -950,6 +1372,41 @@ PV.admin = (function () {
     if (e.target.id === 'reviewNote') {
       state.note = e.target.value;
       state.noteError = '';
+    }
+  });
+
+  /**
+   * The source form's fields. Every keystroke is kept in the state, and the
+   * view is *not* re-rendered while the operator types — a re-render would
+   * take the cursor with it. What does change in place: the explanation under
+   * the type and state lists, and an error message for a field being corrected.
+   */
+  function onSourceField(e) {
+    const field = e.target.closest('[data-source-field]');
+    if (!field || !state.form) return;
+    const name = field.getAttribute('data-source-field');
+    state.form.values[name] = field.value;
+
+    if (name === 'sourceType' || name === 'status') {
+      const help = U.$('#' + name + 'Help');
+      const copy = name === 'sourceType' ? D.dealSourceTypeCopy(field.value) : D.dealSourceStatusCopy(field.value);
+      if (help) help.textContent = copy.blurb;
+    }
+
+    if (state.form.errors[name]) {
+      delete state.form.errors[name];
+      field.removeAttribute('aria-invalid');
+      const box = field.parentNode ? field.parentNode.querySelector('.form-error') : null;
+      if (box) box.remove();
+    }
+  }
+  root.addEventListener('input', onSourceField);
+  root.addEventListener('change', onSourceField);
+
+  root.addEventListener('submit', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('admin-source-form')) {
+      e.preventDefault();
+      saveSource();
     }
   });
 
@@ -970,6 +1427,11 @@ PV.admin = (function () {
     state.sources = [];
     state.sourcesLoaded = false;
     state.sourcesError = '';
+    state.form = null;
+    state.jobs = [];
+    state.jobsLoaded = false;
+    state.jobsError = '';
+    state.importedTotal = null;
     state.queue = [];
     state.queueLoaded = false;
     state.queueMore = false;

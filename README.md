@@ -1,13 +1,16 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 12 — the admin panel and the seller/provider review queue. An administrator
-signs in like anybody else and opens `admin.html`: a dashboard of real row counts, and a
-queue of applications to review with **Approve**, **Reject**, **Suspend** and **Archive**.
-Every action goes through the database's own review function, which checks
-`public.is_admin()` for itself and records who changed what, and when. Everybody else —
-signed out, or signed in without the role — is refused by the page *and* by the database,
-and the page requests no admin data at all until the database has confirmed the role.
+**Stage:** Step 14 — the Deal Engine's operational layer. The public catalogue is
+unchanged; the admin panel now holds two operational Deal Engine areas beside the
+seller/provider review queue. An administrator signs in like anybody else and opens
+`admin.html`: a dashboard of real row counts, a queue of applications to review with
+**Approve**, **Reject**, **Suspend** and **Archive**, a list of Deal Engine **sources** that
+can be added and edited through a database function that checks `public.is_admin()` for
+itself, and a read-only list of Deal Engine **jobs** — which nothing in this build runs.
+Everybody else — signed out, or signed in without the role — is refused by the page *and* by
+the database, and the page requests no admin data at all until the database has confirmed
+the role.
 
 Step 11 still stands underneath it: a person applies to sell products or provide services,
 the application is stored `pending`, and the account page shows its real status.
@@ -22,22 +25,26 @@ stays fully browsable without an account.
 
 Still absent: no seller or provider dashboard, no listing tools, no merchant offers or
 affiliate links, no payments, no live pricing, and no browser writes to the catalogue. The
-admin panel reviews accounts, counts rows and lists Deal Engine sources — it manages no
-products, no categories and no imports.
+admin panel reviews accounts, counts rows, configures Deal Engine sources and lists Deal
+Engine jobs — it manages no products, no categories and no imports.
 
-**The Deal Engine's foundation exists as of Step 13, and nothing is connected to it.** The
-database models where imported deals come from, what arrived, what happened to it and where
-it sits in the import pipeline; there is no connector, no scraper, no affiliate network, no
-worker, no schedule and no automatic publishing. See
-[The Deal Engine](#the-deal-engine-step-13).
+**The Deal Engine has a foundation and an operational layer, and nothing is connected to
+it.** The database models where imported deals come from, what arrived, what happened to it
+and where it sits in the import pipeline, and an administrator can now configure a source
+and read the job records — but there is still no connector, no scraper, no merchant API, no
+affiliate network, no worker, no schedule, no job execution and no automatic publishing.
+See [The Deal Engine](#the-deal-engine-step-13) and
+[the operational layer](#the-operational-layer-step-14).
 
 > **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`), the
-> admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`) and the Deal Engine
-> migration (`db/migrations/0005_deal_engine_foundation.sql`) are written but have not been
-> applied to any project.** Run `0001`, `0002`, `0003`, `0004` and `0005` in that order,
-> then the seed. Until `0003` is applied, the onboarding page says plainly that
-> applications need the live catalogue connection rather than offering a form that cannot be
-> stored. See [Applying the schema](#applying-the-schema-and-the-seed).
+> admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`), the Deal Engine
+> foundation (`db/migrations/0005_deal_engine_foundation.sql`) and the Deal Engine
+> operations migration (`db/migrations/0006_deal_engine_operations.sql`) are written but
+> have not been applied to any project.** Run `0001`, `0002`, `0003`, `0004`, `0005` and
+> `0006` in that order, then the seed. Until `0003` is applied, the onboarding page says
+> plainly that applications need the live catalogue connection rather than offering a form
+> that cannot be stored, and until `0005` and `0006` are applied the Deal Engine areas say
+> the same. See [Applying the schema](#applying-the-schema-and-the-seed).
 >
 > **Google Sign-In is implemented in this repository, but the Google provider still has to
 > be configured on the Supabase project and in Google Cloud before the button can work on
@@ -329,6 +336,7 @@ db/migrations/0002_auth_profiles.sql          # profiles, roles, is_admin(), RLS
 db/migrations/0003_seller_provider_profiles.sql  # seller/provider accounts, RLS, review functions
 db/migrations/0004_admin_dashboard.sql           # admin_dashboard_counts(), is_admin()-gated
 db/migrations/0005_deal_engine_foundation.sql    # imported deals: sources, records, media, jobs, events
+db/migrations/0006_deal_engine_operations.sql    # the Deal Engine's admin-only source function
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -337,6 +345,7 @@ psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0003_seller_provider_profiles.sql \
                      -f db/migrations/0004_admin_dashboard.sql \
                      -f db/migrations/0005_deal_engine_foundation.sql \
+                     -f db/migrations/0006_deal_engine_operations.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
@@ -347,9 +356,13 @@ ends with a self-check that fails the migration if a policy, a grant, a constrai
 function is not what it should be. Like the others they are idempotent: re-running one
 replaces its triggers, policies and functions.
 
+`0006_deal_engine_operations.sql` runs after `0005`, `0002` and `0001`, and refuses
+otherwise for the same reason.
+
 **What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
 person's application to run a business, `0004` is the one counting function the admin
-dashboard needs, and `0005` is the private side of imported deals. No migration alters an
+dashboard needs, `0005` is the private side of imported deals, and `0006` is the one function
+that lets an administrator configure a source. No migration alters an
 earlier one, and none of them creates a table the public catalogue reads.
 
 `0002_auth_profiles.sql` is separate from the catalogue migration because it is a
@@ -799,17 +812,19 @@ The sidebar states the intended architecture and marks what does not exist yet:
 | Section | State |
 | ------- | ----- |
 | **Operations** — Dashboard, Seller & provider review | **Built** |
-| **Deal Engine** — Sources | **Built** (Step 13: lists real rows, contacts nothing) |
-| Deal Engine — Import Deals, Review Queue, Scheduled Scans, Affiliate Links, Import History | Planned |
+| **Deal Engine** — Sources | **Built** (Step 13 reads them; Step 14 adds and edits them through the database's own function) |
+| Deal Engine — Jobs | **Built** (Step 14: read-only; nothing in this build runs a job) |
+| Deal Engine — Import Deals, Review Queue, Import History, Affiliate Links, Scheduled Scans | Planned |
 | Marketplace — Listings, Products, Categories, Deals | Planned |
 | Insights — Analytics | Planned |
 | System — Settings | Planned |
 
 Planned entries are not links and not buttons — they cannot be clicked, because a dead
 control promising a feature is worse than an honest label. The panel's code reaches exactly
-five admin store methods (`counts`, `accounts`, `account`, `review`, `available`) and one
-Deal Engine read (`sources`); there is no listing, product, variant, import, connector,
-affiliate, commission or publishing logic behind any of the other labels.
+five admin store methods (`counts`, `accounts`, `account`, `review`, `available`) and the
+Deal Engine boundary behind `sources`, `jobs`, `importedDeals`, `createSource` and
+`updateSource`; there is no listing, product, variant, import, connector, affiliate,
+commission or publishing logic behind any of the other labels.
 
 ## The Deal Engine (Step 13)
 
@@ -1014,7 +1029,7 @@ them.
 | Area | State after Step 13 |
 | ---- | ------------------- |
 | Sources, imported records, media references, jobs, events | **Modelled** (tables, constraints, indexes, RLS) |
-| Sources list in the admin panel | **Built** — real rows, honest empty state, contacts nothing |
+| Sources list in the admin panel | **Built** — real rows, honest empty state, contacts nothing (Step 14 makes it writable) |
 | Connectors (feeds, merchant APIs, affiliate networks), scraping, discovery | Not built |
 | Workers, schedulers, cron, scans, monitoring | Not built |
 | Validation, normalization, deduplication processors | Not built (the states and columns exist) |
@@ -1030,6 +1045,101 @@ advances the pipeline; an **affiliate account** issues a tracked link per mercha
 and clicks, conversions and commissions are recorded against that link. Each of those is a
 later step, and each has a place to stand in this schema.
 
+## The operational layer (Step 14)
+
+**Step 14 makes two things manageable from the admin panel and connects nothing.** A source
+can be added and edited by an administrator; the job records can be read. There is still no
+connector, no worker, no schedule, no import, no affiliate link and no publishing.
+
+### Sources: what an administrator can do
+
+| Action | How it works |
+| ------ | ------------ |
+| List | `PV.store.dealEngine.sources()` → `GET deal_sources` with an explicit column list. RLS decides the rows: the policy is `SELECT` only and gated on `public.is_admin()`. |
+| Add | The panel's form → `PV.store.dealEngine.createSource()` → `POST rpc/deal_source_save` with `p_source` |
+| Edit | The same form → `PV.store.dealEngine.updateSource()` → `POST rpc/deal_source_save` with `p_source` **and** `p_id` |
+| Retire | Set the state to **Archived** in the same form. There is no delete: a source keeps its row because the provenance of what was imported from it has to outlive the agreement. |
+
+**No table is ever written from a browser.** `0005` grants a client no write policy and no
+write privilege on `deal_sources`, and `0006` does not change that: the only way in is
+`public.deal_source_save(jsonb, uuid)`, which is `security definer`, pins `search_path`, and
+asks `public.is_admin()` for itself before it looks at the payload. An administrator who is
+refused is refused by the database — not by a hidden button, and never by a URL parameter.
+
+The three functions `0006` adds:
+
+| Function | Who may execute it | What it does |
+| -------- | ------------------ | ------------ |
+| `public.deal_source_save(p_source jsonb, p_id uuid default null)` | `authenticated` (and then only if `is_admin()`) | Inserts when `p_id` is null, updates that row when it is not; returns the row as jsonb |
+| `public.deal_source_validate(p_source jsonb)` | nobody but the owner | The validation, in one place, so create and update cannot disagree |
+| `public.deal_source_json(public.deal_sources)` | nobody but the owner | The exact column set the panel may see |
+
+### What the form refuses
+
+The browser validates so a person is told before a request is made, and the database
+validates again because the browser is not the authority. Both refuse the same things:
+
+* an empty name, or one longer than 120 characters;
+* a source type or state outside the closed vocabularies;
+* a market country that is not two letters (`GB`, `KE`, `DE`, …), or a name or endpoint that
+  is too long;
+* an endpoint that is not `http(s)`;
+* configuration that is not a JSON object, or is larger than 2000 characters;
+* **a credential, by shape** — a key such as `api_key`, `auth_token`, `my_api_key`,
+  `client_secret` or `private_key` at any depth, and a *value* that looks like one: a pasted
+  bearer token, a JWT, a private-key block, an `sk_live_…`-shaped key, or a connection string
+  with a password in it. The table's own constraint (`deal_sources_config_no_secrets`) is the
+  second lock.
+
+Credentials belong in the server environment. There is no credential management here, by
+design.
+
+### The source lifecycle
+
+| State | What it means |
+| ----- | ------------- |
+| **Active** | The source is eligible for future processing. Nothing starts when it is set: there is no worker to react to it. |
+| **Paused** | The source exists; a future job should not run against it. This is the default for a new row. |
+| **Disabled** | Deliberately unavailable. |
+| **Archived** | Retained for historical and provenance purposes. The row is never deleted. |
+
+### Jobs: what an administrator can see
+
+`PV.store.dealEngine.jobs()` reads `deal_engine_jobs` — one run of one task: which source,
+which type (`source-scan`, `feed-import`, `url-discovery`, `extraction`, `normalization`,
+`deduplication`, `price-check`, `availability-check`, `deal-expiry`, `link-health`), its
+state (`queued`, `running`, `succeeded`, `failed`, `cancelled`), the recorded progress, what
+it reported, why it failed, its statistics, and when it started and finished.
+
+Everything on that page is the database's own value, and **nothing advances it**: no timer,
+no polling, no simulated percentage, and no interface that creates a job. Nothing in this
+build can write a job row at all — `0005` gives no client a write policy on
+`deal_engine_jobs` — so the honest state of that page today is an empty list that says so.
+
+`PV.store.dealEngine.importedDeals(session, { limit })` is the **prepared boundary** for the
+records the Review Queue will show in a later step: it returns the complete provenance shape
+(what the source said, `source_url` and `affiliate_url` kept apart, the four step statuses,
+the dedup class, both timestamps) and, separately, the database's own count. No view renders
+a record yet. The Jobs page uses the count only — "Imported records recorded so far: 0" —
+which is a fact from the database, not an estimate.
+
+### Events, unchanged
+
+`deal_engine_events` is still append-only (a trigger refuses every update and delete) and
+still readable only by an administrator. No interface writes an event and no interface
+fabricates one; when the Review Queue arrives, a record's history is already there to read.
+
+### Security model, restated
+
+| Question | Answer |
+| -------- | ------ |
+| Who decides an administrator? | `public.is_admin()`, reading `profiles.role` for the caller's `auth.uid()`. Never a client variable, a hidden element or a query parameter. |
+| How does a source get written? | One `security definer` function that checks `is_admin()` itself. No table write, from any client, ever. |
+| What can a member read? | Nothing: `deal_sources`, `imported_deals`, `imported_deal_media`, `deal_engine_events`, `deal_engine_jobs` and `external_merchants` each have exactly one policy, `SELECT … USING (public.is_admin())`. |
+| What can an anonymous visitor read? | Nothing at all — `anon` holds no privilege on those tables. |
+| What reaches a browser? | The ten columns `deal_source_json()` returns and the fields `imported_deals`/`deal_engine_jobs` are asked for. No credential, no key, no service-role token is in any file the browser loads. |
+| What happens to imported text? | It is escaped when rendered (`esc()`), and a URL becomes a link only if `isSafeHttpUrl()` accepts it. Nothing is inserted as markup. |
+
 ### Migration order for this step
 
 ```bash
@@ -1038,6 +1148,7 @@ psql "$DATABASE_URL" -f db/migrations/0002_auth_profiles.sql
 psql "$DATABASE_URL" -f db/migrations/0003_seller_provider_profiles.sql
 psql "$DATABASE_URL" -f db/migrations/0004_admin_dashboard.sql
 psql "$DATABASE_URL" -f db/migrations/0005_deal_engine_foundation.sql
+psql "$DATABASE_URL" -f db/migrations/0006_deal_engine_operations.sql
 ```
 
 `0005` refuses to run without `0001` (for `public.deals` and `public.set_updated_at()`),
@@ -1046,6 +1157,22 @@ self-check that fails if RLS is off, if `anon` can read anything, if a client ca
 anything, if a write policy exists, if the source/affiliate separation is missing, if the
 pipeline vocabulary is unconstrained, if a credential-shaped configuration would be accepted,
 or if the event log is not append-only.
+
+`0006` refuses to run without `0005`, `0002` and `0001`, and ends with its own self-check:
+that `deal_source_save` is `security definer` with a pinned `search_path`, that
+`authenticated` may execute it and only it, that `anon` may execute none of the three, and
+that **no write policy and no write privilege appeared on any Deal Engine table** — if one
+did, the function would no longer be the only way in.
+
+### One correction to `0005`, made here
+
+`deal_sources_config_no_secrets` matched a key that was *exactly* one of the credential
+words, so `auth_token`, `refresh_token` and `my_api_key` — the shapes a credential actually
+arrives in — passed. The pattern now matches those words anywhere inside a key name, at any
+depth. `0006`'s validator refuses the same shapes and names the offending key, and it adds
+the value-shape check the table constraint does not have. Nothing else in `0005` changed.
+(`0005` has not been applied to the live project yet, so there is nothing to re-run: applying
+it once installs the corrected constraint.)
 
 ## Configuration
 

@@ -4013,6 +4013,42 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
 }
 .admin-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;word-break:break-all}
 
+/* Deal Engine — sources and jobs (Step 14). The same surfaces the panel
+   already uses: a table for records, .field for a form, .admin-actions for the
+   buttons. What is added here is the monospace treatment a source's
+   configuration and a job's statistics need, and the row action button. */
+.admin-source-config{
+  display:inline-block;max-width:34ch;padding:3px 7px;border:1px solid var(--line);
+  border-radius:var(--radius-sm);background:var(--surface-2);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.5;
+  color:var(--text-2);overflow-wrap:anywhere;
+}
+.admin-row-action{
+  border:1px solid var(--line-2);border-radius:var(--radius-sm);background:var(--surface);
+  padding:6px 12px;font:inherit;font-size:12.5px;font-weight:650;color:var(--text);cursor:pointer;
+}
+.admin-row-action:hover{border-color:var(--muted-2);background:var(--surface-2)}
+.admin-row-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.admin-source-form{display:grid;gap:2px;margin-top:14px;max-width:68ch}
+.admin-source-form .field{margin-bottom:12px}
+.admin-source-form select{
+  width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-md);
+  background:var(--surface);font:inherit;font-size:14px;color:var(--text);
+}
+.admin-source-form select:hover{border-color:var(--line-2)}
+.admin-source-form select:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.admin-source-form select[aria-invalid="true"]{border-color:#B42318}
+.admin-source-form .admin-actions{margin-top:6px}
+.admin-job-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted)}
+.admin-job-detail,.admin-job-error{display:block;margin-top:2px;font-size:12.5px;line-height:1.55}
+.admin-job-error{color:var(--warning)}
+.admin-job-stats{
+  display:inline-block;margin-top:5px;padding:3px 7px;border:1px solid var(--line);
+  border-radius:var(--radius-sm);background:var(--surface-2);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+  color:var(--text-2);overflow-wrap:anywhere;
+}
+
 .admin-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
 .admin-detail-top{margin:0}
 .admin-detail{padding:clamp(20px,1.8vw,30px);display:grid;gap:4px}
@@ -4057,6 +4093,9 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
     margin-bottom:3px;
   }
   .admin-field{grid-template-columns:1fr;gap:2px}
+  .admin-source-config{max-width:100%}
+  .admin-source-form{max-width:100%}
+  .admin-row-action{width:100%;text-align:center}
   .admin-callout .btn-primary{width:100%;justify-content:center}
   .admin-actions .btn-primary,.admin-actions .btn-secondary{width:100%;justify-content:center}
 }

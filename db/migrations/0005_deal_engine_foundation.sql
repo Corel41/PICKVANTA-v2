@@ -122,8 +122,12 @@ create table if not exists public.deal_sources (
   constraint deal_sources_endpoint_shape
     check (endpoint_url = '' or endpoint_url ~* '^https?://[^[:space:]]+$'),
   constraint deal_sources_config_object check (jsonb_typeof(config) = 'object'),
+  /* A credential-shaped key at any depth. The leading and trailing
+     [a-z0-9_-]* matter: without them the pattern only catches a key that is
+     *exactly* "token", and "auth_token", "my_api_key" and "refresh_token" —
+     the shapes a credential actually arrives in — would slip through. */
   constraint deal_sources_config_no_secrets check (
-    not (config::text ~* '"(secret|token|password|passwd|credential|credentials|api[_-]?key|apikey|bearer|private[_-]?key|client[_-]?secret|access[_-]?key)"[[:space:]]*:')
+    not (config::text ~* '"[a-z0-9_-]*(secret|token|password|passwd|credential|credentials|api[_-]?key|apikey|bearer|private[_-]?key|client[_-]?secret|access[_-]?key)[a-z0-9_-]*"[[:space:]]*:')
   )
 );
 

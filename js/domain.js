@@ -476,6 +476,95 @@ window.PV.domain = (function () {
     { id: 'failed', label: 'Failed', blurb: 'Processing could not finish. The reason is recorded.' }
   ];
 
+  /**
+   * The work a Deal Engine job will do, and where such a job can be. Mirrors
+   * the two CHECK constraints in 0005 exactly. Nothing creates a job yet: no
+   * worker, no schedule, no connector — so every list of jobs is empty, and an
+   * empty list is the honest answer.
+   */
+  const DEAL_JOB_TYPES = ['source-scan', 'feed-import', 'url-discovery', 'extraction',
+    'normalization', 'deduplication', 'price-check', 'availability-check', 'deal-expiry',
+    'link-health'];
+  const DEAL_JOB_STATUS = ['queued', 'running', 'succeeded', 'failed', 'cancelled'];
+
+  const DEAL_JOB_TYPE_COPY = {
+    'source-scan': { label: 'Source scan', blurb: 'Look at a source and see what it offers now.' },
+    'feed-import': { label: 'Feed import', blurb: 'Read a feed and record the products in it.' },
+    'url-discovery': { label: 'URL discovery', blurb: 'Find addresses within a source PickVanta is permitted to read.' },
+    extraction: { label: 'Extraction', blurb: 'Turn one source page into fields.' },
+    normalization: { label: 'Normalization', blurb: 'Map external values to PickVanta’s own.' },
+    deduplication: { label: 'Deduplication', blurb: 'Match incoming records against what is already recorded.' },
+    'price-check': { label: 'Price check', blurb: 'Re-read a price that was imported earlier.' },
+    'availability-check': { label: 'Availability check', blurb: 'Re-read whether an imported item is still available.' },
+    'deal-expiry': { label: 'Deal expiry', blurb: 'Retire an offer whose end has passed.' },
+    'link-health': { label: 'Link health', blurb: 'Check that a recorded destination still works.' }
+  };
+
+  /* Tones are the panel's existing status-pill vocabulary: a state is never
+     carried by colour alone, and the label always says the state in words. */
+  const DEAL_JOB_STATUS_COPY = {
+    queued: { label: 'Queued', tone: 'waiting', blurb: 'Recorded and waiting. Nothing is running it.' },
+    running: { label: 'Running', tone: 'waiting', blurb: 'Recorded as running by the process that ran it.' },
+    succeeded: { label: 'Succeeded', tone: 'good', blurb: 'The run finished and reported what it did.' },
+    failed: { label: 'Failed', tone: 'warning', blurb: 'The run did not finish. The reason is recorded with it.' },
+    cancelled: { label: 'Cancelled', tone: 'neutral', blurb: 'The run was stopped deliberately before it finished.' }
+  };
+
+  /**
+   * What a source may contain, and what it may never contain.
+   *
+   * These limits and patterns are the same ones public.deal_source_validate()
+   * enforces in 0006. The browser check exists so a person is told before a
+   * request is made; the database check exists because the browser cannot be
+   * trusted. A credential is refused by *shape* in both places — the key
+   * (`auth_token`, `my_api_key`) and the value (a pasted JWT, a connection
+   * string with a password in it, a private key block).
+   */
+  const DEAL_SOURCE_LIMITS = {
+    nameMax: 120, providerMax: 120, endpointMax: 400, configMax: 2000
+  };
+  const DEAL_CONFIG_SECRET_KEY =
+    /"[a-z0-9_-]*(secret|token|password|passwd|credential|credentials|api[_-]?key|apikey|bearer|private[_-]?key|client[_-]?secret|access[_-]?key)[a-z0-9_-]*"\s*:/i;
+  const DEAL_CONFIG_SECRET_VALUE = [
+    /(^|[^a-z0-9])(password|passwd|secret|token|api[_-]?key|apikey|client[_-]?secret|private[_-]?key|access[_-]?key)\s*[:=]\s*\S/i,
+    /^(sk|pk|rk)_(live|test)_[A-Za-z0-9]{8,}$/,
+    /^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./,
+    /^-----begin [a-z ]*private key-----/i,
+    /^bearer\s+\S+$/i,
+    /^[a-z][a-z0-9+.-]*:\/\/[^/\s:]+:[^/@\s]+@/
+  ];
+
+  /**
+   * The key path of the first thing in a configuration that looks like a
+   * credential, or '' when nothing does. Deterministic, and deliberately
+   * narrow: it refuses the shapes a credential actually takes and does not
+   * pretend to judge whether a string is random.
+   */
+  function dealConfigCredentialPath(config) {
+    const seen = [];
+    const walk = (node, path) => {
+      if (node === null || node === undefined || seen.length) return;
+      if (typeof node === 'string') {
+        if (DEAL_CONFIG_SECRET_VALUE.some((pattern) => pattern.test(node))) seen.push(path);
+        return;
+      }
+      if (Array.isArray(node)) {
+        node.forEach((item, index) => walk(item, path + '[' + index + ']'));
+        return;
+      }
+      if (typeof node === 'object') {
+        Object.keys(node).forEach((key) => {
+          if (/^[a-z0-9_-]*(secret|token|password|passwd|credential|credentials|api[_-]?key|apikey|bearer|private[_-]?key|client[_-]?secret|access[_-]?key)[a-z0-9_-]*$/i.test(key)) {
+            seen.push(path + '.' + key);
+          }
+          walk(node[key], path + '.' + key);
+        });
+      }
+    };
+    walk(config, 'config');
+    return seen.length ? seen[0].replace(/^config\.?/, '') : '';
+  }
+
   /** The wording for a source type or status, with a safe fallback. */
   function dealSourceTypeCopy(sourceType) {
     const key = trim(sourceType);
@@ -488,6 +577,199 @@ window.PV.domain = (function () {
     const key = trim(status);
     return DEAL_SOURCE_STATUS.indexOf(key) === -1 ? { label: 'Unknown', tone: 'neutral' }
       : DEAL_SOURCE_STATUS_COPY[key];
+  }
+  function dealJobTypeCopy(jobType) {
+    const key = trim(jobType);
+    return DEAL_JOB_TYPES.indexOf(key) === -1 ? {
+      label: 'Unknown type',
+      blurb: 'This job type is not one the interface knows.'
+    } : DEAL_JOB_TYPE_COPY[key];
+  }
+  function dealJobStatusCopy(status) {
+    const key = trim(status);
+    return DEAL_JOB_STATUS.indexOf(key) === -1 ? { label: 'Unknown', tone: 'neutral' }
+      : DEAL_JOB_STATUS_COPY[key];
+  }
+
+  /** A row from public.deal_sources, in the shape the admin panel uses. */
+  function normalizeDealSource(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const sourceType = trim(pick('source_type', 'sourceType'));
+    const status = trim(pick('status', 'status'));
+    const config = pick('config', 'config');
+    return {
+      id: trim(r.id),
+      name: trim(pick('name', 'name')),
+      sourceType: sourceType,
+      sourceTypeCopy: dealSourceTypeCopy(sourceType),
+      providerName: trim(pick('provider_name', 'providerName')),
+      marketCountry: trim(pick('market_country', 'marketCountry')),
+      endpointUrl: trim(pick('endpoint_url', 'endpointUrl')),
+      status: status,
+      statusCopy: dealSourceStatusCopy(status),
+      /* Configuration is an object or it is nothing. A value of another type
+         is shown as empty rather than half-read: the table forbids it, and a
+         page must not invent a shape the database would not hold. */
+      config: config && typeof config === 'object' && !Array.isArray(config) ? config : {},
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /** A row from public.deal_engine_jobs. `progress` is null when unreadable. */
+  function normalizeDealJob(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const jobType = trim(pick('job_type', 'jobType'));
+    const status = trim(pick('status', 'status'));
+    const progress = num(pick('progress', 'progress'));
+    const stats = pick('stats', 'stats');
+    return {
+      id: trim(r.id),
+      sourceId: trim(pick('source_id', 'sourceId')),
+      jobType: jobType,
+      jobTypeCopy: dealJobTypeCopy(jobType),
+      status: status,
+      statusCopy: dealJobStatusCopy(status),
+      progress: progress === null || progress === undefined ? null : progress,
+      detail: trim(pick('detail', 'detail')),
+      error: trim(pick('error', 'error')),
+      stats: stats && typeof stats === 'object' && !Array.isArray(stats) ? stats : {},
+      startedAt: trim(pick('started_at', 'startedAt')),
+      finishedAt: trim(pick('finished_at', 'finishedAt')),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * A row from public.imported_deals.
+   *
+   * Nothing renders one yet — the Review Queue and the Import History are
+   * planned areas — but the boundary that will fetch them has to preserve
+   * every provenance field, and this is where that shape is defined: what the
+   * source said, both URLs (kept apart), the four statuses, and the times. No
+   * field is renamed in transit and none is dropped.
+   */
+  function normalizeImportedDeal(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const importedMetadata = pick('imported_metadata', 'importedMetadata');
+    return {
+      id: trim(r.id),
+      sourceId: trim(pick('source_id', 'sourceId')),
+      jobId: trim(pick('job_id', 'jobId')),
+      externalMerchantId: trim(pick('external_merchant_id', 'externalMerchantId')),
+      externalProductId: trim(pick('external_product_id', 'externalProductId')),
+      merchantName: trim(pick('merchant_name', 'merchantName')),
+      merchantRef: trim(pick('merchant_ref', 'merchantRef')),
+      /* Two different things, never interchangeable: where the information came
+         from, and the tracked destination a buyer would follow. */
+      sourceUrl: trim(pick('source_url', 'sourceUrl')),
+      affiliateUrl: trim(pick('affiliate_url', 'affiliateUrl')),
+      imported: {
+        title: trim(pick('imported_title', 'importedTitle')),
+        description: trim(pick('imported_description', 'importedDescription')),
+        price: num(pick('imported_price', 'importedPrice')),
+        currency: trim(pick('imported_currency', 'importedCurrency')),
+        availability: trim(pick('imported_availability', 'importedAvailability')),
+        category: trim(pick('imported_category', 'importedCategory')),
+        metadata: importedMetadata && typeof importedMetadata === 'object' && !Array.isArray(importedMetadata)
+          ? importedMetadata : {}
+      },
+      normalized: {
+        name: trim(pick('normalized_name', 'normalizedName')),
+        brand: trim(pick('normalized_brand', 'normalizedBrand')),
+        categoryId: trim(pick('normalized_category_id', 'normalizedCategoryId')),
+        availability: trim(pick('normalized_availability', 'normalizedAvailability')),
+        modelNumber: trim(pick('model_number', 'modelNumber')),
+        gtin: trim(pick('gtin', 'gtin'))
+      },
+      pipelineStatus: trim(pick('pipeline_status', 'pipelineStatus')),
+      validationStatus: trim(pick('validation_status', 'validationStatus')),
+      normalizationStatus: trim(pick('normalization_status', 'normalizationStatus')),
+      deduplicationStatus: trim(pick('deduplication_status', 'deduplicationStatus')),
+      dedupMatchClass: trim(pick('dedup_match_class', 'dedupMatchClass')),
+      dedupMatchedDealId: trim(pick('dedup_matched_deal_id', 'dedupMatchedDealId')),
+      reviewStatus: trim(pick('review_status', 'reviewStatus')),
+      reviewNote: trim(pick('review_note', 'reviewNote')),
+      reviewedAt: trim(pick('reviewed_at', 'reviewedAt')),
+      reviewedBy: trim(pick('reviewed_by', 'reviewedBy')),
+      error: trim(pick('error', 'error')),
+      publishedDealId: trim(pick('published_deal_id', 'publishedDealId')),
+      importedAt: trim(pick('imported_at', 'importedAt')),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * Validates a source before it is sent. public.deal_source_validate() in 0006
+   * checks the same things, because this runs in a browser and cannot be the
+   * authority; the wording here is for a person filling in the form, and
+   * `fields` maps a field name to the single sentence to show beside it.
+   */
+  function validateDealSource(input) {
+    const issues = [];
+    const a = input || {};
+    const name = trim(a.name);
+    if (!name) {
+      issues.push(issue('error', 'source-name-missing', 'Give the source a name.', 'name'));
+    } else if (name.length > DEAL_SOURCE_LIMITS.nameMax) {
+      issues.push(issue('error', 'source-name-too-long',
+        'Keep the name to ' + DEAL_SOURCE_LIMITS.nameMax + ' characters or fewer.', 'name'));
+    }
+    if (DEAL_SOURCE_TYPES.indexOf(trim(a.sourceType)) === -1) {
+      issues.push(issue('error', 'source-type-invalid', 'Choose a source type.', 'sourceType'));
+    }
+    const provider = trim(a.providerName);
+    if (provider.length > DEAL_SOURCE_LIMITS.providerMax) {
+      issues.push(issue('error', 'source-provider-too-long',
+        'Keep the provider or network to ' + DEAL_SOURCE_LIMITS.providerMax + ' characters or fewer.',
+        'providerName'));
+    }
+    const country = trim(a.marketCountry).toUpperCase();
+    if (country && !/^[A-Z]{2}$/.test(country)) {
+      issues.push(issue('error', 'source-country-invalid',
+        'A market country is a two-letter code such as GB, KE or DE, or left blank.', 'marketCountry'));
+    }
+    const endpoint = trim(a.endpointUrl);
+    if (endpoint.length > DEAL_SOURCE_LIMITS.endpointMax) {
+      issues.push(issue('error', 'source-endpoint-too-long',
+        'Keep the address to ' + DEAL_SOURCE_LIMITS.endpointMax + ' characters or fewer.', 'endpointUrl'));
+    } else if (endpoint && !isSafeHttpUrl(endpoint)) {
+      issues.push(issue('error', 'source-endpoint-invalid',
+        'An address must start with http:// or https://, or be left blank.', 'endpointUrl'));
+    }
+    if (DEAL_SOURCE_STATUS.indexOf(trim(a.status)) === -1) {
+      issues.push(issue('error', 'source-status-invalid', 'Choose a state.', 'status'));
+    }
+    const config = a.config;
+    if (config !== undefined && config !== null) {
+      if (typeof config !== 'object' || Array.isArray(config)) {
+        issues.push(issue('error', 'source-config-invalid',
+          'Configuration has to be a JSON object, such as {"market": "GB"}.', 'configText'));
+      } else if (JSON.stringify(config).length > DEAL_SOURCE_LIMITS.configMax) {
+        issues.push(issue('error', 'source-config-too-long',
+          'Keep configuration to ' + DEAL_SOURCE_LIMITS.configMax + ' characters or fewer.', 'configText'));
+      } else {
+        const offender = dealConfigCredentialPath(config);
+        if (offender) {
+          issues.push(issue('error', 'source-config-credential',
+            'That configuration looks like it holds a credential (' + offender + '). ' +
+            'Credentials belong in the server environment, never in a source row.', 'configText'));
+        }
+      }
+    }
+    /* The form's per-field messages: issue() records the field in `ref`, and
+       the first message for a field is the one shown beside it. */
+    const fields = {};
+    issues.forEach(function (item) {
+      const key = item.ref;
+      if (key && !fields[key]) fields[key] = item.message;
+    });
+    return { valid: !hasErrors(issues), issues: issues, fields: fields };
   }
 
   /**
@@ -1077,6 +1359,8 @@ window.PV.domain = (function () {
     ADMIN_STATUS_COPY, ADMIN_ACCOUNT_TYPE_COPY, REVIEW_ACTIONS, REVIEW_NOTE_MAX, ADMIN_ACTION_TARGETS,
     DEAL_SOURCE_TYPES, DEAL_SOURCE_STATUS, DEAL_SOURCE_TYPE_COPY, DEAL_SOURCE_STATUS_COPY,
     DEAL_PIPELINE_STAGES, DEAL_PIPELINE_TERMINAL, dealSourceTypeCopy, dealSourceStatusCopy,
+    DEAL_JOB_TYPES, DEAL_JOB_STATUS, DEAL_JOB_TYPE_COPY, DEAL_JOB_STATUS_COPY,
+    dealJobTypeCopy, dealJobStatusCopy, DEAL_SOURCE_LIMITS, dealConfigCredentialPath,
     isSafeHttpUrl,
     DEFAULT_CURRENCY, DEFAULT_COUNTRY,
 
@@ -1090,11 +1374,12 @@ window.PV.domain = (function () {
 
     /* normalisers */
     normalizeListing, normalizeOffer, normalizeGuide, normalizeSeller, normalizeSellerAccount, normalizeCategory,
+    normalizeDealSource, normalizeDealJob, normalizeImportedDeal,
     normalizePrice, normalizeLocation, normalizeImages, normalizeSpecifications,
     findSubcategory, statusForOffer,
 
     /* validators */
     issue, hasErrors, validateListing, validateOffer, validateGuide, validateSeller, validateSellerAccount,
-    validateTaxonomy, validateConfigReferences
+    validateTaxonomy, validateConfigReferences, validateDealSource
   };
 })();
