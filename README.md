@@ -1,8 +1,13 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 14 — the Deal Engine's operational layer. The public catalogue is
-unchanged; the admin panel now holds two operational Deal Engine areas beside the
+**Stage:** Step 14 — the Deal Engine's operational layer — plus a database security
+hardening pass (migration `0007`). The public catalogue is unchanged and no new product
+behaviour was added by the hardening: it pins the `search_path` of every database function,
+restores the privilege layer under the catalogue's Row Level Security, and closes the public
+schema to object creation. See
+[Database Security Hardening](#database-security-hardening-migration-0007).
+The admin panel holds two operational Deal Engine areas beside the
 seller/provider review queue. An administrator signs in like anybody else and opens
 `admin.html`: a dashboard of real row counts, a queue of applications to review with
 **Approve**, **Reject**, **Suspend** and **Archive**, a list of Deal Engine **sources** that
@@ -38,19 +43,25 @@ See [The Deal Engine](#the-deal-engine-step-13) and
 
 > **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`), the
 > admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`), the Deal Engine
-> foundation (`db/migrations/0005_deal_engine_foundation.sql`) and the Deal Engine
-> operations migration (`db/migrations/0006_deal_engine_operations.sql`) are written but
-> have not been applied to any project.** Run `0001`, `0002`, `0003`, `0004`, `0005` and
-> `0006` in that order, then the seed. Until `0003` is applied, the onboarding page says
+> foundation (`db/migrations/0005_deal_engine_foundation.sql`), the Deal Engine
+> operations migration (`db/migrations/0006_deal_engine_operations.sql`) and the security
+> hardening migration (`db/migrations/0007_security_hardening.sql`) are written but have
+> not been applied to any project.** Run `0001`, `0002`, `0003`, `0004`, `0005`, `0006` and
+> `0007` in that order, then the seed. Until `0003` is applied, the onboarding page says
 > plainly that applications need the live catalogue connection rather than offering a form
 > that cannot be stored, and until `0005` and `0006` are applied the Deal Engine areas say
-> the same. See [Applying the schema](#applying-the-schema-and-the-seed).
+> the same. `0007` changes no behaviour the site depends on; it tightens privileges and
+> function settings, and refuses to report success unless every property it is responsible
+> for is true afterwards. See [Applying the schema](#applying-the-schema-and-the-seed).
 >
-> **Google Sign-In is implemented in this repository, but the Google provider still has to
-> be configured on the Supabase project and in Google Cloud before the button can work on
-> a deployment.** The code is complete and the button appears as soon as the provider is
-> enabled; until then the account page says so plainly instead of offering a control that
-> cannot work. See [Google Sign-In — configuration](#google-sign-in--configuration-required).
+> **Google Sign-In is implemented and configured.** The Google provider is enabled on the
+> current Supabase project with its Client ID and Client Secret held by Supabase (never by
+> this repository and never by the browser), and the operator has completed and confirmed a
+> Google sign-in on the deployed site. The implementation in `js/auth.js` is the same
+> single abstraction email/password uses. A *different* project would need the same
+> one-time provider setup — see
+> [Google Sign-In](#google-sign-in) for what is involved. Environment and deployment notes
+> that still apply are in that section too.
 
 ---
 
@@ -337,6 +348,7 @@ db/migrations/0003_seller_provider_profiles.sql  # seller/provider accounts, RLS
 db/migrations/0004_admin_dashboard.sql           # admin_dashboard_counts(), is_admin()-gated
 db/migrations/0005_deal_engine_foundation.sql    # imported deals: sources, records, media, jobs, events
 db/migrations/0006_deal_engine_operations.sql    # the Deal Engine's admin-only source function
+db/migrations/0007_security_hardening.sql         # search_path pins, catalogue privileges, schema CREATE
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -346,6 +358,7 @@ psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0004_admin_dashboard.sql \
                      -f db/migrations/0005_deal_engine_foundation.sql \
                      -f db/migrations/0006_deal_engine_operations.sql \
+                     -f db/migrations/0007_security_hardening.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
@@ -357,13 +370,17 @@ function is not what it should be. Like the others they are idempotent: re-runni
 replaces its triggers, policies and functions.
 
 `0006_deal_engine_operations.sql` runs after `0005`, `0002` and `0001`, and refuses
-otherwise for the same reason.
+otherwise for the same reason. `0007_security_hardening.sql` runs after `0006`, `0005`, `0002`
+and `0001`, and also refuses otherwise.
 
 **What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
 person's application to run a business, `0004` is the one counting function the admin
-dashboard needs, `0005` is the private side of imported deals, and `0006` is the one function
-that lets an administrator configure a source. No migration alters an
-earlier one, and none of them creates a table the public catalogue reads.
+dashboard needs, `0005` is the private side of imported deals, `0006` is the one function
+that lets an administrator configure a source, and `0007` is the security hardening pass over
+all of it — see [Database Security Hardening](#database-security-hardening-migration-0007).
+No migration alters an earlier one, and none of them creates a table the public catalogue
+reads. `0007` is the only one that changes no object definition at all: it alters function
+settings and revokes privileges.
 
 `0002_auth_profiles.sql` is separate from the catalogue migration because it is a
 different concern: `0001` is the catalogue, `0002` is people. Run `0002` **after** your
@@ -535,14 +552,22 @@ works.”), a stale return, a session the server refuses, and the account servic
 unreachable. None of them creates a session or a profile, and none of them shows raw
 provider or database text.
 
-#### Google Sign-In — configuration required
+#### Google Sign-In
 
-**This repository contains the implementation, not the credentials.** Nothing below is
-committed, and none of it belongs in the repository: it is configuration for the Google
-Cloud project and the Supabase project, both of which are owned by the operator.
+**Implemented, and configured on the current project.** The provider is enabled in the
+Supabase project's Authentication settings, the operator has completed a real Google
+sign-in against the deployed site, and the account page reads
+`/auth/v1/settings` on every visit so the button reflects the provider's true state rather
+than a guess.
+
+**This repository contains the implementation, not the credentials** — and that has not
+changed. Nothing below is committed, and none of it belongs in the repository: it is
+configuration for a Google Cloud project and a Supabase project, both owned by the
+operator. What follows is therefore the **reference setup for a new or replacement
+project**, not a task outstanding on this one.
 
 **Google Cloud Console** (APIs & Services → Credentials → Create credentials → OAuth client
-ID → Web application):
+ID → Web application) — already done for the current project:
 
 | Setting | Value |
 | ------- | ----- |
@@ -553,8 +578,11 @@ The redirect URI must point at Supabase: Google talks to Supabase, and Supabase 
 this app. Pointing it at the site itself produces the classic `redirect_uri_mismatch`.
 
 **Supabase dashboard** (Authentication → Providers → Google): enable the provider and paste
-the **Client ID** and **Client Secret** from the step above. They are stored in the Supabase
-project and are never needed — or available — to the browser.
+the **Client ID** and **Client Secret** from the step above — already done for the current
+project. They are stored in the Supabase project and are never needed — or available — to
+the browser. This is the only place the Client Secret exists as far as PickVanta is
+concerned: it is not in this repository, not in the Vercel build, and not in any response
+the browser can read.
 
 **Supabase dashboard** (Authentication → URL Configuration):
 
@@ -574,7 +602,8 @@ appears as soon as the provider is on.
 
 **Verifying it**: `curl -H 'apikey: YOUR-ANON-KEY' https://YOUR-PROJECT-REF.supabase.co/auth/v1/settings`
 should include `"google": true` under `external`. If it does not, the account page will keep
-saying Google is not enabled — which is the honest state, not a bug.
+saying Google is not enabled — which is the honest state, not a bug. On the current project
+this returns true and the sign-in has been completed end to end.
 
 #### Relationship between Supabase Auth and `profiles`
 
@@ -1174,6 +1203,158 @@ the value-shape check the table constraint does not have. Nothing else in `0005`
 (`0005` has not been applied to the live project yet, so there is nothing to re-run: applying
 it once installs the corrected constraint.)
 
+## Database Security Hardening (migration `0007`)
+
+A hardening pass over the SQL that already existed. **No product behaviour was added, no
+table, column, policy or index was created or changed, and no application file was touched.**
+It fixes three genuine defects found by reading the existing migrations against the
+database's own catalogues, and it is documented here in full because two of the three are
+invisible from the interface.
+
+### What was wrong, and what `0007` does
+
+**1. Six functions could have their name resolution changed by the caller.**
+`public.set_updated_at()`, `public.listings_refresh_search_text()`, `public.catalogue_stats()`,
+`public.catalogue_tags()` and `public.catalogue_facets()` had no pinned `search_path` — the
+Supabase linter reports these five as `function_search_path_mutable`. A sixth,
+`public.seller_profiles_guard()`, had the same defect and is **not** in the reported list; it
+was found during this review and is fixed with the rest. With no pinned path, a caller who
+can create objects in a schema the path searches can influence how an unqualified name
+inside the function resolves.
+
+`0007` pins each with `ALTER FUNCTION … SET search_path = public, pg_temp` — deliberately
+`ALTER`, not `CREATE OR REPLACE`, because `ALTER` cannot change a body, an argument list, a
+return type, a volatility or a security mode. There is no way for this migration to alter
+behaviour; the only thing that changes is how names resolve.
+
+**Four further functions already pinned their path to `public` without `pg_temp`** —
+`handle_new_user()`, `handle_user_email_change()`, `is_admin()` and `profiles_guard_role()`.
+They are not linter warnings, because the linter only reports a *null* path. They are still
+incomplete: when `pg_temp` is not named, PostgreSQL searches the temporary schema **first**,
+and that schema is writable by whoever is connected. All four bodies fully qualify what they
+touch, so nothing was exploitable, but `public.is_admin()` is the authorization primitive the
+entire admin surface and every Deal Engine policy rests on, and it is not a good place to
+leave an implicit caller-writable first look. `0007` completes those four pins as well. After
+it, **every function in `public` pins exactly `public, pg_temp`** — one invariant, checkable,
+rather than most of one.
+
+**2. A signed-in user held write privileges on the whole catalogue.**
+`0001` revoked `INSERT, UPDATE, DELETE, TRUNCATE` from `anon` and stated in a comment that
+this was "defence in depth". The second layer was never applied to `authenticated`, which
+held all four on all eight catalogue tables.
+
+Row Level Security blocks the row writes today — verified, not assumed: an `INSERT` is
+refused outright, and an `UPDATE` or `DELETE` matches no row because no write policy exists.
+So this was never a live data leak. It is still a real defect, because **`TRUNCATE` is not
+subject to Row Level Security at all** — it needs only the `TRUNCATE` privilege, no policy —
+and a signed-in non-administrator could truncate a catalogue table with no inbound foreign
+key. `public.catalogue_settings` was reachable exactly that way. `0007` revokes the four
+privileges from `authenticated` on those eight tables, **by name**, so that the grants
+`0002` and `0003` make on purpose (`profiles` and `seller_provider_profiles`, including their
+column-level `UPDATE`) are untouched. It also narrows the default privileges for future
+tables in `public`, so the same hole cannot reappear with the next migration.
+
+**3. Any signed-in user could create objects in the `public` schema.**
+`anon` and `authenticated` both held `CREATE` on schema `public` (verified). This compounds
+defect 1 — it is how a caller gets objects in front of an unpinned `search_path` in the first
+place — and it is what makes the `extension_in_public` warning a live concern rather than a
+cosmetic one. `0007` revokes `CREATE` and keeps `USAGE`, which is all PostgREST needs.
+
+### Security-definer review
+
+Every `SECURITY DEFINER` function was re-inspected: `handle_new_user()`,
+`handle_user_email_change()`, `is_admin()`, `seller_profiles_guard()`,
+`seller_profile_set_status()`, `seller_profile_set_seller()`, `admin_dashboard_counts()` and
+`deal_source_save()`. All now pin `public, pg_temp`, all qualify the objects they touch, and
+every one that acts on another person's record checks `public.is_admin()` for itself before
+it does anything — `admin_dashboard_counts()`, both `seller_profile_set_*()` functions and
+`deal_source_save()` all raise `42501` for a caller who is not an administrator. None takes
+a role, a user id or a status from the browser and trusts it. The model is unchanged and
+remains: **admin browser → `store.js` → database function → `public.is_admin()` → protected
+operation.** The browser is never treated as proof of anything.
+
+### `pg_trgm`: investigated and deliberately left in place
+
+The linter reports `extension_in_public` for `pg_trgm`, which `0001` creates in `public`. It
+is genuinely used: it supplies the `gin_trgm_ops` operator class behind
+`public.listings_search_trgm_idx`, and the search the interface issues
+(`search_text=ilike.*term*`) is exactly the pattern that index serves. **It is not removed** —
+removing it would cost the catalogue its search index.
+
+It is also not moved, and that is a deliberate decision rather than an oversight:
+
+- It cannot be verified from this repository. The PostgreSQL build available for testing does
+  not ship `pg_trgm` at all, so a move could not be exercised before being written into a
+  migration the operator is asked to apply to a live project.
+- `0001` is written to be re-runnable, and its index block names `gin_trgm_ops` without a
+  schema. After a move, re-running `0001` would fail to resolve that name; the block's own
+  exception handler would swallow it and print *"trigram index skipped"*. The index would in
+  fact survive — an operator class is held by object id, not by name — but a migration that
+  prints a misleading notice on a second run is a worse outcome than an accurately documented
+  warning.
+- It is cosmetic with respect to the risk. The risk the warning points at — a schema clients
+  may write to — is fixed by defect 3 above.
+
+An operator who wants the warning itself cleared can do it by hand, and should do it in this
+order:
+
+```sql
+create schema if not exists extensions;
+alter extension pg_trgm set schema extensions;
+grant usage on schema extensions to anon, authenticated;
+```
+
+It is reversible (`alter extension pg_trgm set schema public`), it needs the `extensions`
+schema to exist, and it should be followed by a search from the site to confirm the catalogue
+still answers. **This is the one linter warning `0007` does not clear, and this README does
+not claim otherwise.**
+
+### Leaked-password protection
+
+Supabase reports `auth_leaked_password_protection` when the project does not check passwords
+against a breach corpus. **This is a project setting, not repository code, and PickVanta does
+not and will not simulate it.** There is no password checker in this codebase, no breach list,
+and nothing that pretends to provide the feature — adding one would be theatre.
+
+**Status: not enabled, and not verifiable from here.** Enable it in the Supabase dashboard at
+**Authentication → Providers → Email**, under password settings (*Prevent use of leaked
+passwords* / *Leaked password protection*). Supabase checks new and changed passwords against
+HaveIBeenPwned and refuses a known-breached one. No deployment step follows: the check happens
+inside Supabase Auth, so the frontend, the anon key and the Vercel build are unaffected, and
+this repository needs no change before or after.
+
+### What `0007` refuses to do
+
+It fails loudly rather than reporting success. Its self-check verifies that no public function
+has a mutable `search_path`, that no client holds a catalogue write privilege, that no client
+can create objects in `public`, that `anon` can still read the catalogue and `authenticated`
+can still insert its own profile and application, that the six Deal Engine tables carry no
+privilege they should not, and that Row Level Security is still enabled on every table. Run it
+against a database where someone has re-granted a Deal Engine write, and it stops with an
+error rather than printing a notice.
+
+### Applying it
+
+It runs **after `0006`** and is re-runnable: applying it twice changes nothing the second time.
+
+```bash
+psql "$DATABASE_URL" -f db/migrations/0007_security_hardening.sql
+```
+
+### What still needs the Supabase dashboard
+
+| Item | Where | Repository can do it? |
+| ---- | ----- | --------------------- |
+| Leaked password protection | Authentication → Providers → Email | **No** — project setting |
+| `extension_in_public` for `pg_trgm`, if it must be cleared | SQL editor, statements above | Partly — `0007` documents it; the operator runs it |
+| Re-running the Security Linter to confirm `function_search_path_mutable` is gone | Dashboard → Advisors | **No** — only the operator can observe the live project |
+| Google provider (already configured on the current project) | Authentication → Providers | **No** — one-time project setup |
+
+**No warning is claimed as resolved here until the operator has applied `0007` and seen the
+linter itself report it gone.** Everything above describes what the code does; the live
+project's state is the live project's to report.
+
+
 ## Configuration
 
 Everything the frontend needs is in `js/config.js`, which is committed and contains
@@ -1202,8 +1383,7 @@ them — those belong to database operations, not to a static site.
 **Google Sign-In needs no frontend configuration at all.** It adds no key to
 `js/config.js`, no variable to the Vercel build and no new file: the browser asks this
 project's own Supabase Auth which providers are enabled, and the credentials that matter
-live in the Supabase project ([Google Sign-In — configuration
-required](#google-sign-in--configuration-required)). That is deliberately the same pattern
+live in the Supabase project ([Google Sign-In](#google-sign-in)). That is deliberately the same pattern
 as the rest of the project — public values here, everything privileged out of band.
 
 ### Future providers
