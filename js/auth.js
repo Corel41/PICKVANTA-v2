@@ -923,6 +923,16 @@ window.PV.auth = (function () {
     signIn: signIn,
     signUp: signUp,
     signOut: signOut,
+    /* The caller's own credentials for an authorised request made by another
+       layer (js/store.js owns every request; it does not own the session).
+       Null when nobody is signed in, so a caller cannot accidentally send a
+       request "as" a signed-out visitor. The token is the user's, not an
+       admin's, and the database still decides what it may do. */
+    session: function () {
+      const stored = isFresh(readStored()) ? readStored() : null;
+      if (!stored || state.status !== 'signed-in' || !state.user) return null;
+      return { token: stored.accessToken, userId: state.user.id, email: state.user.email || '' };
+    },
     /* OAuth. Starting a flow is a navigation; finishing one is handled by
        init() automatically on the way back in. */
     signInWithProvider: signInWithProvider,

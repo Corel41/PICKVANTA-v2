@@ -110,6 +110,75 @@ window.PV.domain = (function () {
   const SELLER_STATUS = ['published', 'draft', 'archived'];
   const VERIFICATION_STATUS = ['unverified', 'demo-verified'];
 
+  /**
+   * Seller / provider accounts (Step 11). The closed vocabulary the database
+   * also enforces (see db/migrations/0003_seller_provider_profiles.sql) —
+   * defined here so the interface never invents a value the database would
+   * reject, and the two can be compared directly.
+   *
+   *   account types   a seller sells products; a provider provides services
+   *   statuses        the review lifecycle: a person applies (pending), an
+   *                   administrator reviews it (active, rejected, suspended)
+   *                   and a closed business is archived. Only 'pending' can
+   *                   ever be set by a client.
+   */
+  const SELLER_ACCOUNT_TYPES = ['seller', 'provider'];
+  const SELLER_ACCOUNT_STATUS = ['pending', 'active', 'suspended', 'rejected', 'archived'];
+
+  /** How each account type is described in the interface. The underlying
+   *  account structure is shared; only the language differs. */
+  const SELLER_ACCOUNT_COPY = {
+    seller: {
+      label: 'Seller',
+      plural: 'Sellers',
+      verb: 'sell products',
+      title: 'I want to sell products',
+      blurb: 'For businesses that sell products — electronics, home, fashion, anything with a price and a stock position.',
+      nameLabel: 'Business name',
+      namePlaceholder: 'e.g. Nairobi Home Electronics',
+      descriptionLabel: 'What do you sell?'
+    },
+    provider: {
+      label: 'Provider',
+      plural: 'Providers',
+      verb: 'provide services',
+      title: 'I provide services',
+      blurb: 'For businesses and professionals that provide services — installation, repair, travel, training, consultancy.',
+      nameLabel: 'Business or practice name',
+      namePlaceholder: 'e.g. Kirinyaga Solar Installations',
+      descriptionLabel: 'What services do you provide?'
+    }
+  };
+
+  /** The status a person sees, in plain language. Never a raw enum. */
+  const SELLER_ACCOUNT_STATUS_COPY = {
+    pending: {
+      label: 'Pending review',
+      tone: 'waiting',
+      message: 'Your application is with PickVanta for review. Nothing is published yet, and you can still edit these details while it is being reviewed.'
+    },
+    active: {
+      label: 'Active',
+      tone: 'good',
+      message: 'This account is approved. Listing tools arrive in a later stage — nothing is published from this page yet.'
+    },
+    suspended: {
+      label: 'Suspended',
+      tone: 'warning',
+      message: 'This account is paused while PickVanta reviews it. Contact PickVanta if you think this is a mistake.'
+    },
+    rejected: {
+      label: 'Not approved',
+      tone: 'warning',
+      message: 'This application was not approved. You can read the note below, and you are welcome to apply again with corrected details.'
+    },
+    archived: {
+      label: 'Archived',
+      tone: 'neutral',
+      message: 'This account is closed and no longer active on PickVanta.'
+    }
+  };
+
   /** Locations. PickVanta starts Kenya-focused. */
   const LOCATION_FORMATS = ['local', 'nationwide', 'online', 'unspecified'];
   const DEFAULT_COUNTRY = 'Kenya';
@@ -213,6 +282,28 @@ window.PV.domain = (function () {
   const listingStatusLabel = (code) => LISTING_STATUS_LABEL[trim(code)] || 'Draft';
   const offerKindLabel = (offer) => (offer && offer.kind ? OFFER_KIND_LABEL[offer.kind] || 'Offer' : 'Offer');
   const sellerLabel = (record) => trim(record && record.seller && record.seller.name) || 'Seller not stated';
+
+  /** Is this one of the two account types? Exposed so views never guess. */
+  const isSellerAccountType = (value) => SELLER_ACCOUNT_TYPES.indexOf(trim(value)) !== -1;
+  const isSellerAccountStatus = (value) => SELLER_ACCOUNT_STATUS.indexOf(trim(value)) !== -1;
+
+  /** The wording for an account type or status, with a safe fallback. */
+  function sellerAccountCopy(accountType) {
+    return SELLER_ACCOUNT_COPY[trim(accountType)] || null;
+  }
+  function sellerAccountStatusCopy(status) {
+    const key = trim(status);
+    return SELLER_ACCOUNT_STATUS_COPY[key] || {
+      label: 'Unknown',
+      tone: 'neutral',
+      message: 'The status of this account could not be read.'
+    };
+  }
+  /** "Seller" / "Provider" — used wherever a person is named, never a raw enum. */
+  function sellerAccountTypeLabel(accountType) {
+    const copy = sellerAccountCopy(accountType);
+    return copy ? copy.label : 'Account';
+  }
 
   /** Formatting date values that come from the data as ISO strings. */
   function formatDate(iso) {
@@ -626,6 +717,80 @@ window.PV.domain = (function () {
     return { valid: !hasErrors(issues), issues: issues };
   }
 
+  /**
+   * A seller/provider *account* (as opposed to a catalogue seller reference).
+   * Shaped exactly like the database row, so nothing is renamed in transit.
+   */
+  function normalizeSellerAccount(raw) {
+    const a = raw && typeof raw === 'object' ? raw : {};
+    const accountType = isSellerAccountType(a.account_type) ? trim(a.account_type) : (isSellerAccountType(a.accountType) ? trim(a.accountType) : '');
+    const status = isSellerAccountStatus(a.status) ? trim(a.status) : 'pending';
+    const pick = (snake, camel) => (a[snake] !== undefined ? a[snake] : a[camel]);
+    return {
+      id: trim(a.id),
+      ownerId: trim(pick('owner_id', 'ownerId')),
+      accountType: accountType,
+      accountTypeLabel: accountType ? sellerAccountTypeLabel(accountType) : 'Account',
+      businessName: trim(pick('business_name', 'businessName')),
+      description: trim(a.description),
+      contactEmail: trim(pick('contact_email', 'contactEmail')),
+      contactPhone: trim(pick('contact_phone', 'contactPhone')),
+      website: trim(pick('website', 'website')),
+      location: {
+        country: trim(pick('country', 'country')) || DEFAULT_COUNTRY,
+        county: trim(pick('county', 'county')),
+        city: trim(pick('city', 'city')),
+        area: trim(pick('area', 'area'))
+      },
+      status: status,
+      statusCopy: sellerAccountStatusCopy(status),
+      reviewNote: trim(pick('review_note', 'reviewNote')),
+      reviewedAt: trim(pick('reviewed_at', 'reviewedAt')),
+      /* The public catalogue record this account speaks for, once approved. */
+      sellerId: trim(pick('seller_id', 'sellerId')),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * Validates an onboarding submission. The database checks the same things
+   * (see 0003) because this runs in a browser and cannot be the authority.
+   */
+  function validateSellerAccount(account) {
+    const issues = [];
+    const a = account || {};
+    if (!isSellerAccountType(a.accountType)) {
+      issues.push(issue('error', 'account-type-invalid', 'Choose whether you sell products or provide services.', null));
+    }
+    if (isBlank(a.businessName)) {
+      issues.push(issue('error', 'account-name-missing', 'Enter the name of your business or practice.', null));
+    } else if (String(a.businessName).length > 120) {
+      issues.push(issue('error', 'account-name-too-long', 'Keep the name to 120 characters or fewer.', null));
+    }
+    if (String(a.description || '').length > 2000) {
+      issues.push(issue('error', 'account-description-too-long', 'Keep the description to 2000 characters or fewer.', null));
+    }
+    const email = trim(a.contactEmail);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      issues.push(issue('error', 'account-email-invalid', 'Enter a valid contact email address, or leave it blank.', null));
+    }
+    if (String(a.contactPhone || '').length > 40) {
+      issues.push(issue('error', 'account-phone-too-long', 'Keep the phone number to 40 characters or fewer.', null));
+    }
+    const website = trim(a.website);
+    if (website && !/^https?:\/\/[^\s]+$/i.test(website)) {
+      issues.push(issue('error', 'account-website-invalid', 'A website address must start with http:// or https://, or be left blank.', null));
+    }
+    const location = a.location || {};
+    ['country', 'county', 'city', 'area'].forEach(function (key) {
+      if (String(location[key] || '').length > 80) {
+        issues.push(issue('error', 'account-' + key + '-too-long', 'Keep ' + key + ' to 80 characters or fewer.', null));
+      }
+    });
+    return { valid: !hasErrors(issues), issues: issues };
+  }
+
   function validateSeller(seller) {
     const issues = [];
     if (!seller) return { valid: false, issues: [issue('error', 'seller-missing', 'No seller supplied.', null)] };
@@ -681,21 +846,24 @@ window.PV.domain = (function () {
     /* vocabularies */
     LISTING_TYPES, LISTING_STATUS, AVAILABILITY, PRICE_TYPES, OFFER_KINDS, OFFER_STATUS,
     SELLER_TYPES, SELLER_STATUS, VERIFICATION_STATUS, LOCATION_FORMATS, GUIDE_STATUS,
+    SELLER_ACCOUNT_TYPES, SELLER_ACCOUNT_STATUS, SELLER_ACCOUNT_COPY, SELLER_ACCOUNT_STATUS_COPY,
     DEFAULT_CURRENCY, DEFAULT_COUNTRY,
 
     /* value helpers */
     str, trim, asArray, num, slugify, titleCase, money, priceUnitSuffix, priceTypeFromUnit,
     inferPriceType, priceText, priceValue, locationLabel, serviceAreaText,
     typeLabel, categoryLabel, availabilityInfo, listingStatusLabel, offerKindLabel, sellerLabel,
+    isSellerAccountType, isSellerAccountStatus, sellerAccountCopy, sellerAccountStatusCopy,
+    sellerAccountTypeLabel,
     formatDate, offerDaysLeft, primaryImage,
 
     /* normalisers */
-    normalizeListing, normalizeOffer, normalizeGuide, normalizeSeller, normalizeCategory,
+    normalizeListing, normalizeOffer, normalizeGuide, normalizeSeller, normalizeSellerAccount, normalizeCategory,
     normalizePrice, normalizeLocation, normalizeImages, normalizeSpecifications,
     findSubcategory, statusForOffer,
 
     /* validators */
-    issue, hasErrors, validateListing, validateOffer, validateGuide, validateSeller,
+    issue, hasErrors, validateListing, validateOffer, validateGuide, validateSeller, validateSellerAccount,
     validateTaxonomy, validateConfigReferences
   };
 })();

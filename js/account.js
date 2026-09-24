@@ -148,6 +148,109 @@ PV.util.ready(function () {
     });
   }
 
+  /* ---------------------------------------------------- participation ----
+     The account page is where a person finds the marketplace side of
+     PickVanta, but it stays a summary: applying happens on its own page, and
+     this panel shows the current state instead of repeating the form. */
+  let accounts = [];
+  let accountsLoaded = false;
+  let accountsError = '';
+
+  function participationPanel() {
+    if (!auth.isSignedIn()) return '';
+    const store = PV.store;
+    const available = store.sellerAccounts && store.sellerAccounts.available();
+
+    if (!available) {
+      return (
+        '<section class="account-section" aria-labelledby="participate-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="participate-title">Sell or provide on PickVanta</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">Applications need the live catalogue connection. ' +
+        'This build is running on the bundled demonstration catalogue.</p>' +
+        '</section>'
+      );
+    }
+
+    if (accountsError) {
+      return (
+        '<section class="account-section" aria-labelledby="participate-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="participate-title">Sell or provide on PickVanta</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">' + esc(accountsError) + '</p>' +
+        '<div class="auth-actions">' +
+        '<button type="button" class="btn-secondary" data-reload-accounts="1">Try again</button>' +
+        '</div>' +
+        '</section>'
+      );
+    }
+
+    if (!accountsLoaded) {
+      return (
+        '<section class="account-section" aria-labelledby="participate-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="participate-title">Sell or provide on PickVanta</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">Checking your applications…</p>' +
+        '</section>'
+      );
+    }
+
+    if (accounts.length) {
+      return (
+        '<section class="account-section" aria-labelledby="participate-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="participate-title">Sell or provide on PickVanta</h2>' +
+        '<a class="btn-secondary" href="sell.html">Manage applications</a>' +
+        '</div>' +
+        accounts.map(function (account) {
+          return '<div class="account-participation">' +
+            '<div>' +
+            '<span class="sell-card-type">' + esc(account.accountTypeLabel) + '</span>' +
+            '<strong>' + esc(account.businessName) + '</strong>' +
+            '</div>' +
+            '<span class="status-pill status-' + esc(account.statusCopy.tone) + '">' +
+            esc(account.statusCopy.label) + '</span>' +
+            '</div>';
+        }).join('') +
+        '<p class="account-section-lead">' + esc(accounts[0].statusCopy.message) + '</p>' +
+        '</section>'
+      );
+    }
+
+    return (
+      '<section class="account-section" aria-labelledby="participate-title">' +
+      '<div class="account-section-head">' +
+      '<h2 id="participate-title">Sell or provide on PickVanta</h2>' +
+      '</div>' +
+      '<p class="account-section-lead">If you sell products or provide services, you can apply for a ' +
+      'PickVanta account. Applications are reviewed before anything is published, and listing tools ' +
+      'arrive in a later stage.</p>' +
+      '<div class="auth-actions">' +
+      '<a class="btn-primary" href="sell.html">Start an application</a>' +
+      '</div>' +
+      '</section>'
+    );
+  }
+
+  function loadAccounts() {
+    const session = auth.session();
+    if (!session) return;
+    accountsError = '';
+    accountsLoaded = false;
+    PV.store.sellerAccounts.mine(session).then(function (list) {
+      accounts = list;
+      accountsLoaded = true;
+      render(auth.state());
+    }).catch(function () {
+      accountsLoaded = true;
+      accountsError = 'We could not load your applications. Check your connection and try again.';
+      render(auth.state());
+    });
+  }
+
   function signedIn(snap) {
     const profile = snap.profile || null;
     const email = (profile && profile.email) || (snap.user && snap.user.email) || '';
@@ -180,6 +283,7 @@ PV.util.ready(function () {
       '<p class="panel-note">Roles are assigned by PickVanta, not chosen here, and this page cannot change ' +
       'them. Signing out ends the session on this device.</p>' +
       '</div>' +
+      participationPanel() +
       '</div>'
     );
   }
@@ -401,6 +505,10 @@ PV.util.ready(function () {
       startProvider(providerBtn.getAttribute('data-provider'), providerBtn);
       return;
     }
+    if (e.target.closest('[data-reload-accounts]')) {
+      loadAccounts();
+      return;
+    }
     if (e.target.closest('[data-auth-action="sign-out"]')) {
       /* core.js owns the shared handler for this action; nothing to add here. */
       return;
@@ -429,7 +537,23 @@ PV.util.ready(function () {
 
   /* Rerender whenever the shared layer reports a change (including the
      session restored on load, and a sign-out from the header). */
-  auth.onChange((snap) => render(snap));
+  let lastUser = null;
+  auth.onChange((snap) => {
+    const userId = snap && snap.user ? snap.user.id : null;
+    if (userId !== lastUser) {
+      lastUser = userId;
+      accounts = [];
+      accountsLoaded = false;
+      accountsError = '';
+      /* Applications belong to the person, so they are read again whenever the
+         person changes — and dropped entirely on sign-out. */
+      if (userId && snap.checked && snap.available &&
+          PV.store.sellerAccounts && PV.store.sellerAccounts.available()) {
+        loadAccounts();
+      }
+    }
+    render(snap);
+  });
 
   if (typeof auth.init === 'function') auth.init();
 });

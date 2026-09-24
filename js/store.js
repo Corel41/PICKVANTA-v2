@@ -35,6 +35,11 @@
      config.onFailure = 'demo'            → an explicit development/preview
      choice: fall back to the bundled demonstration catalogue, set
      store.fallbackActive() to true and let the pages say so.
+     The one exception to "the catalogue is read-only" is the seller/provider
+     application surface (Step 11): a signed-in person may create and edit their
+     own pending application. That is the only write this layer can make, it
+     always carries the user's own token, and the database still decides what is
+     allowed — see db/migrations/0003_seller_provider_profiles.sql.
    ========================================================================== */
 window.PV = window.PV || {};
 
@@ -285,10 +290,19 @@ window.PV.store = (function () {
       };
     }
 
+    /* There is no account service behind the demonstration catalogue, so these
+       refuse instead of pretending. A page shows the honest reason. */
+    const noAccounts = () => Promise.reject(StoreError(
+      'Applications need the live catalogue connection. This build is running on the bundled demonstration catalogue.',
+      'api-not-configured'));
+
     return {
       kind: 'demo',
       isAsync: false,
       init: load,
+      sellerAccountsMine: noAccounts,
+      sellerAccountCreate: noAccounts,
+      sellerAccountUpdate: noAccounts,
       list: (state, opts) => Promise.resolve(helpers.page(state, () => (
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
@@ -335,6 +349,15 @@ window.PV.store = (function () {
       'id', 'type', 'name', 'slug', 'brand', 'category_id', 'subcategory_id',
       'price_amount', 'price_min', 'price_max', 'currency', 'price_type',
       'location_city', 'location_county', 'location_format', 'availability', 'images'
+    ].join(',');
+
+    /* Seller/provider accounts. Deliberately explicit: the private contact
+       details are never pulled into a page that only needs a name. */
+    const SELLER_ACCOUNT_FIELDS = [
+      'id', 'owner_id', 'account_type', 'business_name', 'description',
+      'contact_email', 'contact_phone', 'website',
+      'country', 'county', 'city', 'area',
+      'status', 'review_note', 'reviewed_at', 'seller_id', 'created_at', 'updated_at'
     ].join(',');
 
     const GUIDE_FIELDS = [
@@ -396,6 +419,127 @@ window.PV.store = (function () {
       }, (err) => {
         throw StoreError(FRIENDLY, 'api-unreachable', path + ' → ' + (err && err.message ? err.message : 'network error'));
       });
+    }
+
+    /**
+     * The only writing path in this layer, and it is deliberately small.
+     *
+     * It requires the caller's own session (token + user id) — there is no
+     * version of this that works with the public anon key alone, so a page
+     * cannot reach it by forgetting to sign in. The user's token is what
+     * PostgREST hands to Row Level Security, which is what actually decides
+     * whether the write is allowed: this function only refuses to send a
+     * request it knows cannot be authorised.
+     */
+    function write(path, params, session, options) {
+      const o = options || {};
+      if (!configured()) {
+        return Promise.reject(StoreError(FRIENDLY, 'api-not-configured',
+          'mode is "api" but js/config.js has no Supabase url/anonKey.'));
+      }
+      if (!session || !session.token || !session.userId) {
+        return Promise.reject(StoreError('Sign in to continue.', 'not-signed-in',
+          'A seller/provider request was made without a session.'));
+      }
+      if (typeof fetch !== 'function') {
+        return Promise.reject(StoreError(FRIENDLY, 'api-unsupported', 'This browser does not provide fetch().'));
+      }
+      const query = params && params.length ? '?' + params.join('&') : '';
+      const headers = {
+        apikey: CONFIG.anonKey,
+        Authorization: 'Bearer ' + session.token,
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      };
+      if (o.prefer) headers.Prefer = o.prefer;
+
+      return fetch(CONFIG.url + '/rest/v1/' + path + query, {
+        method: o.method || 'POST',
+        headers: headers,
+        body: o.body === undefined ? undefined : JSON.stringify(o.body),
+        cache: 'no-store'
+      }).then((response) => {
+        if (!response.ok) {
+          return response.text().then((body) => {
+            /* The database's own refusal is the real reason; the interface
+               turns this into a sentence. Nothing raw is shown to a person. */
+            throw StoreError(FRIENDLY, 'api-' + response.status,
+              path + ' → HTTP ' + response.status + ' ' + String(body || '').slice(0, 300));
+          }, () => {
+            throw StoreError(FRIENDLY, 'api-' + response.status, path + ' → HTTP ' + response.status);
+          });
+        }
+        return response.json().then((body) => ({ rows: Dm.asArray(body), body: body }));
+      }, (err) => {
+        throw StoreError(FRIENDLY, 'api-unreachable', path + ' → ' + (err && err.message ? err.message : 'network error'));
+      });
+    }
+
+    /* ------------------------------------------- seller/provider accounts --
+       The user's own application rows, and nothing else. RLS is the authority:
+       the own-row policy limits every one of these to the signed-in person. */
+    function sellerAccountsMine(session) {
+      return write('seller_provider_profiles',
+        ['select=' + SELLER_ACCOUNT_FIELDS,
+         'owner_id=eq.' + encodeURIComponent(session.userId),
+         'order=created_at.desc'],
+        session, { method: 'GET' }
+      ).then((result) => result.rows.map((row) => Dm.normalizeSellerAccount(row)));
+    }
+
+    function sellerAccountCreate(session, input) {
+      return write('seller_provider_profiles',
+        ['select=' + SELLER_ACCOUNT_FIELDS],
+        session,
+        {
+          method: 'POST',
+          prefer: 'return=representation',
+          /* Only the fields an applicant may set. Ownership, status, the review
+             columns and the catalogue link are not sent — the database would
+             refuse them anyway (see the guard trigger in 0003), and sending
+             them would suggest they were ours to choose. */
+          body: [{
+            owner_id: session.userId,
+            account_type: input.accountType,
+            business_name: input.businessName,
+            description: input.description || '',
+            contact_email: input.contactEmail || '',
+            contact_phone: input.contactPhone || '',
+            website: input.website || '',
+            country: input.location && input.location.country ? input.location.country : Dm.DEFAULT_COUNTRY,
+            county: (input.location && input.location.county) || '',
+            city: (input.location && input.location.city) || '',
+            area: (input.location && input.location.area) || ''
+          }]
+        }
+      ).then((result) => (result.rows.length ? Dm.normalizeSellerAccount(result.rows[0]) : null));
+    }
+
+    function sellerAccountUpdate(session, id, input) {
+      return write('seller_provider_profiles',
+        /* Both filters are sent on purpose: even if a policy were ever written
+           carelessly, the request itself can only ever name the caller's own
+           row. */
+        ['id=eq.' + encodeURIComponent(id),
+         'owner_id=eq.' + encodeURIComponent(session.userId),
+         'select=' + SELLER_ACCOUNT_FIELDS],
+        session,
+        {
+          method: 'PATCH',
+          prefer: 'return=representation',
+          body: {
+            business_name: input.businessName,
+            description: input.description || '',
+            contact_email: input.contactEmail || '',
+            contact_phone: input.contactPhone || '',
+            website: input.website || '',
+            country: input.location && input.location.country ? input.location.country : Dm.DEFAULT_COUNTRY,
+            county: (input.location && input.location.county) || '',
+            city: (input.location && input.location.city) || '',
+            area: (input.location && input.location.area) || ''
+          }
+        }
+      ).then((result) => (result.rows.length ? Dm.normalizeSellerAccount(result.rows[0]) : null));
     }
 
     /* -------------------------------------------------- row → domain ------ */
@@ -563,6 +707,10 @@ window.PV.store = (function () {
     return {
       kind: 'api',
       isAsync: true,
+
+      sellerAccountsMine: sellerAccountsMine,
+      sellerAccountCreate: sellerAccountCreate,
+      sellerAccountUpdate: sellerAccountUpdate,
 
       init: function () {
         return Promise.all([
@@ -1450,6 +1598,27 @@ window.PV.store = (function () {
       return record && record.offer ? [record.offer] : [];
     },
     deals: () => store.getDeals(),
+
+    /* ---- seller / provider accounts (Step 11) ----------------------------
+       The application a signed-in person submits to sell products or provide
+       services. Everything here needs that person's own session, and every
+       request carries their token, so Row Level Security decides — this layer
+       cannot widen what the database allows.
+
+         available()          is there a live project to apply to at all?
+         mine(session)        the caller's own applications
+         create(session, x)   submit one (always lands as 'pending')
+         update(session, id, x)  edit one while it is still pending
+
+       Nothing here publishes a listing, approves anything or changes a status:
+       those are not this stage's, and the database refuses them regardless.
+       ---------------------------------------------------------------------- */
+    sellerAccounts: {
+      available: () => activeAdapter && activeAdapter.kind === 'api' && !!(CONFIG.url && CONFIG.anonKey),
+      mine: (session) => Promise.resolve(activeAdapter.sellerAccountsMine(session)),
+      create: (session, input) => Promise.resolve(activeAdapter.sellerAccountCreate(session, input)),
+      update: (session, id, input) => Promise.resolve(activeAdapter.sellerAccountUpdate(session, id, input))
+    },
 
     /* ---- reporting / metadata ------------------------------------------- */
     stats: () => Object.assign({}, SCAFFOLD.stats),
