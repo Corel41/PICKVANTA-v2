@@ -386,6 +386,34 @@ Everything here exists to help a visitor understand a choice — never to make i
 * Prices are rendered as `KSh 12,400` (or `KSh 3,500 – KSh 6,500`, `KSh 1,600/month`, `From KSh 1,200`, `Price on request`) by the single formatter in `js/domain.js`, re-exported through `PV.util`.
 * Records carry no presentation strings and no HTML, and no verdict fields — nothing can leak a score, rank or "winner" into the interface.
 
+## Layout system
+
+The presentation layer is one stylesheet (`css/styles.css`) and no build step. Six pages share one
+spatial system, so a change to the container or the card grid moves every page together.
+
+* **Container.** `.shell` is the only width primitive: `max-width: var(--max)` (2000px) with
+  `padding-inline: var(--gutter)`, where the gutter is `clamp(16px, 2.4vw, 44px)`. Pages therefore run
+  edge → gutter → content → gutter → edge, and every tested viewport (1920 / 1440 / 1280 / 1024 / 768 /
+  390) is filled rather than boxed into a narrow column. Nothing else sets a page-level max-width.
+* **Catalogue grids.** `.products-grid`, `.deals-grid` and `.guides-grid` are
+  `repeat(auto-fill, minmax(min(100%, Npx), 1fr))`, so the column count follows the space actually
+  available: no fixed breakpoint list to keep in sync, and `min(100%, Npx)` guarantees a narrow screen
+  can never overflow. `.grid-3` / `.grid-4` remain in the markup purely as hooks.
+* **Filter rail.** `.listing-layout` is `280px minmax(0, 1fr)`. Above 900px the rail is
+  `position: sticky` under the header with its own scroll (`max-height: calc(100vh - var(--header-h) - 32px)`);
+  at 900px and below it becomes the existing fixed drawer. The grid keeps `align-items: start` and no
+  ancestor clips, which is what makes the sticky behaviour work.
+* **Tokens.** `--max`, `--gutter`, `--header-h` (76px, 64px on phones) and `--card-radius` (18px, shared
+  by every card family) sit at the top of the file beside the existing colours, radii and shadows.
+  Spacing between sections, the hero and the page heads scales with `clamp()` instead of stepping at
+  breakpoints.
+* **Cards.** One surface, one radius, a 1px border and no resting shadow; depth only appears on hover.
+  Card imagery keeps a fixed proportion (`aspect-ratio: 16 / 10`) so it stays honest at every column width.
+* **Positioning.** Normal document flow is the default; the header is `sticky` because a marketplace
+  benefits from persistent navigation, and `position: fixed` is used only for the compare tray, the
+  toast and the mobile filter drawer. No layout script measures or repositions anything: the stylesheet
+  is the whole mechanism, which is why this layer can be restyled without touching a line of JavaScript.
+
 ## Running it
 
 Any static file server works, e.g.:
