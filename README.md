@@ -28,10 +28,11 @@ entity plus ownership, not a role, so one person may later run more than one bus
 `js/auth.js` remains the only module that talks to Supabase Auth, and the public catalogue
 stays fully browsable without an account.
 
-Still absent: no seller or provider dashboard, no listing tools, no merchant offers or
-affiliate links, no payments, no live pricing, and no browser writes to the catalogue. The
-admin panel reviews accounts, counts rows, configures Deal Engine sources and lists Deal
-Engine jobs — it manages no products, no categories and no imports.
+Still absent: no seller or provider dashboard, no listing tools, no public merchant offers
+or affiliate links, no payments, no live pricing, and no browser writes to the catalogue.
+The admin panel reviews accounts, counts rows, configures Deal Engine sources, lists Deal
+Engine jobs and reads the canonical catalogue — it manages no products, no categories and
+no imports, and nothing it can do publishes anything.
 
 **The Deal Engine has a foundation and an operational layer, and nothing is connected to
 it.** The database models where imported deals come from, what arrived, what happened to it
@@ -196,12 +197,13 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Steps 11–13)
+### Current (Steps 11–15)
 
 There are two paths, and they are deliberately separate. Browsing is public; an account
 is only needed for the parts of the product that belong to a person. Behind them, and
-reachable from neither, sits the admin panel with its review queue and the Deal Engine's
-private records — a third area that only a database-confirmed administrator can read.
+reachable from neither, sits the admin panel with its review queue, the Deal Engine's
+private records and the read-only canonical catalogue — a third area that only a
+database-confirmed administrator can read.
 
 ```
 public catalogue                              authenticated features
@@ -231,10 +233,19 @@ The admin panel is the same architecture, one namespace over:
 
 ```
 admin.html → js/admin.js ──► PV.store.admin.{counts,accounts,account,review} ──► PostgreSQL
+                             PV.store.dealEngine.{sources,jobs,importedDeals,merchants,
+                                                  createSource,updateSource}
+                             PV.store.canonical.{products,variants,offers,counts}
                              (js/store.js — the only module that talks to the database)
                              the database decides: is_admin(), the row policies, the
                              review function, and the counts function
 ```
+
+Since Step 15 the panel also reads the canonical layer — `PV.store.canonical.products()`,
+`.variants(productId)`, `.offers()` and `.counts()`, all of them `SELECT`-only and gated on
+`is_admin()` by the policies in `0008`. There is no write method in that namespace: the
+canonical tables grant no client a write privilege, so a create or edit here would fail
+anyway, and the point of the layer is that nothing in a browser decides what a product is.
 
 Both authenticated pages read through the same layer. `js/sell.js` and `js/account.js`
 issue no request of their own: they ask `js/store.js`, which asks the database with the
@@ -287,15 +298,24 @@ The two adapters implement the same interface, so the pages are identical in bot
 copy knows which one is answering (a live page never calls live data a demo, and a page
 that fell back always labels the demonstration catalogue).
 
+The namespace is called `PV.store.catalogue()` because it answers a question about wording —
+which catalogue is on screen. The **data** namespace for the canonical layer is
+`PV.store.canonical`, deliberately a different name for a different thing.
+
+There is no demonstration version of a canonical record: in `demo` mode the canonical reads
+refuse (`api-not-configured`) exactly as the admin and Deal Engine reads do, because an
+invented product would be a fabricated record, not a demonstration.
+
 ### Not in this stage
 
-Seller or admin areas, dashboards, seller onboarding, listing creation, payments,
-checkout, messaging, notifications, subscriptions, reviews, ratings, passwordless
-sign-in, multi-factor authentication, account deletion — and Apple Sign-In, which is
-*not* implemented: Google is the only social provider in this step. Nothing in the
-browser can write to the catalogue: the data API stays read-only for anon and for a
-signed-in user alike, and `profiles` is the only table a signed-in person can touch —
-their own row, `display_name` only.
+Listing creation, product management, payments, checkout, messaging, notifications,
+subscriptions, reviews, ratings, passwordless sign-in, multi-factor authentication,
+account deletion — and Apple Sign-In, which is *not* implemented: Google is the only
+social provider in this step. Nothing in the browser can write to the catalogue: the data
+API stays read-only for anon and for a signed-in user alike, `profiles` is the only table a
+signed-in person can touch — their own row, `display_name` only — and since Step 15 the
+canonical catalogue (`products`, `product_variants`, `merchant_offers`, their media and the
+conversion link) is read-only even for an administrator.
 
 ## Database (Supabase / PostgreSQL)
 
@@ -318,7 +338,20 @@ the catalogue and nothing else; the only row a signed-in person can write is the
 | `profiles` | **Step 9.** one row per authenticated person: `id` (= the Supabase Auth user id), `email`, `display_name`, `role` (`user` \| `admin`, default `user`), `created_at`, `updated_at`. Credentials are **not** here — Supabase Auth owns the password and the session | `id → auth.users(id)` on delete cascade; created and kept in step by triggers on `auth.users` |
 | `seller_provider_profiles` | **Step 11.** one row per business a person applies to run: `owner_id`, `account_type` (`seller` \| `provider`), `business_name`, `description`, contact email/phone/website, structured location (`country`, `county`, `city`, `area`), `status` (`pending` \| `active` \| `suspended` \| `rejected` \| `archived`), the review columns, and a nullable `seller_id` | `owner_id → auth.users(id)` on delete cascade — **not unique**, because one person may later own several businesses; `seller_id → sellers(id)` on delete set null, unique when set |
 
+Steps 13 and 15 add eleven more tables, none of which the public catalogue reads: the six
+private Deal Engine tables (`deal_sources`, `external_merchants`, `imported_deals`,
+`imported_deal_media`, `deal_engine_jobs`, `deal_engine_events` — listed in
+[The Deal Engine](#the-deal-engine-step-13)) and the five canonical ones
+(`products`, `product_variants`, `merchant_offers`, `merchant_offer_media`,
+`imported_deal_conversions` — listed in
+[The canonical catalogue](#the-canonical-catalogue-step-15)). Every one of them has Row
+Level Security enabled, is readable only by a database-confirmed administrator, and accepts
+no write from a browser at all.
+
 ### Database functions
+
+`0008` adds **no** function: the canonical layer is read directly through its policies, and
+the write path that will eventually fill it is a later step's design.
 
 | Function | Migration | Who may call it | What it does |
 | -------- | --------- | --------------- | ------------- |
@@ -349,6 +382,7 @@ db/migrations/0004_admin_dashboard.sql           # admin_dashboard_counts(), is_
 db/migrations/0005_deal_engine_foundation.sql    # imported deals: sources, records, media, jobs, events
 db/migrations/0006_deal_engine_operations.sql    # the Deal Engine's admin-only source function
 db/migrations/0007_security_hardening.sql         # search_path pins, catalogue privileges, schema CREATE
+db/migrations/0008_canonical_catalogue.sql        # Product → Variant → Merchant Offer, read-only to clients
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -359,6 +393,7 @@ psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0005_deal_engine_foundation.sql \
                      -f db/migrations/0006_deal_engine_operations.sql \
                      -f db/migrations/0007_security_hardening.sql \
+                     -f db/migrations/0008_canonical_catalogue.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
@@ -371,16 +406,20 @@ replaces its triggers, policies and functions.
 
 `0006_deal_engine_operations.sql` runs after `0005`, `0002` and `0001`, and refuses
 otherwise for the same reason. `0007_security_hardening.sql` runs after `0006`, `0005`, `0002`
-and `0001`, and also refuses otherwise.
+and `0001`, and also refuses otherwise. `0008_canonical_catalogue.sql` runs after `0005` (it
+references `deal_sources`, `external_merchants` and `imported_deals`), and after `0002` and
+`0001`; it refuses, naming the file it needs, if any of them is missing.
 
 **What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
 person's application to run a business, `0004` is the one counting function the admin
 dashboard needs, `0005` is the private side of imported deals, `0006` is the one function
-that lets an administrator configure a source, and `0007` is the security hardening pass over
-all of it — see [Database Security Hardening](#database-security-hardening-migration-0007).
-No migration alters an earlier one, and none of them creates a table the public catalogue
-reads. `0007` is the only one that changes no object definition at all: it alters function
-settings and revokes privileges.
+that lets an administrator configure a source, `0007` is the security hardening pass over
+all of it — see [Database Security Hardening](#database-security-hardening-migration-0007) —
+and `0008` is the canonical catalogue the Deal Engine's imported records are eventually
+resolved into — see [The canonical catalogue](#the-canonical-catalogue-step-15). No migration
+alters an earlier one, and none of them creates a table the public catalogue reads. `0007` is
+the only one that changes no object definition at all: it alters function settings and
+revokes privileges.
 
 `0002_auth_profiles.sql` is separate from the catalogue migration because it is a
 different concern: `0001` is the catalogue, `0002` is people. Run `0002` **after** your
@@ -843,17 +882,19 @@ The sidebar states the intended architecture and marks what does not exist yet:
 | **Operations** — Dashboard, Seller & provider review | **Built** |
 | **Deal Engine** — Sources | **Built** (Step 13 reads them; Step 14 adds and edits them through the database's own function) |
 | Deal Engine — Jobs | **Built** (Step 14: read-only; nothing in this build runs a job) |
+| Marketplace — Products | **Built** (Step 15: read-only operational visibility of the canonical catalogue — counts and the most recent records, no editing) |
 | Deal Engine — Import Deals, Review Queue, Import History, Affiliate Links, Scheduled Scans | Planned |
-| Marketplace — Listings, Products, Categories, Deals | Planned |
+| Marketplace — Listings, Categories, Deals | Planned |
 | Insights — Analytics | Planned |
 | System — Settings | Planned |
 
 Planned entries are not links and not buttons — they cannot be clicked, because a dead
 control promising a feature is worse than an honest label. The panel's code reaches exactly
-five admin store methods (`counts`, `accounts`, `account`, `review`, `available`) and the
-Deal Engine boundary behind `sources`, `jobs`, `importedDeals`, `createSource` and
-`updateSource`; there is no listing, product, variant, import, connector, affiliate,
-commission or publishing logic behind any of the other labels.
+five admin store methods (`counts`, `accounts`, `account`, `review`, `available`), the Deal
+Engine boundary behind `sources`, `jobs`, `importedDeals`, `merchants`, `createSource` and
+`updateSource`, and the read-only canonical boundary behind `products`, `variants`, `offers`
+and `counts`. There is no listing, import, connector, affiliate, commission or publishing
+logic behind any of the other labels — and no write of any kind behind the canonical ones.
 
 ## The Deal Engine (Step 13)
 
@@ -943,11 +984,14 @@ PickVanta Seller/Provider → PickVanta Listings        (a separate line)
 ```
 
 The same product sold by three merchants is one product with three offers, not three
-customer-facing products. **None of that is built here** and no table for it exists yet:
-what this step establishes is the boundary that keeps it possible — the imported record
-already carries the signals a future product match will need (external product identifier,
-GTIN, brand, model number, a normalised name) and the merchant it came from, so the step
-that introduces products and variants will not have to unpick this one.
+customer-facing products. **This step established the boundary that keeps it possible** —
+the imported record carries the signals a future product match will need (external product
+identifier, GTIN, brand, model number, a normalised name) and the merchant it came from —
+and **Step 15 built the Product, Variant and Merchant Offer records themselves**, in their
+own tables, with the provenance link back to the imported record. What is still missing is
+the part that is deliberately missing: nothing matches, converts, approves or publishes an
+imported record automatically. See
+[The canonical catalogue](#the-canonical-catalogue-step-15).
 
 ### Provenance and import history
 
@@ -1203,6 +1247,191 @@ the value-shape check the table constraint does not have. Nothing else in `0005`
 (`0005` has not been applied to the live project yet, so there is nothing to re-run: applying
 it once installs the corrected constraint.)
 
+## The canonical catalogue (Step 15)
+
+**Step 15 establishes what a product IS, before anything external arrives.** It adds the
+canonical layer the Deal Engine's imported records are eventually resolved into — Product,
+Variant and Merchant Offer — with the provenance that keeps every one of them traceable
+back to the record it came from. It builds **no pipeline**: nothing converts an imported
+record into a product in this step, no connector runs, no price is tracked and no public
+page reads any of it.
+
+### The three records, and why they are three
+
+| Record | Table | What it is |
+| ------ | ----- | ---------- |
+| **Product** | `public.products` (0008) | The canonical consumer-facing identity — *what the thing is* ("Demo Phone 8/128 (Black)"), independent of who sells it or what they call it |
+| **Variant** | `public.product_variants` (0008) | One purchasable configuration of a product ("8GB / 128GB / Black"). Optional: a product sold in a single configuration has no variant rows, and its offers point straight at the product |
+| **Merchant offer** | `public.merchant_offers` (0008) | One **external merchant's** offer for a product or variant, through one **source** — with the merchant's own title, its own references, the price it recorded, its availability, and the two URLs kept apart |
+
+A product carries no seller, no price and no location: those belong to an offer. An offer is
+never the canonical product, and a merchant's title never replaces a canonical name — the
+two are separate columns, and the store renames the column's `title` to `merchantTitle` in
+the browser so a call site cannot render one as the other by accident. Several merchants may
+offer one product; one merchant may have several offers for it, one per variant, through one
+or more sources.
+
+The product's identity signals are stored twice, and for a reason:
+
+```
+   brand              "Demo Brand"        brand_normalized   "demo brand"
+   model_number       "SM-A566B"          identity_key       "brand=demo brand|model=sma566b"
+   mpn                "A566-128-BLK"      gtin               "1234567890123"
+```
+
+The left column is for people; the right is the deterministic form a future matching step
+would compare, so a normalised value never has to be shown to anyone.
+
+### What already existed, and what this layer is not
+
+Three tables already sound like this one, and none of them is it. Stating the difference is
+part of the design:
+
+| Existing | Why it is not the canonical layer |
+| -------- | --------------------------------- |
+| `public.listings` | The **public presentation** record. It belongs to a PickVanta seller, carries presentation concerns (the `search_text` column the catalogue search reads, a location, service price types such as `per-night`) and has one unique slug. Two merchants offering the same phone would be two listings — which is exactly what a canonical product must not be |
+| `public.deals` | A **PickVanta** offer: a discount attached to one of those listings, owned by the same PickVanta seller |
+| `public.imported_deals` | The **untrusted record as it arrived**, kept private as evidence for review. It is the input to the canonical layer, never a substitute for it |
+
+`0008` therefore creates the canonical layer beside them and alters **none** of them: no
+column is added to `listings`, `deals`, `categories` or `subcategories`, and the public
+catalogue keeps reading exactly what it read before. An external merchant is still not a
+PickVanta seller — the two identities are never joined.
+
+### Provenance: how an imported record becomes a canonical offer
+
+`public.imported_deal_conversions` (0008) records the decision, and only the decision:
+
+```
+   imported_deals ──→ deal_sources          (which source supplied it)
+        │        └──→ external_merchants     (which merchant supplied it)
+        │
+        └──→ imported_deal_conversions ──→ products
+                                       └──→ product_variants   (the configuration, when there is one)
+                                       └──→ merchant_offers    (the canonical offer it became)
+```
+
+The imported record is **not modified** by that link and gains no column: the conversion is a
+separate, additive row, so the evidence a review was made against stays exactly as it
+arrived. The row carries a `normalization_note` — what changed between what the source said
+and what the canonical record says — and the person who decided, when a person did. One
+imported record can become one offer (`imported_deal_id` is unique), and a product that a
+conversion points at cannot be deleted out from under it.
+
+**Nothing writes a row in that table today.** It exists so the relationship is recordable;
+the step that fills it is a later step's design. The pipeline itself is unchanged and
+unbypassed: `IMPORT → VALIDATE → NORMALIZE → DEDUPLICATE → PENDING REVIEW → APPROVED →
+PUBLISHED`.
+
+### Identity and deduplication: deterministic, and never automatic
+
+The foundation is built for **exact, deterministic** comparison only: normalized brand,
+model number, manufacturer part number, GTIN/EAN/UPC, the source's own product identifier,
+and the merchant's own identifier. There is **no AI matching, no fuzzy matching across the
+internet, and no automatic merging** — a record that cannot confidently be shown to be the
+same as another simply stays a separate record.
+
+That rule is visible in the constraints:
+
+| Constraint | Why |
+| ---------- | --- |
+| `products.gtin` unique (when present) | A GTIN is a global standard identifier: two products sharing one is objectively an error, not an uncertainty |
+| `products.identity_key` indexed, **not** unique | Two records whose signals agree are candidates for a person to look at. The database will not merge them, and neither will anything else |
+| `product_variants (product_id, slug)` unique | Two variants of one product cannot describe the same configuration |
+| `merchant_offers` unique on `(merchant_id, merchant_offer_ref)` and on `(source_id, merchant_id, merchant_product_ref)` | One merchant cannot repeat its own offer reference, and one source cannot record the same merchant product twice. Both are indexed only when the reference is present, because an absent reference is not an identity |
+| `merchant_offers (variant_id, product_id) → product_variants (id, product_id)` | An offer's variant must be a variant **of that offer's product**. A single-column foreign key would happily accept another product's variant |
+
+The same helpers exist in `js/domain.js` for the browser side — `normalizeBrand`,
+`normalizeModelNumber`, `normalizeGtin`, `productIdentityKey`, `variantOptionKey` — so the
+interface and the table agree on what a normalized value is. They compute; they never decide.
+
+### Price and availability: what the source said, and nothing more
+
+An offer records the price, the currency **as the source stated it**, the compare-at price,
+and when the price was observed. There is no currency conversion, no currency-code
+hard-coding, no price history and no tracking. `currency` defaults to the **empty string**
+in the canonical layer — never to a code — so a source that recorded no currency leaves it
+empty and the interface shows the amount with no currency code rather than stamping a local
+one on it. (The public catalogue's own `listings.currency` and `deals.currency` keep the
+`KES` default `0001` gave them; the canonical layer does not inherit it, and nothing here
+writes to those tables.)
+
+A comparison is only shown when the data supports it — both prices and a currency recorded,
+and the compare-at price not below the asking price. The database enforces the last of those
+(`merchant_offers_original_not_below_price`), exactly as `0001` does for public deals, and
+`merchantOfferComparisonSupported()` applies the whole rule before anything renders.
+
+Availability is per offer and independent of the product: `pending | active | unavailable |
+expired | archived` describes **that offer**, and a product stays `active` while every offer
+on it is unavailable — an empty shelf is not an empty catalogue. Nothing observes an offer on
+a schedule, and no change of status triggers any external action.
+
+### Media: references, not copies
+
+`public.merchant_offer_media` stores where a merchant's asset is, in what order and with what
+attribution, plus an optional fallback reference — exactly as `imported_deal_media` does for
+imported records. Nothing downloads, mirrors, proxies, resizes or health-checks an asset, and
+no table in the migration has a column that could hold image bytes.
+
+### Security: readable by an administrator, writable by nobody
+
+Every table `0008` creates has Row Level Security enabled, every privilege is revoked from
+`anon` and `authenticated` first, and `SELECT` is granted back to `authenticated` alone
+behind a policy of `public.is_admin()`. A signed-out visitor cannot read any of it; a
+signed-in non-administrator gets an empty result rather than an error; and **no client role —
+administrator included — holds INSERT, UPDATE, DELETE or TRUNCATE**. There is no write policy
+at all, so:
+
+* nobody can assign themselves a merchant or an offer;
+* nobody can edit a merchant's identity, a source's provenance or an affiliate URL;
+* nobody can promote an imported record into the canonical layer;
+* nobody can publish a merchant offer.
+
+The canonical layer is written by a future review step, server-side, through a function that
+validates what it is given — or out of band with the service key. A database-authoritative
+`is_admin()` is what the reads are gated on; the panel's own `isAdmin()` only decides what to
+draw.
+
+### Source URL vs affiliate URL, restated for this table
+
+The same permanent separation `0005` established, applied where offer data lives:
+`source_url` is where the information came from, `affiliate_url` is the tracked destination a
+buyer would follow. The migration refuses a row where the two are equal
+(`merchant_offers_source_and_affiliate_differ`), `affiliate_url` stays empty unless a source
+supplied one, and **nothing in this project generates, derives or auto-populates it**.
+
+### What an administrator can see
+
+**Admin → Products** (read-only) proves the model exists and is readable: the counts of
+products, variants and merchant offers; the most recent products with their brand, model,
+identity key and status; and the most recent merchant offers with the merchant, the source,
+the merchant's own title, the recorded price and the observed time. It is **not** a Product
+Management UI — there is no create, edit, approve, publish, import or merge control, and the
+section contains no form control at all. Each count is the database's own total; a count it
+did not return is shown as not available rather than as zero.
+
+### What Step 15 deliberately does not do
+
+No Amazon, AliExpress or eBay API; no affiliate network; no merchant API; no product feed; no
+scraping, crawling or proxy; no background worker, cron or queue; no automatic import; no
+automatic publishing; no AI product matching or enrichment; no affiliate URL generation; no
+price tracking; no currency conversion; no checkout, payment or subscription; no live
+inventory; and no change to the public catalogue, which does not read these tables yet.
+Converting the public catalogue to the canonical model is a later, controlled step.
+
+### Applying it
+
+`0008_canonical_catalogue.sql` runs after `0005`, `0002` and `0001` (see
+[Applying the schema](#applying-the-schema-and-the-seed)), ends with a self-check that fails
+if any new table is missing RLS, if a client holds a write privilege, if the
+variant-belongs-to-product constraint is absent, if the URL separation is not enforced, or if
+any function in `public` has lost the `search_path` pin `0007` gave it. It is idempotent and
+creates nothing else: no function, no seed row, and no change to any existing object.
+
+**It is a repository change until it is applied.** Migrations `0002`–`0008` have **not** been
+applied to the live Supabase project from here, and this sandbox cannot observe that project;
+the operator runs every statement.
+
 ## Database Security Hardening (migration `0007`)
 
 A hardening pass over the SQL that already existed. **No product behaviour was added, no
@@ -1435,12 +1664,12 @@ HTML/CSS/JS.
 | ---- | ---- |
 | `config.js` | Runtime configuration (public values only): which source to use, the Supabase URL and anon key, and the failure policy. Loaded first by every page. `config.example.js` is a template for a local, git-ignored override. |
 | `data.js` | The demonstration catalogue only: `taxonomy`, `locations`, `sellers`, `listings`, `offers`, `guides` and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). Loaded **on demand** by the demo adapter — it is the fallback, not an API the pages use, and no page includes it as a script. |
-| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. Since Step 11 it also holds the seller/provider vocabularies and copy, since Step 12 the operational wording (`adminStatusCopy`, `adminAccountTypeCopy`), the review actions and their note limits, and since Step 13 the Deal Engine vocabularies (`DEAL_SOURCE_TYPES`, `DEAL_SOURCE_STATUS`, the pipeline stages and their terminal outcomes) plus `isSafeHttpUrl()` — the validator that decides whether a URL recorded from outside may become a link. No DOM, no network, no data. |
-| `store.js` | **Data access layer.** Owns both adapters, the public catalogue reads and the two write paths — a person's own application, and an administrator's review — the latter kept in its own `PV.store.admin` namespace so a privileged call is always recognisable at the call site and the catalogue's read paths never touch a private table. Since Step 13 it also exposes `PV.store.dealEngine.sources()` — read-only, admin-gated by RLS, with no demonstration-data fallback: private records either come from the database or the panel says so. Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
+| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. Since Step 11 it also holds the seller/provider vocabularies and copy, since Step 12 the operational wording (`adminStatusCopy`, `adminAccountTypeCopy`), the review actions and their note limits, and since Step 13 the Deal Engine vocabularies (`DEAL_SOURCE_TYPES`, `DEAL_SOURCE_STATUS`, the pipeline stages and their terminal outcomes) plus `isSafeHttpUrl()` — the validator that decides whether a URL recorded from outside may become a link. Since Step 15 it also holds the canonical catalogue's vocabulary (`PRODUCT_STATUS`, `MERCHANT_OFFER_STATUS`, `VARIANT_STATUS` and their copy), the normalisers `normalizeProduct`, `normalizeProductVariant`, `normalizeMerchantOffer` and `normalizeExternalMerchant`, and the **deterministic identity helpers** — `normalizeBrand`, `normalizeModelNumber`, `normalizeGtin`, `productIdentityKey`, `variantOptionKey`, `merchantOfferPriceText`, `merchantOfferComparisonSupported`. Those helpers compute; none of them decides that two records are the same, and none makes a discount claim the recorded prices do not support. No DOM, no network, no data. |
+| `store.js` | **Data access layer.** Owns both adapters, the public catalogue reads and the two write paths — a person's own application, and an administrator's review — the latter kept in its own `PV.store.admin` namespace so a privileged call is always recognisable at the call site and the catalogue's read paths never touch a private table. Since Step 13 it also exposes `PV.store.dealEngine.sources()` — read-only, admin-gated by RLS, with no demonstration-data fallback: private records either come from the database or the panel says so. Step 14 added the same namespace's `jobs` and `importedDeals`, and Step 15 added `merchants` (the external merchants a source introduced, for provenance) together with `PV.store.canonical.{products,variants,offers,counts}` — four `SELECT`-only reads decided by 0008's policies, and not one write. Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
 | `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
 | `auth.js` | **Authentication layer (Step 9).** The only module that talks to Supabase Auth. Owns the session (store, restore, refresh, drop), the current user and profile, the sign-up/sign-in/sign-out calls, the friendly message for every failure, and the account controls in the shared header (`#authControls`, `#authControlsMobile`). Exposes `PV.auth`; pages read state, they never keep their own copy. No DOM outside those two header hosts, no catalogue knowledge, no SDK — it is plain `fetch`, so the site stays dependency-free. |
 | `account.js` | Account view controller for `account.html`: renders what `PV.auth` reports (sign-in form, create-account form, the signed-in summary, or the demonstration-mode notice), reads the person's own seller/provider applications for the **Sell or provide on PickVanta** section, and passes typed input to the layer. It makes no authentication decision of its own. |
-| `admin.js` | **Steps 12–13.** Admin panel controller for `admin.html`: the four access states, the dashboard, the review queue, the application detail, the review confirmations, and the Deal Engine's Sources list with the pipeline it feeds. It issues no request of its own — everything goes through `PV.store.admin` and `PV.store.dealEngine` — and every refusal is the database's. It decides what to *draw*, never what is allowed. Imported text is escaped at every rendering point: a hostile source name is shown as characters, never as markup. |
+| `admin.js` | **Steps 12–15.** Admin panel controller for `admin.html`: the four access states, the dashboard, the review queue, the application detail, the review confirmations, the Deal Engine's Sources list with the pipeline it feeds, and since Step 15 a read-only Products view — the canonical layer's counts and most recent records, with the merchant and source each offer came from. It renders no editor for a canonical record because none exists. It issues no request of its own — everything goes through `PV.store.admin` and `PV.store.dealEngine` — and every refusal is the database's. It decides what to *draw*, never what is allowed. Imported text is escaped at every rendering point: a hostile source name is shown as characters, never as markup. |
 | `sell.js` | **Step 11.** Onboarding controller for `sell.html`: the account-type choice, the application form and its validation, the list of existing applications with their real status, and the honest failure states (signed out, no project configured, service unreachable, an edit the database refused). It asks `PV.store` for everything and issues no request of its own. |
 | `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
@@ -1604,8 +1833,15 @@ connector, no feed reader, no merchant API, no affiliate network, no scraper, no
 schedule, no monitoring and no automatic publishing — and no fake imports, clicks,
 conversions, commissions or revenue anywhere.
 
+Since Step 15 the canonical catalogue **records** exist — Product, Variant and Merchant
+Offer, with their media references and the provenance link back to the imported record — but
+the layer that would fill them does not: there is no automatic conversion of an imported
+deal into a product, no AI or fuzzy product matching, no automatic merging, no automatic
+publishing, and no page of the public catalogue reads any of it yet.
+
 What is still not built around the panel, the application and those records is the
-marketplace itself: no seller dashboard, no listing tools, no product variants, no merchant
-offers, no affiliate links, no commissions, no payments and no subscriptions. Step 11 built
-the participation foundation, Step 12 the first review surface over it, and Step 13 the
-engine room underneath it; none of them is the marketplace.
+marketplace itself: no seller dashboard, no listing tools, no product editor, no affiliate
+links, no commissions, no payments and no subscriptions. Step 11 built the participation
+foundation, Step 12 the first review surface over it, Step 13 the engine room underneath it,
+Step 14 its first operational controls, and Step 15 the canonical records that engine room
+was always going to produce; none of them is the marketplace.

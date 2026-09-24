@@ -314,11 +314,18 @@ window.PV.store = (function () {
       adminReview: noAdmin,
       /* The same refusal as the rest of the panel: the Deal Engine reads real
          records, and there is no demonstration version of them. There is no
-         demonstration source to configure either. */
+         demonstration source to configure either. The canonical layer is the
+         same — there is no demonstration product, variant or merchant offer,
+         and inventing one would put a fabricated product in front of an
+         operator. */
       dealEngineSources: noAdmin,
       dealEngineJobs: noAdmin,
       dealEngineImportedDeals: noAdmin,
       dealSourceSave: noAdmin,
+      canonicalProducts: noAdmin,
+      canonicalVariants: noAdmin,
+      canonicalOffers: noAdmin,
+      dealEngineMerchants: noAdmin,
       list: (state, opts) => Promise.resolve(helpers.page(state, () => (
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
@@ -420,6 +427,50 @@ window.PV.store = (function () {
       'published_deal_id', 'imported_at', 'created_at', 'updated_at'
     ].join(',');
     const IMPORTED_DEAL_PAGE = 50;
+
+    /* The canonical layer (Step 15). Three projections, each with only the
+       columns something reads:
+
+         • products — the canonical identity. No seller, no price, no location:
+           a product has never had any of them, and asking for a column that
+           does not exist would fail the request rather than invent one;
+         • product_variants — one configuration of a product, for the products
+           that are sold in more than one;
+         • merchant_offers — a merchant's offer through a source. Both URLs are
+           requested and they are never interchanged, `title` is the merchant's
+           own text (normalized to `merchantTitle`, so a call site cannot
+           mistake it for a canonical name), and `currency` is requested so it
+           can be shown exactly as recorded — including empty. */
+    const PRODUCT_FIELDS = [
+      'id', 'slug', 'name', 'brand', 'brand_normalized', 'description',
+      'category_id', 'subcategory_id', 'model_number', 'mpn', 'gtin', 'identity_key',
+      'status', 'created_at', 'updated_at'
+    ].join(',');
+    const PRODUCT_PAGE = 50;
+
+    const VARIANT_FIELDS = [
+      'id', 'product_id', 'slug', 'name', 'option_key', 'option_values', 'sku', 'gtin',
+      'status', 'created_at', 'updated_at'
+    ].join(',');
+    const VARIANT_PAGE = 50;
+
+    const MERCHANT_OFFER_FIELDS = [
+      'id', 'product_id', 'variant_id', 'merchant_id', 'source_id',
+      'title', 'merchant_product_ref', 'merchant_offer_ref',
+      'price_amount', 'original_price', 'currency', 'price_observed_at',
+      'status', 'source_url', 'affiliate_url',
+      'imported_at', 'last_observed_at', 'created_at', 'updated_at'
+    ].join(',');
+    const MERCHANT_OFFER_PAGE = 50;
+
+    /* An external merchant, as a source described it. `merchant_ref` is kept
+       verbatim — it is the source's identifier, not ours — and `source_id` is
+       the source that first introduced the merchant. */
+    const MERCHANT_FIELDS = [
+      'id', 'name', 'merchant_ref', 'website_url', 'country', 'source_id',
+      'created_at', 'updated_at'
+    ].join(',');
+    const MERCHANT_PAGE = 50;
 
     const GUIDE_FIELDS = [
       'id', 'title', 'slug', 'category_id', 'question', 'summary', 'content', 'tags',
@@ -703,6 +754,24 @@ window.PV.store = (function () {
     }
 
     /**
+     * Who has supplied records through a source.
+     *
+     * An external merchant is not a PickVanta seller and never becomes one —
+     * 0005 keeps them in their own table for exactly that reason — so this is a
+     * read of imported provenance, not of anybody's account. It is here, next
+     * to the sources, because the two belong together: `source_id` on an
+     * external merchant is the source that first introduced it, and a later
+     * merchant offer joins the two. Nothing writes it, and nothing in the panel
+     * edits it: a merchant's identity comes from the source, not from PickVanta.
+     */
+    function dealEngineMerchants(session) {
+      return write('external_merchants',
+        ['select=' + MERCHANT_FIELDS, 'order=name.asc', 'limit=' + MERCHANT_PAGE],
+        session, { method: 'GET' }
+      ).then((result) => ({ merchants: result.rows.map(Dm.normalizeExternalMerchant) }));
+    }
+
+    /**
      * Imported records, read but not yet rendered.
      *
      * `total` is the database's own count (PostgREST's `Content-Range`), not a
@@ -720,6 +789,65 @@ window.PV.store = (function () {
         session, { method: 'GET', prefer: 'count=exact' }
       ).then((result) => ({
         records: result.rows.map(Dm.normalizeImportedDeal),
+        total: typeof result.total === 'number' ? result.total : null
+      }));
+    }
+
+    /* ------------------------------------- canonical catalogue (Step 15) --
+       The Product → Variant → Merchant Offer layer, read the same way the Deal
+       Engine tables are: directly through the policies in 0008, which are
+       SELECT-only and gated on public.is_admin(). There is no write here of any
+       kind — not to a product, not to an offer, not to the link between an
+       imported record and what it became. The database grants no client a write
+       privilege on any of those tables, so adding one here would fail anyway,
+       and the point of the layer is that nothing in a browser decides what a
+       canonical product is.
+
+       `total` is the database's own count (PostgREST's Content-Range), never
+       the length of a limited list: a page that reported a list length as a
+       total would be showing a number it invented. A read without a count
+       reports null, and the panel says the count is not available.
+
+       The three reads are separate on purpose. A product list must not be a
+       join against offers, because a product with no merchant offer at all is
+       the normal state of a record that has just been reviewed, and a join
+       would hide it. */
+
+    function canonicalProducts(session, options) {
+      const o = options || {};
+      const wanted = Dm.num(o.limit);
+      const limit = Math.max(1, Math.min(wanted === null ? PRODUCT_PAGE : wanted, PRODUCT_PAGE));
+      return write('products',
+        ['select=' + PRODUCT_FIELDS, 'order=created_at.desc', 'limit=' + limit],
+        session, { method: 'GET', prefer: 'count=exact' }
+      ).then((result) => ({
+        products: result.rows.map(Dm.normalizeProduct),
+        total: typeof result.total === 'number' ? result.total : null
+      }));
+    }
+
+    function canonicalVariants(session, options) {
+      const o = options || {};
+      const wanted = Dm.num(o.limit);
+      const limit = Math.max(1, Math.min(wanted === null ? VARIANT_PAGE : wanted, VARIANT_PAGE));
+      const params = ['select=' + VARIANT_FIELDS, 'order=name.asc', 'limit=' + limit];
+      if (o.productId) params.push('product_id=eq.' + encodeURIComponent(o.productId));
+      return write('product_variants', params, session, { method: 'GET', prefer: 'count=exact' }
+      ).then((result) => ({
+        variants: result.rows.map(Dm.normalizeProductVariant),
+        total: typeof result.total === 'number' ? result.total : null
+      }));
+    }
+
+    function canonicalOffers(session, options) {
+      const o = options || {};
+      const wanted = Dm.num(o.limit);
+      const limit = Math.max(1, Math.min(wanted === null ? MERCHANT_OFFER_PAGE : wanted, MERCHANT_OFFER_PAGE));
+      const params = ['select=' + MERCHANT_OFFER_FIELDS, 'order=created_at.desc', 'limit=' + limit];
+      if (o.productId) params.push('product_id=eq.' + encodeURIComponent(o.productId));
+      return write('merchant_offers', params, session, { method: 'GET', prefer: 'count=exact' }
+      ).then((result) => ({
+        offers: result.rows.map(Dm.normalizeMerchantOffer),
         total: typeof result.total === 'number' ? result.total : null
       }));
     }
@@ -940,6 +1068,10 @@ window.PV.store = (function () {
       dealEngineJobs: dealEngineJobs,
       dealEngineImportedDeals: dealEngineImportedDeals,
       dealSourceSave: dealSourceSave,
+      canonicalProducts: canonicalProducts,
+      canonicalVariants: canonicalVariants,
+      canonicalOffers: canonicalOffers,
+      dealEngineMerchants: dealEngineMerchants,
 
       init: function () {
         return Promise.all([
@@ -1876,8 +2008,56 @@ window.PV.store = (function () {
       sources: (session) => Promise.resolve(activeAdapter.dealEngineSources(session)),
       jobs: (session) => Promise.resolve(activeAdapter.dealEngineJobs(session)),
       importedDeals: (session, options) => Promise.resolve(activeAdapter.dealEngineImportedDeals(session, options)),
+      merchants: (session) => Promise.resolve(activeAdapter.dealEngineMerchants(session)),
       createSource: (session, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, null)),
       updateSource: (session, id, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, id))
+    },
+
+    /* ---- canonical catalogue (Step 15) -----------------------------------
+       Product → Variant → Merchant Offer, read-only, admin-only, and separate
+       from the public catalogue above.
+
+       The name is `canonical` rather than `catalogue` for a reason worth
+       stating: `store.catalogue()` further down is the wording helper that
+       tells a page whether it is showing the demonstration dataset or the
+       published catalogue, and a data namespace of the same name would shadow
+       it. Two different things, two different names.
+
+       Every method here takes a session, because every read is decided by the
+       database against that session's token: 0008's policies are SELECT-only
+       and gated on public.is_admin(), so a request from anybody else comes back
+       empty — and empty is what this layer returns, not an error it invents.
+       No page code reaches Supabase for this: these three methods are the whole
+       surface, and they read and write nothing but these reads. There is no
+       create, update or delete here by design; a canonical record is not made
+       in a browser.
+
+         products(session, { limit })     newest first, with the database's count
+         variants(session, productId)     the configurations of one product
+         offers(session, { limit, productId })  newest first, with the count
+                                                                             */
+    canonical: {
+      available: () => activeAdapter && activeAdapter.kind === 'api' && !!(CONFIG.url && CONFIG.anonKey),
+      products: (session, options) => Promise.resolve(activeAdapter.canonicalProducts(session, options)),
+      /* The variants of one product. Asked without a product, this is a
+         different question rather than a wider list, so it is not sent: the
+         answer would be every configuration of everything, which nothing reads. */
+      variants: (session, productId) => (productId
+        ? Promise.resolve(activeAdapter.canonicalVariants(session, { productId: productId }))
+        : Promise.resolve({ variants: [], total: null })),
+      offers: (session, options) => Promise.resolve(activeAdapter.canonicalOffers(session, options)),
+      /* The three counts, each the database's own total. A count that the
+         database did not return stays null and is shown as not available —
+         never as zero, which would be a number this layer made up. */
+      counts: (session) => Promise.all([
+        activeAdapter.canonicalProducts(session, { limit: 1 }),
+        activeAdapter.canonicalVariants(session, { limit: 1 }),
+        activeAdapter.canonicalOffers(session, { limit: 1 })
+      ]).then((results) => ({
+        products: results[0] ? results[0].total : null,
+        variants: results[1] ? results[1].total : null,
+        offers: results[2] ? results[2].total : null
+      }))
     },
 
     /* ---- reporting / metadata ------------------------------------------- */

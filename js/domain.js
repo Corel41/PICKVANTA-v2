@@ -591,6 +591,104 @@ window.PV.domain = (function () {
       : DEAL_JOB_STATUS_COPY[key];
   }
 
+  /* ------------------------------------------------- canonical catalogue ---
+     The vocabulary of the canonical layer (migration 0008): a Product is what
+     the thing IS, a Variant is one purchasable configuration of it, and a
+     Merchant Offer is one merchant's offer for either — as supplied through one
+     source. None of the three is a listing and none of them is a public deal,
+     and the words here keep that difference visible in the interface:
+
+       importListing  one of the source's own records, before review
+       product        the canonical consumer-facing identity PickVanta holds
+       variant        one configuration of that product, when it has several
+       offer          a merchant's price, availability and link — never the
+                      canonical product itself
+
+     Two status vocabularies, the two the database enforces:
+     ---------------------------------------------------------------------- */
+  const PRODUCT_STATUS = ['draft', 'active', 'archived'];
+  const PRODUCT_STATUS_COPY = {
+    draft: { label: 'Draft', tone: 'neutral', blurb: 'Recorded, not in use. Nothing is published by this state.' },
+    active: { label: 'Active', tone: 'good', blurb: 'The canonical record a merchant offer may point at.' },
+    archived: { label: 'Archived', tone: 'neutral', blurb: 'Kept for the record, no longer offered.' }
+  };
+  /* A variant is recorded or it is not; it shares the product vocabulary. */
+  const VARIANT_STATUS = PRODUCT_STATUS;
+
+  const MERCHANT_OFFER_STATUS = ['pending', 'active', 'unavailable', 'expired', 'archived'];
+  const MERCHANT_OFFER_STATUS_COPY = {
+    pending: { label: 'Pending', tone: 'waiting', blurb: 'Recorded and waiting for review. Nothing is published by this state.' },
+    active: { label: 'Active', tone: 'good', blurb: 'Offered as of the last observation.' },
+    unavailable: { label: 'Unavailable', tone: 'warning', blurb: 'Not offered as of the last observation. The product is unaffected.' },
+    expired: { label: 'Expired', tone: 'neutral', blurb: 'The offer carried an end and it has passed.' },
+    archived: { label: 'Archived', tone: 'neutral', blurb: 'Kept for the record, no longer considered.' }
+  };
+
+  function catalogueStatusCopy(status) {
+    const key = trim(status);
+    return PRODUCT_STATUS.indexOf(key) === -1 ? { label: 'Unknown', tone: 'neutral' }
+      : PRODUCT_STATUS_COPY[key];
+  }
+  function merchantOfferStatusCopy(status) {
+    const key = trim(status);
+    return MERCHANT_OFFER_STATUS.indexOf(key) === -1 ? { label: 'Unknown', tone: 'neutral' }
+      : MERCHANT_OFFER_STATUS_COPY[key];
+  }
+
+  /* ------------------------------------------- deterministic identity -----
+     The signals a future deduplication step may compare, and the only kind of
+     comparison this build allows: exact, deterministic, and reversible by
+     reading the rule below. There is no fuzzy matching here, no similarity
+     score, no AI and no network call — and nothing built from these helpers
+     may merge two records. Two products whose keys are identical are two
+     products that a person has to look at, which is why the key is a lookup
+     and never a decision.
+
+     Each helper is the inverse of a rule the database applies in 0008, so the
+     browser and the table agree about what a normalized value is:
+
+       normalizeIdentityText   trim, collapse inner whitespace, lower-case
+       normalizeModelNumber    the same, with spaces and dashes removed
+       normalizeGtin           digits only, and only 8–14 of them ('' otherwise)
+       productIdentityKey      the composite of brand, model and MPN, in a
+                               fixed order, with each part named
+       variantOptionKey        key=value pairs, keys sorted, so an option set
+                               has one spelling no matter what order it arrived in
+     ---------------------------------------------------------------------- */
+  function normalizeIdentityText(value) {
+    return trim(value).replace(/\s+/g, ' ').toLowerCase();
+  }
+  function normalizeBrand(value) {
+    return normalizeIdentityText(value);
+  }
+  function normalizeModelNumber(value) {
+    return normalizeIdentityText(value).replace(/[\s-]+/g, '');
+  }
+  function normalizeGtin(value) {
+    const digits = str(value).replace(/\D/g, '');
+    return digits.length >= 8 && digits.length <= 14 ? digits : '';
+  }
+  /** '' when nothing identifying is known — never a key built from nothing. */
+  function productIdentityKey(input) {
+    const a = input || {};
+    const parts = [];
+    const brand = normalizeBrand(a.brand);
+    const model = normalizeModelNumber(a.modelNumber);
+    const mpn = normalizeModelNumber(a.mpn);
+    if (brand) parts.push('brand=' + brand);
+    if (model) parts.push('model=' + model);
+    if (mpn) parts.push('mpn=' + mpn);
+    return parts.join('|');
+  }
+  function variantOptionKey(options) {
+    const values = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    const pairs = Object.keys(values)
+      .map((key) => [normalizeIdentityText(key), normalizeIdentityText(values[key])])
+      .filter((pair) => pair[0] && pair[1]);
+    pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return pairs.map((pair) => pair[0] + '=' + pair[1]).join('|');
+  }
+
   /** A row from public.deal_sources, in the shape the admin panel uses. */
   function normalizeDealSource(raw) {
     const r = raw && typeof raw === 'object' ? raw : {};
@@ -702,6 +800,174 @@ window.PV.domain = (function () {
       createdAt: trim(pick('created_at', 'createdAt')),
       updatedAt: trim(pick('updated_at', 'updatedAt'))
     };
+  }
+
+  /**
+   * A row from public.external_merchants — who a source said supplied a record.
+   *
+   * This is provenance, not an account. An external merchant is never a
+   * PickVanta seller or provider (0005 keeps the two apart, and Step 11 settled
+   * that a seller/provider on PickVanta is explicitly not an imported external
+   * merchant), so nothing here is a profile and nothing here can be claimed by
+   * a signed-in person. `merchantRef` is kept exactly as the source wrote it,
+   * and `sourceId` is the source that first introduced the merchant.
+   */
+  function normalizeExternalMerchant(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    return {
+      id: trim(r.id),
+      name: trim(pick('name', 'name')),
+      merchantRef: trim(pick('merchant_ref', 'merchantRef')),
+      websiteUrl: trim(pick('website_url', 'websiteUrl')),
+      country: trim(pick('country', 'country')),
+      sourceId: trim(pick('source_id', 'sourceId')),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * A row from public.products — the canonical identity.
+   *
+   * `name` is PickVanta's canonical name for the thing, and nothing a merchant
+   * said is allowed to overwrite it: whatever a source called the product stays
+   * on the imported record and on the merchant offer, in its own field. The
+   * three identity signals are kept in both forms — as written, and as the
+   * normalized value a future deduplication step would compare — and the key
+   * falls back to the computed one so a row always reports the identity it
+   * would be looked up by.
+   */
+  function normalizeProduct(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const brand = trim(pick('brand', 'brand'));
+    const modelNumber = trim(pick('model_number', 'modelNumber'));
+    const mpn = trim(pick('mpn', 'mpn'));
+    const status = trim(pick('status', 'status'));
+    return {
+      id: trim(r.id),
+      slug: trim(pick('slug', 'slug')),
+      name: trim(pick('name', 'name')),
+      brand: brand,
+      brandNormalized: trim(pick('brand_normalized', 'brandNormalized')) || normalizeBrand(brand),
+      description: trim(pick('description', 'description')),
+      categoryId: trim(pick('category_id', 'categoryId')),
+      subcategoryId: trim(pick('subcategory_id', 'subcategoryId')),
+      modelNumber: modelNumber,
+      mpn: mpn,
+      gtin: normalizeGtin(pick('gtin', 'gtin')),
+      identityKey: trim(pick('identity_key', 'identityKey')) ||
+        productIdentityKey({ brand: brand, modelNumber: modelNumber, mpn: mpn }),
+      status: status,
+      statusCopy: catalogueStatusCopy(status),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * A row from public.product_variants — one purchasable configuration.
+   *
+   * A product needs no variant at all; it needs one only when it is sold in
+   * more than one configuration, and then this is the record an offer points
+   * at. `optionValues` is readable structure for display; `optionKey` is the
+   * normalized identity of the same options, for looking up.
+   */
+  function normalizeProductVariant(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const options = pick('option_values', 'optionValues');
+    const optionValues = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    const status = trim(pick('status', 'status'));
+    return {
+      id: trim(r.id),
+      productId: trim(pick('product_id', 'productId')),
+      slug: trim(pick('slug', 'slug')),
+      name: trim(pick('name', 'name')),
+      optionValues: optionValues,
+      optionKey: trim(pick('option_key', 'optionKey')) || variantOptionKey(optionValues),
+      sku: trim(pick('sku', 'sku')),
+      gtin: normalizeGtin(pick('gtin', 'gtin')),
+      status: status,
+      statusCopy: catalogueStatusCopy(status),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * A row from public.merchant_offers — one merchant's offer, through one source.
+   *
+   * Three things this shape refuses to blur, because the database refuses to
+   * blur them either:
+   *
+   *   • `merchantTitle` is named for what it is. It is the merchant's own text,
+   *     it is never the canonical product name, and the rename here — from the
+   *     column's `title` — is deliberate so that a call site cannot render a
+   *     merchant's title as though it were ours;
+   *   • `sourceUrl` and `affiliateUrl` stay apart. The first is where the
+   *     information came from; the second is a tracked destination, empty until
+   *     one is issued, and never derived from the first here or anywhere else;
+   *   • `currency` is NOT defaulted. A price whose source did not record a
+   *     currency comes back with an empty one and is displayed that way: this
+   *     layer will not stamp KES onto a Nigerian merchant's price.
+   */
+  function normalizeMerchantOffer(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const status = trim(pick('status', 'status'));
+    return {
+      id: trim(r.id),
+      productId: trim(pick('product_id', 'productId')),
+      variantId: trim(pick('variant_id', 'variantId')),
+      merchantId: trim(pick('merchant_id', 'merchantId')),
+      sourceId: trim(pick('source_id', 'sourceId')),
+      merchantTitle: trim(pick('title', 'title')),
+      merchantProductRef: trim(pick('merchant_product_ref', 'merchantProductRef')),
+      merchantOfferRef: trim(pick('merchant_offer_ref', 'merchantOfferRef')),
+      priceAmount: num(pick('price_amount', 'priceAmount')),
+      originalPrice: num(pick('original_price', 'originalPrice')),
+      currency: trim(pick('currency', 'currency')),
+      priceObservedAt: trim(pick('price_observed_at', 'priceObservedAt')),
+      status: status,
+      statusCopy: merchantOfferStatusCopy(status),
+      sourceUrl: trim(pick('source_url', 'sourceUrl')),
+      affiliateUrl: trim(pick('affiliate_url', 'affiliateUrl')),
+      importedAt: trim(pick('imported_at', 'importedAt')),
+      lastObservedAt: trim(pick('last_observed_at', 'lastObservedAt')),
+      createdAt: trim(pick('created_at', 'createdAt')),
+      updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * An offer's price as text, and the recorded currency only if there is one.
+   *
+   * money() is deliberately not used: it falls back to DEFAULT_CURRENCY, which
+   * would print a currency the source never recorded. An offer with no recorded
+   * currency shows the amount and says nothing about which currency it is in.
+   */
+  function merchantOfferPriceText(offer) {
+    const amount = num(offer && offer.priceAmount);
+    if (amount === null) return '';
+    const value = amount.toLocaleString('en-US', { maximumFractionDigits: amount % 1 ? 2 : 0 });
+    const currency = trim(offer && offer.currency);
+    return currency ? currency + ' ' + value : value;
+  }
+
+  /**
+   * Whether a comparison against the original price may be shown at all.
+   *
+   * Two prices are not enough on their own: a comparison is only supportable
+   * when both were recorded, in the same recorded currency, and the original is
+   * not below what is being asked. Anything else is a claim the source data
+   * does not support, so nothing is claimed and the offer shows one price.
+   */
+  function merchantOfferComparisonSupported(offer) {
+    const amount = num(offer && offer.priceAmount);
+    const original = num(offer && offer.originalPrice);
+    return amount !== null && original !== null && !!trim(offer && offer.currency) && original >= amount;
   }
 
   /**
@@ -1362,6 +1628,12 @@ window.PV.domain = (function () {
     DEAL_JOB_TYPES, DEAL_JOB_STATUS, DEAL_JOB_TYPE_COPY, DEAL_JOB_STATUS_COPY,
     dealJobTypeCopy, dealJobStatusCopy, DEAL_SOURCE_LIMITS, dealConfigCredentialPath,
     isSafeHttpUrl,
+    PRODUCT_STATUS, PRODUCT_STATUS_COPY, VARIANT_STATUS,
+    MERCHANT_OFFER_STATUS, MERCHANT_OFFER_STATUS_COPY,
+    catalogueStatusCopy, merchantOfferStatusCopy,
+    normalizeIdentityText, normalizeBrand, normalizeModelNumber, normalizeGtin,
+    productIdentityKey, variantOptionKey,
+    merchantOfferPriceText, merchantOfferComparisonSupported,
     DEFAULT_CURRENCY, DEFAULT_COUNTRY,
 
     /* value helpers */
@@ -1374,7 +1646,8 @@ window.PV.domain = (function () {
 
     /* normalisers */
     normalizeListing, normalizeOffer, normalizeGuide, normalizeSeller, normalizeSellerAccount, normalizeCategory,
-    normalizeDealSource, normalizeDealJob, normalizeImportedDeal,
+    normalizeDealSource, normalizeDealJob, normalizeImportedDeal, normalizeExternalMerchant,
+    normalizeProduct, normalizeProductVariant, normalizeMerchantOffer,
     normalizePrice, normalizeLocation, normalizeImages, normalizeSpecifications,
     findSubcategory, statusForOffer,
 
