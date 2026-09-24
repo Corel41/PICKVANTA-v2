@@ -607,7 +607,12 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<button class="icon-btn" id="headerSearchBtn" type="button" aria-label="Search PickVanta">' +
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>' +
       '</button>' +
-      '<button class="btn-secondary" type="button" data-later="Sign in">Sign In</button>' +
+      /* Filled by js/auth.js with the signed-in or signed-out account
+         controls, so the header always shows the state the authentication
+         layer actually confirmed. */
+      '<span class="auth-controls" id="authControls">' +
+      '<a class="btn-secondary" href="account.html">Sign In</a>' +
+      '</span>' +
       '<button class="hamburger" id="hamburger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobilePanel"><span></span></button>' +
       '</div>' +
       '</nav>' +
@@ -618,7 +623,9 @@ window.PV = Object.assign(window.PV || {}, (function () {
       NAV.map((n) => '<a href="' + n.href + '">' + esc(n.label) + ' <span aria-hidden="true">→</span></a>').join('') +
       '</div>' +
       '<div class="mobile-actions">' +
-      '<button class="btn-secondary" type="button" data-later="Sign in">Sign In</button>' +
+      '<span class="auth-controls" id="authControlsMobile">' +
+      '<a class="btn-secondary" href="account.html">Sign In</a>' +
+      '</span>' +
       '<a class="btn-primary" href="discover.html">Start discovering</a>' +
       '</div>' +
       '</div>' +
@@ -659,13 +666,13 @@ window.PV = Object.assign(window.PV || {}, (function () {
       /* Filled from the catalogue once the data layer is ready. */
       '<div class="footer-col"><h2>Browse</h2><span id="footerBrowse"></span></div>' +
       col('Company', [
-        { label: 'Account', later: 'Account' },
+        { label: 'Account', href: 'account.html' },
         { label: 'Contact', later: 'Contact' },
         { label: 'About', later: 'About' }
       ]) +
       '</div>' +
       '<div class="footer-bottom">' +
-      '<p>© 2026 PickVanta. <span id="footerBuild">Demo build</span> — no accounts, payments or live pricing.</p>' +
+      '<p>© 2026 PickVanta. <span id="footerBuild">Demo build</span> — no payments or live pricing.</p>' +
       '<div class="footer-bottom-links">' +
       '<button type="button" class="link-btn" data-later="Privacy">Privacy</button>' +
       '<button type="button" class="link-btn" data-later="Terms">Terms</button>' +
@@ -1118,6 +1125,11 @@ window.PV = Object.assign(window.PV || {}, (function () {
     if (headerHost) headerHost.outerHTML = headerMarkup(activePage);
     if (footerHost) footerHost.outerHTML = footerMarkup();
 
+    /* The header's account controls are rendered by the authentication layer,
+       which is the one place that knows whether a session was confirmed. If
+       that layer is not on the page, the static "Sign In" link stays. */
+    if (window.PV && PV.auth && typeof PV.auth.mount === 'function') PV.auth.mount();
+
     /* mobile menu */
     const hamburger = $('#hamburger');
     const mobilePanel = $('#mobilePanel');
@@ -1193,11 +1205,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       if (later) {
         e.preventDefault();
         const name = later.getAttribute('data-later');
-        toast(
-          name === 'Sign in'
-            ? 'Accounts and sign-in are not part of this stage — no login exists yet.'
-            : name + ' is not part of this stage. Demo interface only.'
-        );
+        toast(name + ' is not part of this stage. Demo interface only.');
       }
     });
 
