@@ -1,13 +1,16 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 11 — seller and provider accounts established, with onboarding. A person
-signs in as before (email + password, **or Google**), chooses whether they sell products or
-provide services, describes the business and submits an application. It is stored in the
-database as `pending`, visible only to them and to an administrator, and it publishes
-nothing: approval is an operator action at the database layer, not something the browser can
-grant itself. The account page gains one section — **Sell or provide on PickVanta** — that
-shows the onboarding action, or the real status once an application exists.
+**Stage:** Step 12 — the admin panel and the seller/provider review queue. An administrator
+signs in like anybody else and opens `admin.html`: a dashboard of real row counts, and a
+queue of applications to review with **Approve**, **Reject**, **Suspend** and **Archive**.
+Every action goes through the database's own review function, which checks
+`public.is_admin()` for itself and records who changed what, and when. Everybody else —
+signed out, or signed in without the role — is refused by the page *and* by the database,
+and the page requests no admin data at all until the database has confirmed the role.
+
+Step 11 still stands underneath it: a person applies to sell products or provide services,
+the application is stored `pending`, and the account page shows its real status.
 
 The catalogue is unchanged and still comes from PostgreSQL on Supabase through the
 read-only data API (`js/store.js`), whose only write path is now that one application. There
@@ -17,12 +20,14 @@ entity plus ownership, not a role, so one person may later run more than one bus
 `js/auth.js` remains the only module that talks to Supabase Auth, and the public catalogue
 stays fully browsable without an account.
 
-Still absent: no seller or provider dashboard, no admin interface, no listing tools, no
-merchant offers or affiliate links, no payments, no live pricing, and no browser writes to
-the catalogue.
+Still absent: no seller or provider dashboard, no listing tools, no Deal Engine, no merchant
+offers or affiliate links, no payments, no live pricing, and no browser writes to the
+catalogue. The admin panel reviews accounts and counts rows — it manages no products, no
+categories and no imports.
 
-> **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`) is
-> written but has not been applied to any project.** Run `0001`, `0002` and `0003` in that
+> **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`) and
+> the admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`) are written but
+> have not been applied to any project.** Run `0001`, `0002`, `0003` and `0004` in that
 > order, then the seed. Until `0003` is applied, the onboarding page says plainly that
 > applications need the live catalogue connection rather than offering a form that cannot be
 > stored. See [Applying the schema](#applying-the-schema-and-the-seed).
@@ -45,6 +50,7 @@ the catalogue.
 | Detail | `detail.html?id=…` | One reusable template ordered as breadcrumb → identity → visual → type/category/subcategory → illustrative price → seller/provider → location or service area → availability → **Quick facts** → highlights → **What to consider** → actions → offer (**Price / Offer / Important context**) → specifications → **Good to know** → **Related options**. Products and services lead with different facts and prompts. Related records explain *why* they appear (“Why this appears: same subcategory · similar price · Nairobi”). |
 | Compare | `compare.html?ids=a,b,c` | Up to three options side by side with a **Compare focus** selector (price, performance, features, portability, availability, location, specifications, service coverage, included services) that highlights matching rows and says “Your selected comparison areas are highlighted below.” Rows are grouped per category (products and services use different groups; unknown combinations fall back to the generic grouping), rows that are empty for every option are dropped, “Show differences only” hides identical rows, values that no other selected option shares are tinted (tint marks the difference, never superiority), and small screens get a stacked card layout. Equal treatment throughout — no scoring, ranking or winner. |
 | Account | `account.html` | Sign in, create an account, or — when signed in — see the account the database knows about (email, account status, role), find **Sell or provide on PickVanta** (start an application, or see each existing one with its current status) and sign out. In demonstration mode the page says plainly that accounts need the live catalogue; it never fakes a sign-in. |
+| Admin | `admin.html` | **Step 12.** The operational panel, for administrators only: a dashboard of live row counts (applications by status, published listings, active offers) and the **seller and provider review queue** — filter by status, open an application, read its details and its review history, and approve, reject, suspend or archive it. Sent to `noindex`; nothing is linked to it from the public pages, and no admin request is made until the database has confirmed the role. |
 | Sell or provide | `sell.html` | **Step 11.** Apply to run a seller (products) or provider (services) account: choose the type, describe the business, submit, and read the outcome. Existing applications are listed with their real status; a pending one can be edited. Nothing here publishes a listing, and the page never claims an approval the database did not give. |
 | Guides | `guides.html` | Guide outlines with category filtering and search. Each card states the question it answers, hides its topics behind a disclosure, and links into the matching slice of the catalogue (for example “How to choose a Wi-Fi router” → `discover.html?category=technology&sub=Networking`). Full articles are intentionally not written yet. |
 
@@ -186,10 +192,21 @@ data access layer (js/store.js)               authentication layer (js/auth.js)
 domain model (js/domain.js) — canonical shapes, vocabularies, normalisers, validators
    ↓
 one of two adapters (both inside js/store.js):
-  • Supabase adapter — read-only catalogue REST calls; the one write path is a
-    person's own seller/provider application                  →  PostgreSQL on Supabase
+  • Supabase adapter — read-only catalogue REST calls; the writes are a person's own
+    seller/provider application and an administrator's review action
+                                                              →  PostgreSQL on Supabase
   • demo adapter     — the bundled demonstration catalogue in js/data.js, loaded on
-                       demand, and an honest refusal to store applications
+                       demand, and an honest refusal to store applications or serve
+                       the admin panel
+```
+
+The admin panel is the same architecture, one namespace over:
+
+```
+admin.html → js/admin.js ──► PV.store.admin.{counts,accounts,account,review} ──► PostgreSQL
+                             (js/store.js — the only module that talks to the database)
+                             the database decides: is_admin(), the row policies, the
+                             review function, and the counts function
 ```
 
 Both authenticated pages read through the same layer. `js/sell.js` and `js/account.js`
@@ -274,6 +291,16 @@ the catalogue and nothing else; the only row a signed-in person can write is the
 | `profiles` | **Step 9.** one row per authenticated person: `id` (= the Supabase Auth user id), `email`, `display_name`, `role` (`user` \| `admin`, default `user`), `created_at`, `updated_at`. Credentials are **not** here — Supabase Auth owns the password and the session | `id → auth.users(id)` on delete cascade; created and kept in step by triggers on `auth.users` |
 | `seller_provider_profiles` | **Step 11.** one row per business a person applies to run: `owner_id`, `account_type` (`seller` \| `provider`), `business_name`, `description`, contact email/phone/website, structured location (`country`, `county`, `city`, `area`), `status` (`pending` \| `active` \| `suspended` \| `rejected` \| `archived`), the review columns, and a nullable `seller_id` | `owner_id → auth.users(id)` on delete cascade — **not unique**, because one person may later own several businesses; `seller_id → sellers(id)` on delete set null, unique when set |
 
+### Database functions
+
+| Function | Migration | Who may call it | What it does |
+| -------- | --------- | --------------- | ------------- |
+| `catalogue_stats()`, `catalogue_tags()`, `catalogue_facets()` | `0001` | `anon`, `authenticated` | Return counts, tags and facets for the published catalogue |
+| `is_admin()` | `0002` | anyone (it answers about the caller) | `true` when the caller's own `profiles.role` is `admin` |
+| `seller_profile_set_status(uuid, text, text)` | `0003` | `authenticated`, and the function checks `is_admin()` itself | The review action: validates the status, records the reviewer and the time, returns the row it wrote |
+| `seller_profile_set_seller(uuid, text)` | `0003` | as above | Links an approved account to its public catalogue record (used by a later stage) |
+| `admin_dashboard_counts()` | `0004` | `authenticated`, and the function checks `is_admin()` itself | Returns the dashboard's row counts as one jsonb object — counts only, never rows |
+
 JSON is used only where a value genuinely is a document (specification rows, image
 entries, guide sections, `service_area text[]`, settings values). Every relationship
 that is a relationship is a foreign key; there is no record that stores an array of ids
@@ -286,19 +313,27 @@ in place of a join table, and no column holds HTML or a pre-formatted price.
 db/migrations/0001_catalogue.sql              # tables, constraints, indexes, triggers, RLS, functions
 db/migrations/0002_auth_profiles.sql          # profiles, roles, is_admin(), RLS, column grants
 db/migrations/0003_seller_provider_profiles.sql  # seller/provider accounts, RLS, review functions
+db/migrations/0004_admin_dashboard.sql           # admin_dashboard_counts(), is_admin()-gated
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
 psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0002_auth_profiles.sql \
                      -f db/migrations/0003_seller_provider_profiles.sql \
+                     -f db/migrations/0004_admin_dashboard.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
-`0003_seller_provider_profiles.sql` must run **after** `0001` and `0002` — it refuses to
-run otherwise, naming the file it needs — and it ends with a self-check that fails the
-migration if a policy, a grant or a function is not what it should be. Like the others it
-is idempotent: re-running it replaces the trigger, the policies and the functions.
+`0003_seller_provider_profiles.sql` must run **after** `0001` and `0002`, and
+`0004_admin_dashboard.sql` after `0003` — each one refuses to run otherwise, naming the file
+it needs — and each ends with a self-check that fails the migration if a policy, a grant or
+a function is not what it should be. Like the others they are idempotent: re-running one
+replaces its trigger, policies and functions.
+
+**What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
+person's application to run a business, and `0004` is the one counting function the admin
+dashboard needs. No migration alters an earlier one, and none of them creates a table the
+public catalogue reads.
 
 `0002_auth_profiles.sql` is separate from the catalogue migration because it is a
 different concern: `0001` is the catalogue, `0002` is people. Run `0002` **after** your
@@ -386,6 +421,28 @@ node db/scripts/build-seed.js --check   # fail if the seed no longer matches (us
   tables only; the account table is named by exactly three requests, all of them the signed-in
   person's own, and no public page mentions or renders an account field. A person's phone
   number is visible to them and to an administrator reviewing the application — nobody else.
+* **Administrative access is the same role, checked one layer further down (Step 12).** The
+  admin panel reads `PV.auth.isAdmin()` to decide what to draw, and that value comes from the
+  person's own `profiles` row. What makes the panel safe is not that check, however: it is
+  that a non-administrator's requests fail on their own.
+  * `seller_profiles_select_admin` is the **only** policy that lets anybody read another
+    person's application, and it is written `using (public.is_admin())` — evaluated by the
+    database for the caller's own token;
+  * `seller_profile_set_status()` and `seller_profile_set_seller()` begin with
+    `if not public.is_admin() then raise exception …` (errcode `42501`), and executing them
+    is granted to `authenticated` only, with `anon` revoked;
+  * `admin_dashboard_counts()` is the same shape, and returns counts only — no ids, no
+    names, no contact details;
+  * a crafted URL (`…&role=admin`, a chosen `section`, a chosen `id`) grants nothing: the
+    address is validated for syntax, never trusted for authority, and the page requests no
+    admin data until the role is confirmed. The test suite asserts exactly that — a signed-in
+    member loading `admin.html?section=sellers&id=…` makes **zero** requests to the private
+    table.
+* **The review action is not a column write.** Approving, rejecting, suspending and archiving
+  all go through the one function written for it; the browser cannot write `status`,
+  `review_note`, `reviewed_at`, `reviewed_by`, `seller_id`, `owner_id` or `account_type` at
+  all (no column grant, plus the guard trigger). There is no delete policy and no delete
+  privilege, so nothing in the panel can remove an application.
 * The browser only ever holds the public anon key plus the session token its own sign-in
   produced. There is no OAuth client secret, no Google client id and no service-role key in
   any file served to a browser — see `.gitignore` for the secrets that must never be
@@ -625,6 +682,116 @@ notifications, and no verification workflow. The catalogue is unchanged: browsin
 filters, sorting, detail, compare, deals and guides work exactly as before, signed in or
 signed out, and the public catalogue never requires an account.
 
+## The admin panel (Step 12)
+
+`admin.html` is where PickVanta is operated. It is deliberately small: a dashboard, and the
+review queue that the seller/provider lifecycle has been waiting for. Everything on it is a
+row count or a row from the live database — there are no invented statistics, no charts, and
+no estimates.
+
+### Access: the database decides, and the page asks first
+
+`profiles.role` is the only source of truth, exactly as in Step 9. The panel has four states
+and **only the last one reads any administrative data**:
+
+| State | What is shown | What is requested |
+| ----- | ------------- | ----------------- |
+| No live database (demonstration build) | "The admin panel needs the live database connection." | nothing |
+| Signed out | A sign-in prompt, and a way back to the catalogue | nothing |
+| Signed in, not an administrator | "This area is for administrators" — stated as a fact about the account, not an error | nothing |
+| Administrator | The panel | counts, and the queue |
+
+* The page asks `PV.auth.isAdmin()`, which reports the role the database returned **with that
+  person's own profile row**. The panel never reads a role from `localStorage`, a URL
+  parameter, a query string or a hidden field — and a crafted address such as
+  `admin.html?section=sellers&id=…&role=admin` opens nothing: the read of the address grants
+  no authority, and the test suite asserts that such a page requests no admin data at all.
+* Hiding the panel is convenience, never protection. The same requests sent by a normal user
+  come back **403** from the review function and **403** from the counts function, and the
+  private table returns an empty list — because Row Level Security, not the interface, is
+  what protects it.
+
+### The dashboard
+
+Every number is a row count taken from the database when the page loads, and the page says
+so ("Live database information — row counts read from the database at 14:22"). Where a value
+could not be read, it says *Not available*; it never shows a zero in its place.
+
+| Figure | Meaning |
+| ------ | ------- |
+| Applications: pending / active / suspended / rejected / archived / total | Rows of `seller_provider_profiles`, by status |
+| Published listings | `listings` with `status = 'published'` — what a visitor can browse |
+| Active offers | `deals` with `status` in (`scheduled`, `active`) whose listing is published |
+| Catalogue sellers | Rows of `public.sellers` |
+
+The last one is labelled **"Catalogue sellers are not PickVanta accounts"** on the page
+itself, because conflating the two is the mistake this schema is built to prevent:
+`public.sellers` is the catalogue's public display record, and
+`public.seller_provider_profiles` is a person's application to run a business. They are
+separate tables, counted separately, and nothing merges them. Traffic, conversions,
+commissions and revenue are explicitly named as a later stage — and none of them is guessed
+at here.
+
+The counts come from `public.admin_dashboard_counts()` (migration `0004`): a `security
+definer` function that begins with `if not public.is_admin() then raise exception …`, is
+callable only by `authenticated` (`anon` is revoked), and returns one jsonb object of counts
+— no ids, no names, no contact details. A count is not a read, and this keeps it that way.
+
+### The review queue
+
+Applications are listed newest first, with the filter that matters defaulting to **Pending**:
+All · Pending · Active · Rejected · Suspended · Archived. Each row shows the business name,
+the account type, the status, the location and the submitted date; opening one shows the full
+application — description, contact email, phone, website, the structured location, the
+submitted date, the current status, and the previous review (when it happened, the note, and
+the reviewer's account id).
+
+* The queue is a real `<table>` with a caption and scoped headings, which becomes a stack of
+  labelled rows on a phone (each cell carries its own label, so nothing is lost).
+* The URL carries the view — `admin.html?section=sellers&status=pending&id=<uuid>` — so a
+  review can be linked or reloaded. Every part of it is validated before use: an unknown
+  section falls back to the dashboard, an unknown status to pending, and anything that is not
+  a UUID is ignored (and never echoed back into the page).
+
+### Review actions
+
+**Approve** · **Reject** · **Suspend** · **Archive**, offered according to the state the
+account is in (a pending application is not "suspended"; an archived account is not
+"rejected"). The set of buttons differs by state, but the *authority* does not: every action
+calls `public.seller_profile_set_status(target_id, new_status, note)` — the function written
+in migration `0003` for exactly this purpose.
+
+1. Choosing an action opens a confirmation naming what would change, with an optional note
+   (500 characters, the database's own limit).
+2. Confirming calls the function. The client never writes the `status` column, and the
+   database would refuse it if it tried: `status`, `review_note`, `reviewed_at`,
+   `reviewed_by`, `seller_id`, `owner_id` and `account_type` are not in the column grant, and
+   the guard trigger refuses them regardless.
+3. The function checks `is_admin()` for itself, validates the status against the closed
+   vocabulary, records `reviewed_at` and `reviewed_by`, and returns the row it wrote.
+4. The page then **re-reads the record** and displays the status the database returned — not
+   the one that was requested. If the two ever disagree, the page says so.
+5. A refusal is never reported as success: an expired session, a missing application, a
+   refusal, or an unreachable service each produce a plain sentence, and the record is left
+   exactly as it was. No raw database text is shown.
+
+### Navigation, and what is deliberately not built
+
+The sidebar states the intended architecture and marks what does not exist yet:
+
+| Section | State |
+| ------- | ----- |
+| **Operations** — Dashboard, Seller & provider review | **Built** |
+| Marketplace — Listings, Products, Categories, Deals | Planned |
+| Deal Engine — Import sources, Affiliate links, Import history | Planned |
+| Insights — Analytics | Planned |
+| System — Settings | Planned |
+
+Planned entries are not links and not buttons — they cannot be clicked, because a dead
+control promising a feature is worse than an honest label. The panel's code reaches exactly
+four store methods (`counts`, `accounts`, `account`, `review`); there is no listing, product,
+import, affiliate or commission logic behind any of those labels.
+
 ## Configuration
 
 Everything the frontend needs is in `js/config.js`, which is committed and contains
@@ -706,11 +873,12 @@ HTML/CSS/JS.
 | ---- | ---- |
 | `config.js` | Runtime configuration (public values only): which source to use, the Supabase URL and anon key, and the failure policy. Loaded first by every page. `config.example.js` is a template for a local, git-ignored override. |
 | `data.js` | The demonstration catalogue only: `taxonomy`, `locations`, `sellers`, `listings`, `offers`, `guides` and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). Loaded **on demand** by the demo adapter — it is the fallback, not an API the pages use, and no page includes it as a script. |
-| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. No DOM, no network, no data. |
-| `store.js` | **Data access layer.** Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
+| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. Since Step 11 it also holds the seller/provider vocabularies and copy, and since Step 12 the operational wording (`adminStatusCopy`, `adminAccountTypeCopy`), the review actions and their note limits. No DOM, no network, no data. |
+| `store.js` | **Data access layer.** Owns both adapters, the public catalogue reads and the two write paths — a person's own application, and an administrator's review — the latter kept in its own `PV.store.admin` namespace so a privileged call is always recognisable at the call site and the catalogue's read paths never touch a private table. Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
 | `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
 | `auth.js` | **Authentication layer (Step 9).** The only module that talks to Supabase Auth. Owns the session (store, restore, refresh, drop), the current user and profile, the sign-up/sign-in/sign-out calls, the friendly message for every failure, and the account controls in the shared header (`#authControls`, `#authControlsMobile`). Exposes `PV.auth`; pages read state, they never keep their own copy. No DOM outside those two header hosts, no catalogue knowledge, no SDK — it is plain `fetch`, so the site stays dependency-free. |
 | `account.js` | Account view controller for `account.html`: renders what `PV.auth` reports (sign-in form, create-account form, the signed-in summary, or the demonstration-mode notice), reads the person's own seller/provider applications for the **Sell or provide on PickVanta** section, and passes typed input to the layer. It makes no authentication decision of its own. |
+| `admin.js` | **Step 12.** Admin panel controller for `admin.html`: the four access states, the dashboard, the review queue, the application detail and the review confirmations. It issues no request of its own — everything goes through `PV.store.admin`, and every refusal is the database's. It decides what to *draw*, never what is allowed. |
 | `sell.js` | **Step 11.** Onboarding controller for `sell.html`: the account-type choice, the application form and its validation, the list of existing applications with their real status, and the honest failure states (signed out, no project configured, service unreachable, an edit the database refused). It asks `PV.store` for everything and issues no request of its own. |
 | `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
@@ -862,8 +1030,12 @@ payment detail or a preference. Applying does not create a listing, does not pub
 anything and does not change a role: **admin is still a role the database can hold, with no
 interface to use it**, and no seller or provider role exists at all.
 
-What is *not* built around that application is the marketplace itself: no admin review
-screen (the two functions are called by an operator with SQL), no seller dashboard, no
-listing tools, no product variants, no merchant offers, no affiliate links, no Deal Engine,
-no commissions, no payments and no subscription. Step 11 is the foundation those stages
-will stand on, not the first of them.
+Since Step 12 there **is** an admin panel, and it reviews applications — approve, reject,
+suspend, archive, with a note. That is the whole of it. It manages no products, no
+categories, no listings and no imports; its other navigation sections are labelled *Planned*
+and are not clickable, because they do not exist.
+
+What is still not built around the panel and the application is the marketplace itself: no
+seller dashboard, no listing tools, no product variants, no merchant offers, no affiliate
+links, no Deal Engine, no commissions, no payments and no subscriptions. Step 11 built the
+foundation and Step 12 the first review surface over it; neither is the marketplace.

@@ -285,6 +285,90 @@ window.PV.domain = (function () {
 
   /** Is this one of the two account types? Exposed so views never guess. */
   const isSellerAccountType = (value) => SELLER_ACCOUNT_TYPES.indexOf(trim(value)) !== -1;
+  /**
+   * Administrative wording (Step 12).
+   *
+   * The applicant-facing copy above is deliberately soft ("Not approved",
+   * "we will review it"). An operator working a queue needs the operational
+   * word, the same one the database stores, so the two audiences do not read
+   * the same sentence and infer different states.
+   */
+  const ADMIN_ACCOUNT_TYPE_COPY = {
+    seller: { label: 'Seller', blurb: 'A business that sells products.' },
+    provider: { label: 'Provider', blurb: 'A business that provides services.' }
+  };
+
+  const ADMIN_STATUS_COPY = {
+    pending: { label: 'Pending', tone: 'waiting' },
+    active: { label: 'Active', tone: 'good' },
+    suspended: { label: 'Suspended', tone: 'warning' },
+    rejected: { label: 'Rejected', tone: 'warning' },
+    archived: { label: 'Archived', tone: 'neutral' }
+  };
+
+  /**
+   * The review actions an operator can take. Each one maps to a status the
+   * database's own vocabulary already contains, and is performed through
+   * public.seller_profile_set_status() — never by writing the column.
+   *
+   * The note limit is the database's limit: 0003 rejects anything longer.
+   */
+  const REVIEW_NOTE_MAX = 500;
+  const REVIEW_ACTIONS = [
+    {
+      status: 'active',
+      label: 'Approve',
+      tone: 'good',
+      heading: 'Approve this account?',
+      blurb: 'The account becomes active and the applicant sees that it is approved. ' +
+        'Listing tools are a later stage — approving publishes nothing.',
+      noteLabel: 'Approval note (optional)',
+      notePlaceholder: 'Anything the next reviewer should know.'
+    },
+    {
+      status: 'rejected',
+      label: 'Reject',
+      tone: 'warning',
+      heading: 'Reject this application?',
+      blurb: 'The application is closed as rejected. The applicant can read your note and ' +
+        'apply again with corrected details.',
+      noteLabel: 'Reason (optional)',
+      notePlaceholder: 'Why this application was not approved.'
+    },
+    {
+      status: 'suspended',
+      label: 'Suspend',
+      tone: 'warning',
+      heading: 'Suspend this account?',
+      blurb: 'The account is paused. The applicant sees that it is suspended, and you can ' +
+        'approve it again later.',
+      noteLabel: 'Reason (optional)',
+      notePlaceholder: 'Why this account is paused.'
+    },
+    {
+      status: 'archived',
+      label: 'Archive',
+      tone: 'neutral',
+      heading: 'Archive this account?',
+      blurb: 'The account is closed and kept for records — nothing is deleted. It can be ' +
+        'approved again later.',
+      noteLabel: 'Archive note (optional)',
+      notePlaceholder: 'Anything worth recording.'
+    }
+  ];
+
+  /* Which actions an operator is offered for the status an account is in.
+     This is guidance for the interface, not a rule the database relies on:
+     0003 accepts any of the five statuses and is the authority. Nothing here
+     can grant a privilege — it only decides which buttons are drawn. */
+  const ADMIN_ACTION_TARGETS = {
+    pending: ['active', 'rejected', 'archived'],
+    active: ['suspended', 'archived'],
+    suspended: ['active', 'rejected', 'archived'],
+    rejected: ['active', 'archived'],
+    archived: ['active']
+  };
+
   const isSellerAccountStatus = (value) => SELLER_ACCOUNT_STATUS.indexOf(trim(value)) !== -1;
 
   /** The wording for an account type or status, with a safe fallback. */
@@ -303,6 +387,48 @@ window.PV.domain = (function () {
   function sellerAccountTypeLabel(accountType) {
     const copy = sellerAccountCopy(accountType);
     return copy ? copy.label : 'Account';
+  }
+
+  /** The operational wording for an account type: "Seller — a business that sells products." */
+  function adminAccountTypeCopy(accountType) {
+    return ADMIN_ACCOUNT_TYPE_COPY[trim(accountType)] || { label: 'Account', blurb: 'Type not recorded.' };
+  }
+
+  /** The operational word for a status, for the admin panel. */
+  function adminStatusCopy(status) {
+    const key = trim(status);
+    return ADMIN_STATUS_COPY[key] || { label: 'Unknown', tone: 'neutral' };
+  }
+
+  /** The review actions available for an account that is in `status`. */
+  function adminReviewActionsFor(status) {
+    const allowed = ADMIN_ACTION_TARGETS[trim(status)] || [];
+    return REVIEW_ACTIONS.filter((action) => allowed.indexOf(action.status) !== -1);
+  }
+
+  /**
+   * The admin dashboard's counts.
+   *
+   * A number that the database did not return stays null — the panel shows
+   * "Not available" for it. Filling a gap with 0 would be inventing a
+   * statistic, which is exactly what this dashboard must not do.
+   */
+  function normalizeAdminCounts(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const group = (node, keys) => {
+      const from = node && typeof node === 'object' ? node : {};
+      const out = {};
+      keys.forEach((key) => {
+        const value = num(from[key]);
+        out[key] = value === null || value === undefined ? null : value;
+      });
+      return out;
+    };
+    return {
+      applications: group(source.applications,
+        ['total', 'pending', 'active', 'suspended', 'rejected', 'archived']),
+      catalogue: group(source.catalogue, ['published_listings', 'active_deals', 'demo_sellers'])
+    };
   }
 
   /** Formatting date values that come from the data as ISO strings. */
@@ -847,6 +973,7 @@ window.PV.domain = (function () {
     LISTING_TYPES, LISTING_STATUS, AVAILABILITY, PRICE_TYPES, OFFER_KINDS, OFFER_STATUS,
     SELLER_TYPES, SELLER_STATUS, VERIFICATION_STATUS, LOCATION_FORMATS, GUIDE_STATUS,
     SELLER_ACCOUNT_TYPES, SELLER_ACCOUNT_STATUS, SELLER_ACCOUNT_COPY, SELLER_ACCOUNT_STATUS_COPY,
+    ADMIN_STATUS_COPY, ADMIN_ACCOUNT_TYPE_COPY, REVIEW_ACTIONS, REVIEW_NOTE_MAX, ADMIN_ACTION_TARGETS,
     DEFAULT_CURRENCY, DEFAULT_COUNTRY,
 
     /* value helpers */
@@ -854,7 +981,7 @@ window.PV.domain = (function () {
     inferPriceType, priceText, priceValue, locationLabel, serviceAreaText,
     typeLabel, categoryLabel, availabilityInfo, listingStatusLabel, offerKindLabel, sellerLabel,
     isSellerAccountType, isSellerAccountStatus, sellerAccountCopy, sellerAccountStatusCopy,
-    sellerAccountTypeLabel,
+    sellerAccountTypeLabel, adminStatusCopy, adminAccountTypeCopy, adminReviewActionsFor, normalizeAdminCounts,
     formatDate, offerDaysLeft, primaryImage,
 
     /* normalisers */

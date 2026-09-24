@@ -295,6 +295,11 @@ window.PV.store = (function () {
     const noAccounts = () => Promise.reject(StoreError(
       'Applications need the live catalogue connection. This build is running on the bundled demonstration catalogue.',
       'api-not-configured'));
+    /* The admin panel is worse than useless without the database: there is
+       nothing real to review, and an invented list would be a lie. */
+    const noAdmin = () => Promise.reject(StoreError(
+      'The admin panel needs the live database connection. This build is running on the bundled demonstration catalogue.',
+      'api-not-configured'));
 
     return {
       kind: 'demo',
@@ -303,6 +308,10 @@ window.PV.store = (function () {
       sellerAccountsMine: noAccounts,
       sellerAccountCreate: noAccounts,
       sellerAccountUpdate: noAccounts,
+      adminCounts: noAdmin,
+      adminAccounts: noAdmin,
+      adminAccount: noAdmin,
+      adminReview: noAdmin,
       list: (state, opts) => Promise.resolve(helpers.page(state, () => (
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
@@ -359,6 +368,11 @@ window.PV.store = (function () {
       'country', 'county', 'city', 'area',
       'status', 'review_note', 'reviewed_at', 'seller_id', 'created_at', 'updated_at'
     ].join(',');
+
+    /* How many applications the admin review queue asks for at a time. Small
+       enough that a queue page is one modest request; the queue reports when
+       there are more rather than pretending it has them all. */
+    const ADMIN_QUEUE_PAGE = 50;
 
     const GUIDE_FIELDS = [
       'id', 'title', 'slug', 'category_id', 'question', 'summary', 'content', 'tags',
@@ -542,6 +556,62 @@ window.PV.store = (function () {
       ).then((result) => (result.rows.length ? Dm.normalizeSellerAccount(result.rows[0]) : null));
     }
 
+    /* ------------------------------------------------------- admin (Step 12)
+       Administrative access, and the only part of this file that reads rows
+       the caller does not own.
+
+       Every request here is answered by the database according to the caller's
+       own token: the `seller_profiles_select_admin` policy decides which rows
+       an administrator may read, `public.is_admin()` gates the review function,
+       and a non-administrator gets an empty list or a refusal. Nothing in this
+       file — and nothing in the interface — decides who is an administrator.
+       There is no method here that works with the anon key alone.
+       ---------------------------------------------------------------------- */
+    function adminCounts(session) {
+      return write('rpc/admin_dashboard_counts', [], session, { method: 'POST', body: {} })
+        .then((result) => Dm.normalizeAdminCounts(result.body));
+    }
+
+    function adminAccounts(session, options) {
+      const o = options || {};
+      const params = ['select=' + SELLER_ACCOUNT_FIELDS, 'order=created_at.desc'];
+      /* The filter is a closed vocabulary, so a hand-edited URL cannot ask the
+         database for something it does not have. It grants nothing either way:
+         RLS still decides which rows come back. */
+      if (o.status && Dm.isSellerAccountStatus(o.status)) {
+        params.push('status=eq.' + encodeURIComponent(o.status));
+      }
+      params.push('limit=' + (o.limit > 0 ? Math.min(Number(o.limit), 200) : ADMIN_QUEUE_PAGE));
+      params.push('offset=' + (o.offset > 0 ? Number(o.offset) : 0));
+      return write('seller_provider_profiles', params, session, { method: 'GET' })
+        .then((result) => ({ accounts: result.rows.map((row) => Dm.normalizeSellerAccount(row)) }));
+    }
+
+    function adminAccount(session, id) {
+      return write('seller_provider_profiles',
+        ['select=' + SELLER_ACCOUNT_FIELDS, 'id=eq.' + encodeURIComponent(id), 'limit=1'],
+        session, { method: 'GET' }
+      ).then((result) => (result.rows.length ? Dm.normalizeSellerAccount(result.rows[0]) : null));
+    }
+
+    /**
+     * The review action itself. It calls the function 0003 already defines —
+     * `public.seller_profile_set_status(target_id, new_status, note)` — which
+     * checks is_admin() for itself, validates the status against the closed
+     * vocabulary, records the reviewer and the time, and returns the row it
+     * wrote. This layer never writes the status column directly, and never
+     * assumes the write happened: the returned record is the database's answer.
+     */
+    function adminReview(session, id, status, note) {
+      return write('rpc/seller_profile_set_status', [], session, {
+        method: 'POST',
+        body: { target_id: id, new_status: status, note: note || '' }
+      }).then((result) => {
+        const row = Array.isArray(result.body) ? result.body[0] : result.body;
+        return row && row.id ? Dm.normalizeSellerAccount(row) : null;
+      });
+    }
+
     /* -------------------------------------------------- row → domain ------ */
     function sellerFromRow(row) {
       if (!row) return null;
@@ -711,6 +781,11 @@ window.PV.store = (function () {
       sellerAccountsMine: sellerAccountsMine,
       sellerAccountCreate: sellerAccountCreate,
       sellerAccountUpdate: sellerAccountUpdate,
+
+      adminCounts: adminCounts,
+      adminAccounts: adminAccounts,
+      adminAccount: adminAccount,
+      adminReview: adminReview,
 
       init: function () {
         return Promise.all([
@@ -1618,6 +1693,24 @@ window.PV.store = (function () {
       mine: (session) => Promise.resolve(activeAdapter.sellerAccountsMine(session)),
       create: (session, input) => Promise.resolve(activeAdapter.sellerAccountCreate(session, input)),
       update: (session, id, input) => Promise.resolve(activeAdapter.sellerAccountUpdate(session, id, input))
+    },
+
+    /* ------------------------------------------------------------- admin --
+       Administrative access, kept in its own namespace so the catalogue's read
+       paths never touch a private table and an admin call is always
+       recognisable at the call site (PV.store.admin.…).
+
+       These are not gated here. They are gated by the database, against the
+       caller's own token: a request from a normal user comes back empty or
+       refused, whatever the interface believes. A page that hides this
+       namespace hides buttons, not data.
+       ---------------------------------------------------------------------- */
+    admin: {
+      available: () => activeAdapter && activeAdapter.kind === 'api' && !!(CONFIG.url && CONFIG.anonKey),
+      counts: (session) => Promise.resolve(activeAdapter.adminCounts(session)),
+      accounts: (session, options) => Promise.resolve(activeAdapter.adminAccounts(session, options)),
+      account: (session, id) => Promise.resolve(activeAdapter.adminAccount(session, id)),
+      review: (session, id, status, note) => Promise.resolve(activeAdapter.adminReview(session, id, status, note))
     },
 
     /* ---- reporting / metadata ------------------------------------------- */
