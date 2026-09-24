@@ -282,6 +282,13 @@ PV.util.ready(function () {
       '</div>' +
       '<p class="panel-note">Roles are assigned by PickVanta, not chosen here, and this page cannot change ' +
       'them. Signing out ends the session on this device.</p>' +
+      /* Only an account the database has already reported as an administrator
+         is offered this. The panel checks for itself; this is a doorway, not
+         a permission. */
+      (snap.role === 'admin'
+        ? '<p class="panel-note">Administrator tools: <a href="admin.html">open the admin panel</a> — the ' +
+          'seller and provider review queue.</p>'
+        : '') +
       '</div>' +
       participationPanel() +
       '</div>'
