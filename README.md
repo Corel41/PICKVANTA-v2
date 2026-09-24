@@ -1,13 +1,21 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 9 — authentication and secure user roles. The catalogue still comes
-from PostgreSQL on Supabase through the read-only data API (`js/store.js`), and now
-Supabase Auth gives people their own accounts: sign up, sign in, sign out, a session
-that survives a refresh, and a `profiles` row whose `role` the database — never the
-browser — decides. `js/auth.js` is the one module that talks to Supabase Auth; the
-public catalogue stays fully browsable without an account.
+**Stage:** Step 10 — Google Sign-In added to the existing authentication layer. The
+catalogue still comes from PostgreSQL on Supabase through the read-only data API
+(`js/store.js`), and Supabase Auth still gives people their own accounts: sign up and sign
+in with an email address and password, **or continue with Google**, sign out, and a
+session that survives a refresh. Either way there is one account system and one
+`profiles` row per person, whose `role` the database — never the browser — decides.
+`js/auth.js` remains the only module that talks to Supabase Auth; the public catalogue
+stays fully browsable without an account.
 No seller area, no payments, no browser writes to the catalogue, no live pricing.
+
+> **Google Sign-In is implemented in this repository, but the Google provider still has to
+> be configured on the Supabase project and in Google Cloud before the button can work on
+> a deployment.** The code is complete and the button appears as soon as the provider is
+> enabled; until then the account page says so plainly instead of offering a control that
+> cannot work. See [Google Sign-In — configuration](#google-sign-in--configuration-required).
 
 ---
 
@@ -140,7 +148,7 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Step 9)
+### Current (Step 10)
 
 There are two paths, and they are deliberately separate. Browsing is public; an account
 is only needed for the parts of the product that belong to a person.
@@ -158,8 +166,8 @@ data access layer (js/store.js)                     authentication layer (js/aut
      records come from                                    Supabase Auth and reads the profile
    ↓                                                   ↓
 domain model (js/domain.js)                         Supabase Auth  →  public.profiles
-   ← canonical shapes, vocabularies,                    (session, user)   (email, display
-     normalisers, validators                                              name, role — RLS)
+   ← canonical shapes, vocabularies,                 (email+password,   (email, display
+     normalisers, validators                          Google, session)   name, role — RLS)
    ↓
 one of two adapters (both inside js/store.js):
   • Supabase adapter — read-only REST calls, published rows only  →  PostgreSQL on Supabase
@@ -176,6 +184,28 @@ Authentication is its own capability with its own boundary. Controllers ask `PV.
 who is signed in; they never talk to Supabase Auth themselves and never keep a second
 copy of the session — that is how authentication logic drifts. The catalogue keeps
 working with `js/auth.js` absent, and `js/auth.js` knows nothing about listings.
+
+**Providers are data, not code paths.** Email/password and Google both go through Supabase
+Auth, so there is one account system rather than two, and one `profiles` row per person
+whichever way they arrived:
+
+```
+PickVanta auth layer (js/auth.js)
+        │
+        ▼
+Supabase Auth  ─── email + password   POST /auth/v1/token?grant_type=password
+        │      └── Google            GET  /auth/v1/authorize?provider=google
+        │                                  → accounts.google.com → /auth/v1/callback
+        │                                  → back to the app with the session
+        ▼
+auth.users  ──trigger──▶  public.profiles (id = auth user id, email, display_name, role)
+```
+
+Starting an OAuth sign-in is the same request for every provider, so adding Apple later is
+an entry in `PROVIDERS` plus that provider's configuration in the Supabase project — not
+another authentication architecture. What is provider-specific (a client id, a client
+secret) lives only in the Supabase project's own settings; it is never in this repository
+and never in the browser.
 
 ### Where the data comes from
 
@@ -194,8 +224,9 @@ that fell back always labels the demonstration catalogue).
 ### Not in this stage
 
 Seller or admin areas, dashboards, seller onboarding, listing creation, payments,
-checkout, messaging, notifications, subscriptions, reviews, ratings, social or
-passwordless sign-in, multi-factor authentication, account deletion. Nothing in the
+checkout, messaging, notifications, subscriptions, reviews, ratings, passwordless
+sign-in, multi-factor authentication, account deletion — and Apple Sign-In, which is
+*not* implemented: Google is the only social provider in this step. Nothing in the
 browser can write to the catalogue: the data API stays read-only for anon and for a
 signed-in user alike, and `profiles` is the only table a signed-in person can touch —
 their own row, `display_name` only.
@@ -284,15 +315,24 @@ node db/scripts/build-seed.js --check   # fail if the seed no longer matches (us
 * `profiles` is created and kept in step by triggers on `auth.users`
   (`on_auth_user_created`, `on_auth_user_email_changed`), so a profile can never drift
   from the account it describes, and a client that signs up cannot skip it.
+* **OAuth adds no new authorization surface.** The callback is not a bypass: the session it
+  carries is confirmed with `/auth/v1/user` before it is trusted, the profile is read with
+  that same user's token, and every rule in this section applies to a Google account exactly
+  as it does to an email one.
 * The browser only ever holds the public anon key plus the session token its own sign-in
-  produced. The service-role key, the database password and the connection string stay
+  produced. There is no OAuth client secret, no Google client id and no service-role key in
+  any file served to a browser — see `.gitignore` for the secrets that must never be
+  committed. The service-role key, the database password and the connection string stay
   out of the repository (see `.gitignore`) and out of the browser.
 
 ### Authentication (Supabase Auth)
 
+**Supported providers, currently: email + password and Google.** Both are ordinary
+Supabase Auth providers; nothing about an account depends on which one was used.
+
 | Concern | Where it lives |
 | ------- | -------------- |
-| Accounts, passwords, sessions, email confirmation | **Supabase Auth** (`/auth/v1/…`) — the project's own authentication service. Passwords are never stored, logged or seen by this codebase |
+| Accounts, passwords, sessions, email confirmation, Google OAuth | **Supabase Auth** (`/auth/v1/…`) — the project's own authentication service. Passwords are never stored, logged or seen by this codebase, and the Google client secret never leaves Supabase |
 | The session in the browser | `localStorage` key `pickvanta.auth.session.v1` — a bearer token with an expiry and a refresh token. It is not a credential and it is not trusted on its own |
 | Everything the frontend decides | `js/auth.js` (`PV.auth`) — sign-up, sign-in, sign-out, restore, refresh, friendly messages |
 | Who the person is, and their role | the `profiles` row, read with the person's own token, so RLS applies |
@@ -309,6 +349,91 @@ unavailable instead of pretending.
 wrong credentials, an existing account, an expired session, a network failure and an
 unavailable service each become a plain sentence. Raw Supabase or PostgreSQL text never
 reaches the screen, and a failed sign-in leaves no half-signed-in user behind.
+
+#### Signing in with Google
+
+1. The account page asks this project's own Supabase Auth which providers it offers
+   (`GET /auth/v1/settings`, public, no session). A provider the project has switched off
+   is not offered — the page says Google is not enabled for this project instead of
+   showing a button that cannot work.
+2. **Continue with Google** navigates to
+   `https://<project>.supabase.co/auth/v1/authorize?provider=google&redirect_to=…`. The
+   only values in that URL are the provider name and this app's own return address. The
+   Google client id and secret are held by Supabase, which is the only party that talks to
+   Google.
+3. Google returns to Supabase's `/auth/v1/callback`, and Supabase sends the person back to
+   the page they started from with the session in the URL **fragment** (the OAuth implicit
+   flow — a fragment is not sent to any server, so the token cannot land in a request log).
+4. `js/auth.js` reads that fragment, builds the session and then **confirms it against
+   `/auth/v1/user` before trusting it** — exactly the same rule as a session restored from
+   storage. A callback cannot sign anybody in on its say-so.
+5. The profile is read with that user's own token, so Row Level Security applies. A new
+   account already has a `profiles` row, created by the `auth.users` trigger with the
+   default `user` role. (If a row were ever missing, the signed-in user may create exactly
+   one — their own, with the default role; see below.)
+6. The fragment is removed from the address bar as soon as it has been read, so a token is
+   never left in the URL, the history or a copied link.
+
+**Cancelled, failed and misconfigured returns** are all handled, and each becomes one plain
+sentence: the consent screen being dismissed (“Google sign-in was cancelled…”), a provider
+or project problem (“…not fully configured for it. Signing in with your email address still
+works.”), a stale return, a session the server refuses, and the account service being
+unreachable. None of them creates a session or a profile, and none of them shows raw
+provider or database text.
+
+#### Google Sign-In — configuration required
+
+**This repository contains the implementation, not the credentials.** Nothing below is
+committed, and none of it belongs in the repository: it is configuration for the Google
+Cloud project and the Supabase project, both of which are owned by the operator.
+
+**Google Cloud Console** (APIs & Services → Credentials → Create credentials → OAuth client
+ID → Web application):
+
+| Setting | Value |
+| ------- | ----- |
+| Authorized JavaScript origins | the site's origins, e.g. `https://YOUR-PROJECT.vercel.app` and, for local work, `http://localhost:8000` (and `http://127.0.0.1:8000` if you use that form) |
+| Authorized redirect URIs | `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback` — Supabase's callback, **not** the site. For local Supabase CLI work, `http://127.0.0.1:54321/auth/v1/callback` |
+
+The redirect URI must point at Supabase: Google talks to Supabase, and Supabase talks to
+this app. Pointing it at the site itself produces the classic `redirect_uri_mismatch`.
+
+**Supabase dashboard** (Authentication → Providers → Google): enable the provider and paste
+the **Client ID** and **Client Secret** from the step above. They are stored in the Supabase
+project and are never needed — or available — to the browser.
+
+**Supabase dashboard** (Authentication → URL Configuration):
+
+| Setting | Value |
+| ------- | ----- |
+| Site URL | the production URL, e.g. `https://YOUR-PROJECT.vercel.app` (Vercel's production domain for this project) |
+| Redirect URLs (allow list) | every address this app may return to: the production URL, Vercel preview URLs if they are used, and `http://localhost:8000` for local development |
+
+`redirect_to` is only honoured if it matches that allow list; the app sends its own origin
+and path, so nothing else needs to be listed.
+
+**Deployment**: no Vercel environment variable is needed for Google. The deployment keeps
+using `SUPABASE_URL` and `SUPABASE_ANON_KEY` only (`tools/vercel-config.js`); the provider
+is enabled in Supabase, not in the build. Redeploy or reload after changing the Supabase
+settings — the account page re-reads `/auth/v1/settings` on every visit, so the button
+appears as soon as the provider is on.
+
+**Verifying it**: `curl -H 'apikey: YOUR-ANON-KEY' https://YOUR-PROJECT-REF.supabase.co/auth/v1/settings`
+should include `"google": true` under `external`. If it does not, the account page will keep
+saying Google is not enabled — which is the honest state, not a bug.
+
+#### Relationship between Supabase Auth and `profiles`
+
+* `auth.users` (Supabase) owns the identity: the email, the password (hashed, for
+  email/password accounts), the provider links, and the session.
+* `public.profiles` owns the *application* profile: the same `id`, a copy of the email for
+  convenience, an optional display name, and the `role`.
+* The row is created by a trigger on `auth.users`, so **a Google sign-up and an email
+  sign-up produce exactly the same profile**, and neither client can skip it.
+* A Google account gets `role = 'user'` like anybody else. Using Google does not promote,
+  demote or otherwise change an existing account's role, and there is no Google-specific
+  table anywhere.
+* Nothing about OAuth is stored in `profiles`: no Google id, no Google token, no password.
 
 ## Configuration
 
@@ -334,6 +459,23 @@ keep them out of the file by loading a local override first:
 `js/config.example.js` is a filled-in template for exactly that file. Never put the
 service-role key, a database password, a JWT secret or a personal access token in any of
 them — those belong to database operations, not to a static site.
+
+**Google Sign-In needs no frontend configuration at all.** It adds no key to
+`js/config.js`, no variable to the Vercel build and no new file: the browser asks this
+project's own Supabase Auth which providers are enabled, and the credentials that matter
+live in the Supabase project ([Google Sign-In — configuration
+required](#google-sign-in--configuration-required)). That is deliberately the same pattern
+as the rest of the project — public values here, everything privileged out of band.
+
+### Future providers
+
+Apple Sign-In, MFA and the coming account features are **not** implemented. The provider
+list in `js/auth.js` (`PROVIDERS`) plus the shared `signInWithProvider()` flow is what makes
+them a small addition rather than another architecture: one entry per provider, its
+configuration in the Supabase project, and — because the callback, the session handling,
+the profile read and the error messages are provider-independent — no change to the rest of
+the layer. `signInWithProvider()` is also where an MFA challenge or an additional
+account-linking step would attach, not a second sign-in path.
 
 ### Deploying to Vercel
 
@@ -517,9 +659,9 @@ Seller/agent/admin areas, dashboards, seller onboarding, listing creation, any w
 into the catalogue, payments, checkout, messaging, real seller contact, favourites,
 notifications, subscriptions, affiliate/referral tracking, commissions, a recommendation
 algorithm, AI, external product APIs, scraping, live pricing, real-time inventory,
-reviews, ratings, testimonials, sales or popularity statistics. Sign-in is email and
-password only: no social login, no passwordless links, no multi-factor authentication and
-no account deletion yet.
+reviews, ratings, testimonials, sales or popularity statistics. Sign-in is email + password
+and Google: no Apple Sign-In, no passwordless links, no multi-factor authentication, no
+account linking UI and no account deletion yet.
 
 People are now part of the system — one `profiles` row per account — but nothing more:
 no addresses, no phone numbers, no payment details, no preferences. The application asks

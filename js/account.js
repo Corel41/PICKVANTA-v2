@@ -41,11 +41,52 @@ PV.util.ready(function () {
     );
   }
 
+  /* The Google mark, drawn inline: no third-party request, and no dependency.
+     Google's own branding guidelines ask for the mark beside the wording, which
+     is why it is here rather than an emoji or a letter. */
+  const GOOGLE_MARK =
+    '<svg class="provider-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false">' +
+    '<path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>' +
+    '<path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>' +
+    '<path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>' +
+    '<path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>' +
+    '</svg>';
+
+  /**
+   * The provider controls, above the email form. This is the same button for
+   * signing in and for creating an account, because Google decides which of the
+   * two it is: the first time the person uses it, an account is created.
+   */
+  function providerControls(snap) {
+    const provider = auth.provider('google');
+    if (!provider || !provider.available) return '';
+
+    /* The project said Google is switched off: say so once, quietly, instead of
+       offering a control that cannot work. */
+    if (provider.enabled === false) {
+      return '<div class="provider-block">' +
+        '<p class="provider-note">Google sign-in is not enabled for this PickVanta project yet. ' +
+        'Use your email address below, or see the README for the Google provider setup.</p>' +
+        '</div>';
+    }
+
+    return '<div class="provider-block">' +
+      '<button type="button" class="btn-provider btn-large" data-provider="google"' +
+      (snap && snap.redirecting ? ' disabled' : '') + '>' +
+      GOOGLE_MARK + '<span>' + (snap && snap.redirecting ? 'Taking you to Google…' : 'Continue with Google') + '</span>' +
+      '</button>' +
+      '<p class="provider-help">Google sign-in also creates your account the first time you use it. ' +
+      'PickVanta never sees your Google password.</p>' +
+      '<div class="provider-divider" role="separator" aria-hidden="true"><span>or</span></div>' +
+      '</div>';
+  }
+
   function signInForm() {
     return (
       '<div class="auth-panel panel">' +
       '<h2>Sign in</h2>' +
       '<p class="panel-text small">Use the email address and password you signed up with.</p>' +
+      providerControls(auth.state()) +
       '<form id="signInForm" novalidate>' +
       field('signInEmail', 'Email', 'email', 'email', ' required') +
       field('signInPassword', 'Password', 'password', 'current-password', ' required') +
@@ -64,6 +105,7 @@ PV.util.ready(function () {
       '<div class="auth-panel panel">' +
       '<h2>Create account</h2>' +
       '<p class="panel-text small">An email address and a password is all we ask for.</p>' +
+      providerControls(auth.state()) +
       '<form id="signUpForm" novalidate>' +
       field('signUpEmail', 'Email', 'email', 'email', ' required') +
       field('signUpPassword', 'Password', 'password', 'new-password',
@@ -99,10 +141,10 @@ PV.util.ready(function () {
 
   /* Shown only while the stored session is being confirmed, so the page never
      flashes a sign-in form at someone who is already signed in. */
-  function loading() {
+  function loading(title, text) {
     return PV.card.loading({
-      title: 'Checking your session…',
-      text: 'Confirming your account with the account service.'
+      title: title || 'Checking your session…',
+      text: text || 'Confirming your account with the account service.'
     });
   }
 
@@ -161,12 +203,24 @@ PV.util.ready(function () {
   function render(snap) {
     if (!snap) { root.innerHTML = loading(); return; }
     if (!snap.available) { root.innerHTML = unavailable(); return; }
+    /* Coming back from Google: say what is happening rather than showing a
+       sign-in form to somebody who has just signed in. */
+    if (snap.redirecting) {
+      root.innerHTML = loading('Finishing your Google sign-in…',
+        'Confirming the account with Google and the account service.');
+      return;
+    }
     if (!snap.checked) { root.innerHTML = loading(); return; }
     if (snap.status === 'signed-in') { root.innerHTML = signedIn(snap); return; }
     root.innerHTML = signedOut();
-    if (pendingMessage) {
+    /* A message carried across a rerender lands in whichever form is on
+       screen. Only a return from a provider is carried from the shared layer:
+       every other failure is reported by the form that caused it, and showing
+       it here as well would say the same thing twice. */
+    const text = pendingMessage || (snap.fromProvider ? snap.message : '');
+    if (text) {
       const host = PV.util.$('#signInError') || PV.util.$('#signUpError');
-      if (host) showError(host, pendingMessage);
+      if (host) showError(host, text);
       pendingMessage = '';
     }
   }
@@ -342,11 +396,36 @@ PV.util.ready(function () {
       if (first) first.focus();
       return;
     }
+    const providerBtn = e.target.closest('[data-provider]');
+    if (providerBtn) {
+      startProvider(providerBtn.getAttribute('data-provider'), providerBtn);
+      return;
+    }
     if (e.target.closest('[data-auth-action="sign-out"]')) {
       /* core.js owns the shared handler for this action; nothing to add here. */
       return;
     }
   });
+
+  /**
+   * Starts an OAuth sign-in through the shared layer. On success the browser is
+   * already leaving for Google, so there is nothing to render; on failure the
+   * reason goes into the panel's own message slot, like every other error here.
+   */
+  function startProvider(name, button) {
+    const host = PV.util.$('#signInError') || PV.util.$('#signUpError');
+    clearError(host);
+    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    const result = auth.signInWithProvider(name);
+    if (result.ok) {
+      PV.ui.announce('Taking you to Google to sign in.');
+      return;
+    }
+    if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+    pendingMessage = result.message;
+    render(auth.state());
+    PV.ui.announce(result.message);
+  }
 
   /* Rerender whenever the shared layer reports a change (including the
      session restored on load, and a sign-out from the header). */
