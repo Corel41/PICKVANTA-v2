@@ -313,8 +313,12 @@ window.PV.store = (function () {
       adminAccount: noAdmin,
       adminReview: noAdmin,
       /* The same refusal as the rest of the panel: the Deal Engine reads real
-         records, and there is no demonstration version of them. */
+         records, and there is no demonstration version of them. There is no
+         demonstration source to configure either. */
       dealEngineSources: noAdmin,
+      dealEngineJobs: noAdmin,
+      dealEngineImportedDeals: noAdmin,
+      dealSourceSave: noAdmin,
       list: (state, opts) => Promise.resolve(helpers.page(state, () => (
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
@@ -377,15 +381,45 @@ window.PV.store = (function () {
        there are more rather than pretending it has them all. */
     const ADMIN_QUEUE_PAGE = 50;
 
-    /* Deal Engine sources (Step 13). Explicit column list, and no `config`:
-       the panel shows where a source points and whether it is switched on,
-       and there is no reason to pull an operator's configuration into a
-       browser to do that. */
+    /* Deal Engine sources. Explicit column lists: what the panel does not ask
+       for, it cannot leak. `config` is included because an administrator has to
+       be able to see and correct the non-secret configuration of a source —
+       which is exactly why 0005 refuses a credential-shaped key and why 0006's
+       validator refuses credential-shaped values. `notes` is still not
+       requested: nothing in the panel reads or writes it. */
     const DEAL_SOURCE_FIELDS = [
       'id', 'name', 'source_type', 'provider_name', 'market_country', 'endpoint_url',
-      'status', 'created_at', 'updated_at'
+      'status', 'config', 'created_at', 'updated_at'
     ].join(',');
     const DEAL_SOURCE_PAGE = 50;
+
+    /* One run of one task. Nothing in this build creates a row in this table;
+       the view exists so that an operator can see what a future worker
+       recorded, in the database's own words and numbers. */
+    const DEAL_JOB_FIELDS = [
+      'id', 'source_id', 'job_type', 'status', 'progress', 'detail', 'error', 'stats',
+      'started_at', 'finished_at', 'created_at', 'updated_at'
+    ].join(',');
+    const DEAL_JOB_PAGE = 50;
+
+    /* The prepared boundary for imported records (Step 14 §11). The Review
+       Queue and the Import History are planned, so nothing renders a record
+       yet — but the shape is fixed here so that the provenance a reviewer will
+       need cannot quietly go missing: what the source said, the two URLs kept
+       apart, the four statuses, and the times. */
+    const IMPORTED_DEAL_FIELDS = [
+      'id', 'source_id', 'job_id', 'external_merchant_id', 'external_product_id',
+      'merchant_name', 'merchant_ref', 'source_url', 'affiliate_url',
+      'imported_title', 'imported_description', 'imported_price', 'imported_currency',
+      'imported_availability', 'imported_category', 'imported_metadata',
+      'normalized_name', 'normalized_brand', 'normalized_category_id',
+      'normalized_availability', 'model_number', 'gtin',
+      'pipeline_status', 'validation_status', 'normalization_status',
+      'deduplication_status', 'dedup_match_class', 'dedup_matched_deal_id',
+      'review_status', 'review_note', 'reviewed_at', 'reviewed_by', 'error',
+      'published_deal_id', 'imported_at', 'created_at', 'updated_at'
+    ].join(',');
+    const IMPORTED_DEAL_PAGE = 50;
 
     const GUIDE_FIELDS = [
       'id', 'title', 'slug', 'category_id', 'question', 'summary', 'content', 'tags',
@@ -496,7 +530,16 @@ window.PV.store = (function () {
             throw StoreError(FRIENDLY, 'api-' + response.status, path + ' → HTTP ' + response.status);
           });
         }
-        return response.json().then((body) => ({ rows: Dm.asArray(body), body: body }));
+        /* A write can ask the database to count the rows it matched
+           (`Prefer: count=exact`): the Deal Engine reads a total this way, and
+           a total that came back is the only kind this layer reports. */
+        const range = response.headers && response.headers.get ? response.headers.get('content-range') : null;
+        let total = null;
+        if (range && String(range).indexOf('/') !== -1) {
+          const parsed = parseInt(String(range).split('/')[1], 10);
+          if (Number.isFinite(parsed)) total = parsed;
+        }
+        return response.json().then((body) => ({ rows: Dm.asArray(body), body: body, total: total }));
       }, (err) => {
         throw StoreError(FRIENDLY, 'api-unreachable', path + ' → ' + (err && err.message ? err.message : 'network error'));
       });
@@ -629,38 +672,95 @@ window.PV.store = (function () {
        The private side of PickVanta: which sources exist, and (in the steps
        that follow) what has been imported from them.
 
-       Three deliberate choices, all of them about keeping imported data away
+       Four deliberate choices, all of them about keeping imported data away
        from the public catalogue:
          • this is a separate boundary from the catalogue methods above, and
            the only one in this file that reads records no member of the
            public owns. The database decides who may read it: the policies in
            0005 are SELECT-only and gated on public.is_admin();
-         • there is no write method at all. 0005 grants a client no way to
-           write these tables, not even to an administrator, so adding one
-           here would only produce a refusal;
-         • `config` and `notes` are not requested. The panel does not need a
-           source's configuration, and what is not fetched cannot leak.
+         • the only write here is a call to a database function that checks
+           is_admin() for itself (public.deal_source_save in 0006). No table is
+           written directly — not even a source, and not by an administrator;
+         • `notes` is not requested, and neither is anything else the panel has
+           no use for. `config` is requested, because an administrator has to
+           be able to see and correct the non-secret configuration of a source;
+         • the imported-record boundary is prepared and unused by any view:
+           the Review Queue is a later step, and this layer would rather return
+           a shape nobody renders yet than let a reviewer's field go missing.
        ---------------------------------------------------------------------- */
     function dealEngineSources(session) {
       return write('deal_sources',
         ['select=' + DEAL_SOURCE_FIELDS, 'order=name.asc', 'limit=' + DEAL_SOURCE_PAGE],
         session, { method: 'GET' }
-      ).then((result) => ({ sources: result.rows.map(dealSourceFromRow) }));
+      ).then((result) => ({ sources: result.rows.map(Dm.normalizeDealSource) }));
     }
 
-    /* -------------------------------------------------- row → domain ------ */
-    function dealSourceFromRow(row) {
+    function dealEngineJobs(session) {
+      return write('deal_engine_jobs',
+        ['select=' + DEAL_JOB_FIELDS, 'order=created_at.desc', 'limit=' + DEAL_JOB_PAGE],
+        session, { method: 'GET' }
+      ).then((result) => ({ jobs: result.rows.map(Dm.normalizeDealJob) }));
+    }
+
+    /**
+     * Imported records, read but not yet rendered.
+     *
+     * `total` is the database's own count (PostgREST's `Content-Range`), not a
+     * length: a page that showed the length of a limited list as a total would
+     * be reporting a number it invented. A read that comes back without a
+     * count reports null, and the panel then says the count is not available
+     * rather than showing zero.
+     */
+    function dealEngineImportedDeals(session, options) {
+      const o = options || {};
+      const wanted = Dm.num(o.limit);
+      const limit = Math.max(0, Math.min(wanted === null ? 1 : wanted, IMPORTED_DEAL_PAGE));
+      return write('imported_deals',
+        ['select=' + IMPORTED_DEAL_FIELDS, 'order=created_at.desc', 'limit=' + limit],
+        session, { method: 'GET', prefer: 'count=exact' }
+      ).then((result) => ({
+        records: result.rows.map(Dm.normalizeImportedDeal),
+        total: typeof result.total === 'number' ? result.total : null
+      }));
+    }
+
+    /**
+     * Configuring a source.
+     *
+     * One database function, called by its name, with the values the operator
+     * typed — no table write, no status column patched directly, no assumption
+     * that it worked. public.deal_source_save() checks is_admin() for itself,
+     * validates every value and returns the row the database holds; this layer
+     * only carries it back. Creating passes no id; updating passes the one the
+     * row already has.
+     */
+    /* The panel speaks camelCase; the database speaks its own column names.
+       The translation lives here, in the one boundary, so no controller has to
+       learn a column name — and so a field the function does not accept cannot
+       be smuggled in by a caller that adds one. */
+    function sourcePayload(input) {
+      const i = input || {};
       return {
-        id: row.id,
-        name: row.name,
-        sourceType: row.source_type,
-        providerName: row.provider_name || '',
-        marketCountry: row.market_country || '',
-        endpointUrl: row.endpoint_url || '',
-        status: row.status,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
+        name: Dm.trim(i.name),
+        source_type: i.sourceType,
+        provider_name: Dm.trim(i.providerName),
+        market_country: Dm.trim(i.marketCountry).toUpperCase(),
+        endpoint_url: Dm.trim(i.endpointUrl),
+        status: i.status,
+        config: i.config && typeof i.config === 'object' && !Array.isArray(i.config) ? i.config : {}
       };
+    }
+
+    function dealSourceSave(session, input, id) {
+      const body = { p_source: sourcePayload(input) };
+      if (id) body.p_id = id;
+      return write('rpc/deal_source_save', [], session, {
+        method: 'POST',
+        body: body
+      }).then((result) => {
+        const row = Array.isArray(result.body) ? result.body[0] : result.body;
+        return row && row.id ? Dm.normalizeDealSource(row) : null;
+      });
     }
 
     function sellerFromRow(row) {
@@ -837,6 +937,9 @@ window.PV.store = (function () {
       adminAccount: adminAccount,
       adminReview: adminReview,
       dealEngineSources: dealEngineSources,
+      dealEngineJobs: dealEngineJobs,
+      dealEngineImportedDeals: dealEngineImportedDeals,
+      dealSourceSave: dealSourceSave,
 
       init: function () {
         return Promise.all([
@@ -1770,7 +1873,11 @@ window.PV.store = (function () {
        anything here: a visitor's page cannot reach an imported record, and no
        part of this falls back to the demonstration data. */
     dealEngine: {
-      sources: (session) => Promise.resolve(activeAdapter.dealEngineSources(session))
+      sources: (session) => Promise.resolve(activeAdapter.dealEngineSources(session)),
+      jobs: (session) => Promise.resolve(activeAdapter.dealEngineJobs(session)),
+      importedDeals: (session, options) => Promise.resolve(activeAdapter.dealEngineImportedDeals(session, options)),
+      createSource: (session, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, null)),
+      updateSource: (session, id, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, id))
     },
 
     /* ---- reporting / metadata ------------------------------------------- */
