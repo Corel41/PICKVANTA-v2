@@ -41,7 +41,11 @@
 -- Fail loudly with an actionable message instead of half-creating the schema.
 do $$
 begin
-  if to_regproc('public.set_updated_at()') is null then
+  /* to_regprocedure, not to_regproc: only the former accepts a function name
+     together with its argument list. to_regproc takes a bare name, so a
+     signature makes it return null and this guard would fail on a project
+     where 0001 is correctly applied. */
+  if to_regprocedure('public.set_updated_at()') is null then
     raise exception 'Apply db/migrations/0001_catalogue.sql before this file: public.set_updated_at() is missing.';
   end if;
   if to_regclass('auth.users') is null then
@@ -163,8 +167,16 @@ language plpgsql
 set search_path = public
 as $$
 begin
+  /* Who counts as a client: a request that arrives through the API runs as
+     `anon` or `authenticated`. The SQL editor, a migration and the
+     server-side key do not, and one of those is the only way the *first*
+     administrator can ever be made (see the README) — so this guard must not
+     block them, or the admin role would be unassignable and the admin panel
+     unreachable. A request with no token at all is `anon`, so it is covered
+     too. */
   if tg_op = 'INSERT' then
-    if new.role is distinct from 'user' and not public.is_admin() then
+    if new.role is distinct from 'user' and not public.is_admin()
+       and current_user in ('anon', 'authenticated') then
       raise exception 'A new profile can only be created with role "user".'
         using errcode = '42501';
     end if;
@@ -177,7 +189,11 @@ begin
       using errcode = '42501';
   end if;
 
-  if new.role is distinct from old.role and not public.is_admin() then
+  /* Same discrimination as above: an administrator may promote somebody, an
+     operator's out-of-band SQL may bootstrap the first administrator, and a
+     client — signed in or not — may not touch the column at all. */
+  if new.role is distinct from old.role and not public.is_admin()
+     and current_user in ('anon', 'authenticated') then
     raise exception 'profiles.role can only be changed by an administrator.'
       using errcode = '42501';
   end if;
