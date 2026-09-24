@@ -1,12 +1,13 @@
 # PICKVANTA-v2
 PickVanta — Make the smarter pick. Modern discovery and deals platform.
 
-**Stage:** Step 8 — the catalogue lives in a real database. PostgreSQL (on Supabase)
-holds the tables, relationships and constraints; Row Level Security exposes published
-records to anonymous readers and nothing else; `js/store.js` reads it through the
-read-only data API. The interface, the domain contract (`js/domain.js`) and the data
-access boundary are unchanged in shape — the source behind them is not.
-No accounts, no seller area, no payments, no browser writes, no live pricing.
+**Stage:** Step 9 — authentication and secure user roles. The catalogue still comes
+from PostgreSQL on Supabase through the read-only data API (`js/store.js`), and now
+Supabase Auth gives people their own accounts: sign up, sign in, sign out, a session
+that survives a refresh, and a `profiles` row whose `role` the database — never the
+browser — decides. `js/auth.js` is the one module that talks to Supabase Auth; the
+public catalogue stays fully browsable without an account.
+No seller area, no payments, no browser writes to the catalogue, no live pricing.
 
 ---
 
@@ -19,6 +20,7 @@ No accounts, no seller area, no payments, no browser writes, no live pricing.
 | Deals | `deals.html` | Offers attached to products and services: offer price, original price, discount, seller, location, validity and conditions. Each card states that the offer belongs to the listing underneath it. |
 | Detail | `detail.html?id=…` | One reusable template ordered as breadcrumb → identity → visual → type/category/subcategory → illustrative price → seller/provider → location or service area → availability → **Quick facts** → highlights → **What to consider** → actions → offer (**Price / Offer / Important context**) → specifications → **Good to know** → **Related options**. Products and services lead with different facts and prompts. Related records explain *why* they appear (“Why this appears: same subcategory · similar price · Nairobi”). |
 | Compare | `compare.html?ids=a,b,c` | Up to three options side by side with a **Compare focus** selector (price, performance, features, portability, availability, location, specifications, service coverage, included services) that highlights matching rows and says “Your selected comparison areas are highlighted below.” Rows are grouped per category (products and services use different groups; unknown combinations fall back to the generic grouping), rows that are empty for every option are dropped, “Show differences only” hides identical rows, values that no other selected option shares are tinted (tint marks the difference, never superiority), and small screens get a stacked card layout. Equal treatment throughout — no scoring, ranking or winner. |
+| Account | `account.html` | Sign in, create an account, or — when signed in — see the account the database knows about (email, account status, role) and sign out. In demonstration mode the page says plainly that accounts need the live catalogue; it never fakes a sign-in. |
 | Guides | `guides.html` | Guide outlines with category filtering and search. Each card states the question it answers, hides its topics behind a disclosure, and links into the matching slice of the catalogue (for example “How to choose a Wi-Fi router” → `discover.html?category=technology&sub=Networking`). Full articles are intentionally not written yet. |
 
 ## PickVanta Domain Model
@@ -27,9 +29,11 @@ Step 7 gave the project one explicit data contract, and Step 8 serves it from a 
 database. Every record the interface sees has been normalised and validated by
 `js/domain.js` and handed over by `js/store.js`; no page, card or controller knows how
 the record is stored — or whether it came from PostgreSQL over the read-only API or from
-the bundled demonstration catalogue. **Authentication, seller accounts, a write path and
-payments are still not implemented**, and this section documents the contract they will
-have to satisfy.
+the bundled demonstration catalogue. Step 9 adds authentication on top of that contract
+without changing it: accounts live beside the catalogue
+([Database](#database-supabase--postgresql) → Authentication), and **seller accounts, a
+write path into the catalogue and payments are still not implemented** — this section
+documents the contract they will have to satisfy.
 
 ### Entities and relationships
 
@@ -136,27 +140,42 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Step 8)
+### Current (Step 9)
+
+There are two paths, and they are deliberately separate. Browsing is public; an account
+is only needed for the parts of the product that belong to a person.
 
 ```
-page (HTML)
-   ↓
-controller (js/app.js, discover.js, deals.js, detail.js, compare.js, guides.js, listing.js)
-   ↓
-data access layer (js/store.js)      ← the only module that knows where records come from
-   ↓
-domain model (js/domain.js)          ← canonical shapes, vocabularies, normalisers, validators
+public catalogue                                    authenticated features
+────────────────                                    ──────────────────────
+page (HTML)                                         page (HTML)
+   ↓                                                   ↓
+controller (discover.js, deals.js, detail.js,       controller (account.js, and any later
+            compare.js, guides.js, listing.js)                  page that needs a user)
+   ↓                                                   ↓
+data access layer (js/store.js)                     authentication layer (js/auth.js)
+   ← the only module that knows where                   ← the only module that talks to
+     records come from                                    Supabase Auth and reads the profile
+   ↓                                                   ↓
+domain model (js/domain.js)                         Supabase Auth  →  public.profiles
+   ← canonical shapes, vocabularies,                    (session, user)   (email, display
+     normalisers, validators                                              name, role — RLS)
    ↓
 one of two adapters (both inside js/store.js):
   • Supabase adapter — read-only REST calls, published rows only  →  PostgreSQL on Supabase
   • demo adapter     — the bundled demonstration catalogue in js/data.js, loaded on demand
 ```
 
-The interface layer (`js/core.js`) renders what the data layer returns and owns
-browser-local user state (compare selection, recently viewed). No page reads
-`js/data.js`, no page issues a network request, and no page knows which source answered.
-The comparison selection and the recently-viewed list stay in the browser: the database
-is the catalogue, not a place for personal state.
+`js/core.js` renders what the data layer returns and owns browser-local user state
+(compare selection, recently viewed). No page reads `js/data.js`, no page issues a
+network request, and no page knows which source answered. The comparison selection and
+the recently-viewed list stay in the browser: the database is the catalogue, not a place
+for personal state.
+
+Authentication is its own capability with its own boundary. Controllers ask `PV.auth`
+who is signed in; they never talk to Supabase Auth themselves and never keep a second
+copy of the session — that is how authentication logic drifts. The catalogue keeps
+working with `js/auth.js` absent, and `js/auth.js` knows nothing about listings.
 
 ### Where the data comes from
 
@@ -174,15 +193,20 @@ that fell back always labels the demonstration catalogue).
 
 ### Not in this stage
 
-Writes of any kind, accounts, authentication, seller or admin areas, dashboards,
-payments. The database is read-only for the browser: seller management is a later stage
-and will need authentication first.
+Seller or admin areas, dashboards, seller onboarding, listing creation, payments,
+checkout, messaging, notifications, subscriptions, reviews, ratings, social or
+passwordless sign-in, multi-factor authentication, account deletion. Nothing in the
+browser can write to the catalogue: the data API stays read-only for anon and for a
+signed-in user alike, and `profiles` is the only table a signed-in person can touch —
+their own row, `display_name` only.
 
 ## Database (Supabase / PostgreSQL)
 
-The catalogue is data, not markup: eight tables with real keys and constraints, a
-maintained search column, Row Level Security and three read-only functions. Nothing in
-the browser can write to it.
+The catalogue is data, not markup: eight catalogue tables with real keys and constraints,
+a maintained search column, Row Level Security and three read-only functions. Step 9 adds
+a ninth table — `profiles` — which is about people, not products. The browser can read
+the catalogue and nothing else; the only row a signed-in person can write is their own
+`profiles` row, and only its display name.
 
 | Table | Holds | Relationships |
 | ----- | ----- | ------------- |
@@ -194,6 +218,7 @@ the browser can write to it.
 | `guides` | 10 guide outlines with their sections (`content jsonb`), `tags`, `level`, `read_time`, `cta`, `status` | `category_id → categories(id)` |
 | `guide_listings` | which listings a guide discusses — a real many-to-many table (`guide_id`, `listing_id`, `position`) | composite primary key; both sides cascade |
 | `catalogue_settings` | 15 curated configuration rows (`key`, `value jsonb`): homepage selections, price bands, sort options, compare groups, considerations, good-to-know notes, needs, popular tags, version notice | none — it is configuration, served by the data API |
+| `profiles` | **Step 9.** one row per authenticated person: `id` (= the Supabase Auth user id), `email`, `display_name`, `role` (`user` \| `admin`, default `user`), `created_at`, `updated_at`. Credentials are **not** here — Supabase Auth owns the password and the session | `id → auth.users(id)` on delete cascade; created and kept in step by triggers on `auth.users` |
 
 JSON is used only where a value genuinely is a document (specification rows, image
 entries, guide sections, `service_area text[]`, settings values). Every relationship
@@ -205,11 +230,19 @@ in place of a join table, and no column holds HTML or a pre-formatted price.
 ```bash
 # in the Supabase dashboard → SQL editor, run in this order:
 db/migrations/0001_catalogue.sql     # tables, constraints, indexes, triggers, RLS, functions
+db/migrations/0002_auth_profiles.sql # profiles, roles, is_admin(), RLS, column grants
 db/seed/0001_catalogue.sql           # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
-psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql -f db/seed/0001_catalogue.sql
+psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
+                     -f db/migrations/0002_auth_profiles.sql \
+                     -f db/seed/0001_catalogue.sql
 ```
+
+`0002_auth_profiles.sql` is separate from the catalogue migration because it is a
+different concern: `0001` is the catalogue, `0002` is people. Run `0002` **after** your
+project has Supabase Auth enabled (it always is) — it reads `auth.users`, and it checks
+for the two things it depends on before it changes anything.
 
 Both files are idempotent: re-running the migration replaces triggers, policies and
 functions, and the seed upserts. `db/seed/0001_catalogue.sql` is **generated** — edit
@@ -234,9 +267,48 @@ node db/scripts/build-seed.js --check   # fail if the seed no longer matches (us
 * The three functions (`catalogue_stats()`, `catalogue_tags()`, `catalogue_facets()`)
   are `security definer`, `stable`, and return counts only — never rows that a policy
   would have hidden.
-* The browser only ever holds the public anon key. The service-role key, the database
-  password and the connection string stay out of the repository (see `.gitignore`) and
-  out of the browser. Verified by a scan before this stage was committed.
+* **`profiles` is a different kind of table, and its rules are stricter.** Row Level
+  Security is enabled on it; the only policies are `select`/`insert`/`update` **own row**
+  (`auth.uid() = id`). There is no public profile read at all, no delete policy, and
+  `anon` is explicitly revoked, so a signed-out visitor cannot read a single profile.
+* **Role is decided by the database.** `public.is_admin()` is `security definer` and reads
+  `role` from `profiles` for `auth.uid()`; the browser cannot write `role` (there is no
+  column grant for it, the `profiles_guard_role()` trigger rejects any attempt, and
+  `profiles_insert_own` refuses a row whose role is not `'user'`). `PV.auth.isAdmin()` is
+  convenience for the interface only — hiding a control is never authorization.
+* Giving somebody the `admin` role is a deliberate, out-of-band action — one SQL
+  statement, by an operator, with the dashboard or `psql`:
+  ```sql
+  update public.profiles set role = 'admin' where email = 'you@example.com';
+  ```
+* `profiles` is created and kept in step by triggers on `auth.users`
+  (`on_auth_user_created`, `on_auth_user_email_changed`), so a profile can never drift
+  from the account it describes, and a client that signs up cannot skip it.
+* The browser only ever holds the public anon key plus the session token its own sign-in
+  produced. The service-role key, the database password and the connection string stay
+  out of the repository (see `.gitignore`) and out of the browser.
+
+### Authentication (Supabase Auth)
+
+| Concern | Where it lives |
+| ------- | -------------- |
+| Accounts, passwords, sessions, email confirmation | **Supabase Auth** (`/auth/v1/…`) — the project's own authentication service. Passwords are never stored, logged or seen by this codebase |
+| The session in the browser | `localStorage` key `pickvanta.auth.session.v1` — a bearer token with an expiry and a refresh token. It is not a credential and it is not trusted on its own |
+| Everything the frontend decides | `js/auth.js` (`PV.auth`) — sign-up, sign-in, sign-out, restore, refresh, friendly messages |
+| Who the person is, and their role | the `profiles` row, read with the person's own token, so RLS applies |
+| What they are allowed to do | the database. The interface may hide a control; only RLS, the grants and `is_admin()` decide |
+
+**A session is never invented.** `js/auth.js` reports a signed-in state only after
+`/auth/v1/user` has confirmed the stored token; a token the server rejects is dropped and
+the visitor continues as a signed-out visitor — the catalogue is public, so nothing is
+lost. If the account service cannot be reached, the state stays signed-out and the page
+says so; there is no offline or demo sign-in, and demonstration mode says accounts are
+unavailable instead of pretending.
+
+**Errors are written for people.** Invalid email, weak password, mismatched passwords,
+wrong credentials, an existing account, an expired session, a network failure and an
+unavailable service each become a plain sentence. Raw Supabase or PostgreSQL text never
+reaches the screen, and a failed sign-in leaves no half-signed-in user behind.
 
 ## Configuration
 
@@ -305,6 +377,8 @@ HTML/CSS/JS.
 | `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. No DOM, no network, no data. |
 | `store.js` | **Data access layer.** Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. The only file in the project that talks to the network. No DOM, no user state. |
 | `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
+| `auth.js` | **Authentication layer (Step 9).** The only module that talks to Supabase Auth. Owns the session (store, restore, refresh, drop), the current user and profile, the sign-up/sign-in/sign-out calls, the friendly message for every failure, and the account controls in the shared header (`#authControls`, `#authControlsMobile`). Exposes `PV.auth`; pages read state, they never keep their own copy. No DOM outside those two header hosts, no catalogue knowledge, no SDK — it is plain `fetch`, so the site stays dependency-free. |
+| `account.js` | Account view controller for `account.html`: renders what `PV.auth` reports (sign-in form, create-account form, the signed-in summary, or the demonstration-mode notice) and passes typed input to the layer. It makes no authentication decision of its own. |
 | `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
 | `discover.js`, `deals.js`, `detail.js`, `compare.js`, `guides.js` | One small controller per view. |
@@ -428,22 +502,28 @@ bundler, no dependencies). The site is plain static HTML/CSS/JS, so it deploys t
 Vercel (or any static host) without configuration.
 
 Out of the box the site serves the bundled demonstration catalogue and labels it as
-such — no project, no keys, no network. To read a live catalogue instead: apply the
-schema and seed ([Database](#database-supabase--postgresql)), put your project URL and
-public anon key in `js/config.js` (or a git-ignored `js/config.local.js` loaded before
-it), and set `mode: 'api'`. If the project cannot be reached, the page shows an error
+such — no project, no keys, no network, and the account page explains that accounts need
+the live catalogue. To read a live catalogue **and use accounts** instead: apply the
+schema, the `0002` auth migration and the seed
+([Database](#database-supabase--postgresql)), put your project URL and public anon key in
+`js/config.js` (or a git-ignored `js/config.local.js` loaded before it), and set
+`mode: 'api'`. If the project cannot be reached, the page shows an error
 state and a retry control; set `onFailure: 'demo'` only for development and previews,
 where a fallback is acceptable as long as it is labelled.
 
 ## Deliberately not built in this stage
 
-Accounts, authentication, seller/agent/admin areas, dashboards, any write path into
-the database, payments, checkout, messaging, real seller contact, favourites,
+Seller/agent/admin areas, dashboards, seller onboarding, listing creation, any write path
+into the catalogue, payments, checkout, messaging, real seller contact, favourites,
 notifications, subscriptions, affiliate/referral tracking, commissions, a recommendation
 algorithm, AI, external product APIs, scraping, live pricing, real-time inventory,
-reviews, ratings, testimonials, sales or popularity statistics.
+reviews, ratings, testimonials, sales or popularity statistics. Sign-in is email and
+password only: no social login, no passwordless links, no multi-factor authentication and
+no account deletion yet.
 
-The database holds the catalogue and nothing about people: no accounts, no sessions, no
-personal data, no seller management. Writing to it (seller listings, status changes) is
-a later stage and needs authentication first — the tables, keys and policies here are
-already shaped for it.
+People are now part of the system — one `profiles` row per account — but nothing more:
+no addresses, no phone numbers, no payment details, no preferences. The application asks
+for an email address and a password and stores neither of them itself: the password lives
+in Supabase Auth, and the profile holds an email copy for convenience, a display name and
+a role. Admin is a role the database can hold; there is no admin interface to use it, and
+no seller or agent role exists at all yet.
