@@ -915,7 +915,9 @@ footer{
 
 /* --- shared page furniture ------------------------------------------------ */
 .page-head{
-  padding:clamp(26px,2.8vw,44px) 0 clamp(18px,2vw,26px);
+  /* The top band is a header, not a landing hero: it needs enough room to read
+     the title, the lead and the search box, and no more. */
+  padding:clamp(16px,1.6vw,26px) 0 clamp(10px,1.1vw,14px);
   border-bottom:1px solid var(--line);
   background:linear-gradient(180deg, #FFFFFF 0%, var(--bg) 100%);
 }
@@ -924,7 +926,7 @@ footer{
   grid-template-columns:minmax(0,1.45fr) minmax(0,.55fr);
   gap:clamp(20px,2.4vw,36px);
   align-items:start;
-  margin-bottom:clamp(18px,1.8vw,26px);
+  margin-bottom:clamp(12px,1.1vw,16px);
 }
 .page-head h1{
   font-size:clamp(32px, 3.4vw, 54px);
@@ -2896,6 +2898,15 @@ a.visually-hidden:focus{
 @media(max-width:1024px){
   .hero-visual{max-width:680px;width:100%;margin-inline:auto}
 }
+
+/* --- the first section after a page header starts close to it ------------ */
+/* The header already carries its own bottom padding, so the section that
+   follows it does not need a full section's worth on top: the gap between the
+   Discover search band and "Browse by category" was the two paddings added
+   together. */
+.page-head + .section-tight,
+.page-head + .section{padding-top:clamp(10px,1.1vw,16px)}
+.section-head.compact{margin-bottom:clamp(10px,0.9vw,14px)}
 
 /* --- the catalogue search band grows with the page ---------------------- */
 @media(min-width:1200px){
