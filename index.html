@@ -67,6 +67,11 @@
           </div>
 
           <div class="hero-visual" id="compare-preview" aria-hidden="false">
+            <!-- A composition of real catalogue records, filled by js/app.js.
+                 Nothing here is invented: the tiles are the same records the
+                 catalogue serves, and the compare preview sits on top of them. -->
+            <div class="hero-collage" id="heroCollage"></div>
+
             <div class="visual-top">
               <span class="visual-badge">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
@@ -180,7 +185,7 @@
             <h3 id="deals-title">Deals worth a look</h3>
             <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
           </div>
-          <a class="btn-secondary" style="background:white" href="deals.html">Browse demo deals</a>
+          <a class="btn-secondary" href="deals.html">Browse demo deals</a>
         </div>
 
         <div class="deals-grid" id="homeDeals"></div>
@@ -261,6 +266,26 @@
           <button type="button" class="btn-ghost" id="recentClear">Clear this list</button>
         </div>
         <div class="recent-strip" id="homeRecent"></div>
+      </div>
+    </section>
+
+    <!-- CLOSING INVITATION — the end of the journey, not a hard sell -->
+    <section class="section section-tight" aria-labelledby="closing-title">
+      <div class="shell">
+        <div class="closing-cta">
+          <div class="closing-copy">
+            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Keep exploring</span>
+            <h2 id="closing-title">Discover something. Compare it. Understand it.</h2>
+            <p>
+              The catalogue is open, the comparison is neutral, and nothing here is trying to rush you.
+              Start with a search, a category or a guide — and take as long as you like.
+            </p>
+          </div>
+          <div class="closing-actions">
+            <a class="btn-primary btn-large" href="discover.html">Start discovering</a>
+            <a class="btn-secondary btn-large" href="guides.html">Read the guides</a>
+          </div>
+        </div>
       </div>
     </section>
 

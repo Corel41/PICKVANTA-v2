@@ -5,6 +5,19 @@
    no records of its own, so it works the same whether the catalogue is served
    by the demo adapter or by the live read-only API.
    ========================================================================== */
+/* Category identity colours, assigned in taxonomy order. Kept here because it
+   is presentation: the catalogue still decides what a category is. */
+const TILE_TONES = [
+  { accent: 'var(--grad-cobalt)', soft: 'var(--accent-soft)' },
+  { accent: 'var(--grad-teal)', soft: 'var(--teal-soft)' },
+  { accent: 'var(--grad-coral)', soft: 'var(--coral-soft)' },
+  { accent: 'var(--grad-sun)', soft: '#FFF4E2' },
+  { accent: 'linear-gradient(135deg,#6D4AFF,#B24AF2)', soft: 'var(--violet-soft)' },
+  { accent: 'linear-gradient(135deg,#0EAE9B,#2B4BF2)', soft: 'var(--teal-soft)' },
+  { accent: 'linear-gradient(135deg,#FF3B7B,#6D4AFF)', soft: 'var(--coral-soft)' },
+  { accent: 'linear-gradient(135deg,#F5A524,#0EAE9B)', soft: 'var(--accent-soft)' }
+];
+
 PV.util.ready(function () {
   const U = PV.util;
   PV.ui.mountChrome(null);
@@ -127,6 +140,32 @@ PV.util.ready(function () {
     PV.ui.announce("We couldn't load the catalogue just now.");
   }
 
+  /* The hero composition: three real catalogue records as large tiles. It is
+     presentation only — the records, their names, categories and prices all
+     come from the store, so the homepage shows the catalogue it is actually
+     connected to and never invents a product. */
+  function renderHeroCollage(host, records) {
+    const tiles = (records || []).filter(function (r) { return r && r.id; }).slice(0, 3);
+    if (!tiles.length) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = tiles.map(function (record) {
+      const img = U.primaryImage(record) || {};
+      const visual = img.src
+        /* media-img opts the tile into the shared broken-image fallback */
+        ? '<img class="media-img" src="' + U.esc(img.src) + '" alt="" loading="eager" decoding="async" />'
+        : '<span class="collage-tile" aria-hidden="true"' + (img.gradient ? ' style="background:' + U.esc(img.gradient) + '"' : '') + '>' +
+          U.esc(img.icon || '📦') + '</span>';
+      const label = U.categoryLabel(record.category);
+      const name = String(record.name || '').split(' — ')[0] || record.name;
+      return '<a href="' + PV.hrefDetail(record.id) + '" aria-label="' + U.esc(name + ' — ' + label + ', ' + U.priceText(record)) + '">' +
+        visual +
+        '<span class="collage-label"><span>' + U.esc(label) + '</span><b>' + U.esc(U.priceText(record)) + '</b></span>' +
+        '</a>';
+    }).join('');
+  }
+
   function renderCatalogue() {
     /* ---------------------------------------------------- hero preview card */
     /* The three options shown in the hero compare preview come from the same
@@ -170,9 +209,14 @@ PV.util.ready(function () {
     const catHost = U.$('#homeCategories');
     if (catHost) {
       const counts = PV.store.facets();
-      catHost.innerHTML = PV.store.categories().map(function (c) {
+      catHost.innerHTML = PV.store.categories().map(function (c, index) {
         const count = counts.category[c.slug] || 0;
-        return '<a class="category" href="discover.html?category=' + U.esc(c.slug) + '" role="listitem">' +
+        /* Colour is identity, not data: the palette is assigned by position in
+           the taxonomy, so a different catalogue simply gets a different
+           rotation and nothing here has to know any category by name. */
+        const tone = TILE_TONES[index % TILE_TONES.length];
+        return '<a class="category" style="--tile-accent:' + tone.accent + ';--tile-soft:' + tone.soft + '" ' +
+          'href="discover.html?category=' + U.esc(c.slug) + '" role="listitem">' +
           '<div class="cat-icon" aria-hidden="true">' + U.esc(c.icon) + '</div>' +
           '<strong>' + U.esc(c.label) + '</strong>' +
           '<span>' + U.esc(c.blurb) + '</span>' +
@@ -220,11 +264,15 @@ PV.util.ready(function () {
 
     /* ---------------------------------------------------- discover preview */
     const discoverHost = U.$('#homeDiscover');
-    if (discoverHost) {
+    const collageHost = U.$('#heroCollage');
+    if (discoverHost || collageHost) {
       /* A curated slice — spread across categories and price bands — so the
          homepage stays a shop window and the full catalogue stays in Discover. */
       PV.store.home().then(function (home) {
-        discoverHost.innerHTML = home.featured.map(function (record) { return PV.card.item(record); }).join('');
+        if (collageHost) renderHeroCollage(collageHost, home.featured);
+        if (discoverHost) {
+          discoverHost.innerHTML = home.featured.map(function (record) { return PV.card.item(record); }).join('');
+        }
       }).catch(previewFailure);
     }
 

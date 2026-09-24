@@ -1,38 +1,79 @@
 :root{
-  --bg:#F8FAFC;
+  /* ------------------------------------------------------------------------
+     SHOWROOM — canvas, neutrals, accents
+     The page is mostly pure white; colour is a navigation and emphasis system,
+     not decoration. Accents appear on discovery surfaces, promotional cards,
+     primary actions and category identity — never across the whole interface.
+     ------------------------------------------------------------------------ */
+  --bg:#FFFFFF;
   --surface:#FFFFFF;
-  --surface-2:#F1F5F9;
-  --surface-3:#E2E8F0;
-  --text:#0F172A;
-  --text-2:#334155;
-  --muted:#64748B;
-  --muted-2:#94A3B8;
-  --line:#E2E8F0;
-  --line-2:#CBD5E1;
-  --accent:#4F46E5;
-  --accent-hover:#4338CA;
-  --accent-soft:#EEF2FF;
-  --accent-soft-2:#E0E7FF;
-  --accent-dark:#1E1B4B;
-  --dark:#0B1220;
-  --dark-2:#111A2E;
-  --success:#067647;
-  --success-soft:#ECFDF3;
+  --surface-2:#F7F8FA;          /* barely-there neutral panel */
+  --surface-3:#EEF0F4;
+  --text:#0A0E17;               /* near-black */
+  --text-2:#39404F;
+  --muted:#6B7280;
+  --muted-2:#9BA2AF;
+  --line:#E9EBF0;               /* very subtle borders */
+  --line-2:#D8DCE4;
+
+  /* Accents */
+  --accent:#2B4BF2;             /* cobalt / electric blue */
+  --accent-hover:#1C36D6;
+  --accent-soft:#EEF1FF;
+  --accent-soft-2:#DCE2FF;
+  --accent-dark:#101A4A;
+  --violet:#6D4AFF;
+  --violet-soft:#F2EDFF;
+  --coral:#FF5A38;
+  --coral-soft:#FFEDE7;
+  --teal:#0EAE9B;
+  --teal-soft:#E2F7F4;
+  --sun:#F5A524;
+
+  --dark:#0A0E17;
+  --dark-2:#161C2B;
+  --success:#0C7C57;
+  --success-soft:#E6F6EF;
   --warning:#B42318;
-  --radius-sm:10px;
-  --radius-md:14px;
-  --radius-lg:18px;
-  --radius-xl:24px;
-  --radius-2xl:28px;
-  --shadow-sm:0 1px 2px rgba(15,23,42,.05);
-  --shadow-md:0 4px 16px rgba(15,23,42,.07);
-  --shadow-lg:0 12px 32px rgba(15,23,42,.10);
-  --shadow-xl:0 24px 64px rgba(15,23,42,.12);
+
+  /* Vivid gradients — used on a few discovery and promotional surfaces only */
+  --grad-cobalt:linear-gradient(135deg,#2B4BF2 0%,#6D4AFF 100%);
+  --grad-coral:linear-gradient(135deg,#FF7A45 0%,#FF3B7B 100%);
+  --grad-teal:linear-gradient(135deg,#12C2A8 0%,#2B8CF2 100%);
+  --grad-sun:linear-gradient(135deg,#FFC24B 0%,#FF6A3D 100%);
+  --grad-ink:linear-gradient(160deg,#0A0E17 0%,#1E2A52 60%,#2B4BF2 140%);
+
+  /* Glass — translucent surfaces with a real backdrop blur */
+  --glass:rgba(255,255,255,.72);
+  --glass-strong:rgba(255,255,255,.88);
+  --glass-line:rgba(255,255,255,.6);
+  --glass-blur:saturate(180%) blur(20px);
+
+  /* Shape */
+  --radius-sm:12px;
+  --radius-md:16px;
+  --radius-lg:22px;
+  --radius-xl:28px;
+  --radius-2xl:34px;
+  --card-radius:22px;
+
+  /* Depth — soft and premium, never heavy */
+  --shadow-sm:0 1px 2px rgba(10,14,23,.04);
+  --shadow-md:0 6px 22px rgba(10,14,23,.06);
+  --shadow-lg:0 18px 46px rgba(10,14,23,.10);
+  --shadow-xl:0 34px 84px rgba(10,14,23,.14);
+  --shadow-accent:0 14px 34px rgba(43,75,242,.24);
+
   --max:2000px;                 /* the shell cap: every tested viewport fills edge to edge */
-  --gutter:clamp(16px, 2.4vw, 44px);
+  --gutter:clamp(18px, 2.6vw, 56px);
   --header-h:76px;
-  --card-radius:18px;
-  --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --section-y:clamp(56px,5.4vw,116px);   /* the section rhythm: generous, scales with the viewport */
+
+  /* Type. A rounded geometric face is preferred where the platform ships one
+     (ui-rounded → SF Pro Rounded), with a clean geometric sans underneath it.
+     Both are local system faces: no webfont request, no new dependency. */
+  --font-round:ui-rounded,"SF Pro Rounded","Hiragino Maru Gothic ProN","Segoe UI Variable Display","Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 }
 
 /* Reset & base */
@@ -3040,4 +3081,883 @@ a.visually-hidden:focus{
 @media(max-width:480px){
   .auth-switch .small-btn{flex:1 1 auto}
   .field input{height:44px;font-size:16px}   /* 16px avoids iOS zoom-on-focus */
+}
+
+/* ==========================================================================
+   SHOWROOM — visual refinement pass
+   --------------------------------------------------------------------------
+   A presentation layer only. It changes how PickVanta looks, never what it
+   does: no selector here is read by JavaScript, no markup contract is altered,
+   and every behaviour added by earlier steps (search, filters, compare,
+   recently viewed, accounts, the data layer) is untouched.
+
+   Principles
+     • mostly pure white canvas, near-black type, very subtle borders
+     • colour as a navigation and emphasis system, not decoration
+     • generous rhythm: large section spacing, fewer competing elements
+     • large imagery, glass only where it earns its place
+     • one card language, one focus ring, one radius scale
+   ========================================================================== */
+
+/* --- 1. Base ------------------------------------------------------------ */
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font);
+  font-size:16px;
+  line-height:1.65;
+  letter-spacing:-.005em;
+}
+h1,h2,h3,h4,.price,.option-name,.brand,.btn-primary,.btn-secondary,.btn-large,.search-btn{
+  font-family:var(--font-round);
+}
+h1,h2,h3{letter-spacing:-.035em}
+p{text-wrap:pretty}
+h1,h2,h3{text-wrap:balance}
+::selection{background:var(--accent-soft-2);color:var(--text)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+
+/* A shared glass surface. Used selectively — never as a default skin. */
+.compare-card,
+.compare-tray,
+.mobile-panel,
+.cmp-tools{
+  background:var(--glass);
+  -webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-line);
+}
+
+/* --- 2. Header: light, clean, quietly premium ---------------------------- */
+
+.topbar{
+  background:rgba(255,255,255,.72);
+  -webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);
+  border-bottom:1px solid var(--line);
+}
+.brand{font-size:22.5px;font-weight:700;letter-spacing:-.045em}
+.brand-mark{
+  width:36px;height:36px;border-radius:12px;
+  background:var(--grad-cobalt);
+  color:#fff;font-weight:700;font-size:16px;
+  box-shadow:var(--shadow-accent);
+}
+.navlinks{font-size:14.5px;font-weight:600;color:var(--text-2);gap:6px}
+.navlinks a{padding:8px 14px;border-radius:999px;transition:color .18s,background .18s}
+.navlinks a::after{display:none}
+.navlinks a:hover{color:var(--text);background:var(--surface-2)}
+.navlinks a.is-current{color:var(--text);background:var(--surface-2)}
+.nav-count{background:var(--accent);color:#fff}
+.icon-btn{
+  border-radius:999px;background:var(--surface);
+  border:1px solid var(--line);
+  transition:border-color .18s, background .18s, transform .18s;
+}
+.icon-btn:hover{border-color:var(--line-2);background:var(--surface-2)}
+.hamburger{border-radius:999px}
+
+/* --- 3. Buttons and chips ------------------------------------------------ */
+
+.btn-primary{
+  background:var(--accent);color:#fff;border-radius:999px;
+  font-weight:700;letter-spacing:-.012em;
+  box-shadow:0 1px 2px rgba(43,75,242,.2);
+  transition:background .18s, transform .18s, box-shadow .18s;
+}
+.btn-primary:hover{background:var(--accent-hover);transform:translateY(-1px);box-shadow:var(--shadow-accent)}
+.btn-secondary{
+  background:var(--surface);color:var(--text);border:1px solid var(--line-2);
+  border-radius:999px;font-weight:700;letter-spacing:-.012em;
+  transition:border-color .18s, background .18s, transform .18s;
+}
+.btn-secondary:hover{border-color:var(--text);background:var(--surface);transform:translateY(-1px)}
+.btn-ghost{border-radius:999px;font-weight:600}
+.btn-large{height:52px;padding:0 28px;font-size:15px}
+.chip{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;font-weight:600;color:var(--text-2);
+  transition:border-color .18s, color .18s, background .18s, transform .18s;
+}
+.chip:hover{border-color:var(--line-2);color:var(--text);background:var(--surface-2);transform:translateY(-1px)}
+.link-arrow{font-size:14px;font-weight:700;color:var(--accent);gap:6px}
+
+/* --- 4. Section rhythm --------------------------------------------------- */
+
+.section{padding-block:var(--section-y)}
+.section-tight{padding-block:clamp(28px,3vw,64px)}
+.section-head{
+  align-items:flex-end;
+  gap:clamp(18px,2.4vw,40px);
+  margin-bottom:clamp(24px,2.4vw,44px);
+}
+.section-head h2{
+  font-size:clamp(28px,2.7vw,46px);
+  line-height:1.02;letter-spacing:-.045em;font-weight:700;
+}
+.section-head p{margin-top:10px;font-size:clamp(15px,.95vw,17px);line-height:1.6;color:var(--muted);max-width:60ch}
+.section-head.compact{margin-bottom:clamp(14px,1.2vw,20px)}
+.section-head.compact h2{font-size:clamp(20px,1.6vw,25px)}
+.page-head{padding-block:clamp(28px,3.4vw,72px) clamp(14px,1.6vw,26px)}
+.page-head h1{font-size:clamp(34px,4vw,66px);line-height:1.02;letter-spacing:-.05em;font-weight:700}
+.page-lead{margin-top:14px;font-size:clamp(16px,1.1vw,19px);line-height:1.6;color:var(--muted);max-width:74ch}
+.eyebrow{
+  background:var(--surface-2);border:1px solid var(--line);
+  color:var(--text-2);font-weight:600;letter-spacing:.01em;
+  padding:7px 14px;margin-bottom:20px;
+}
+.eyebrow-dot{background:var(--coral);box-shadow:0 0 0 4px var(--coral-soft)}
+.dataset-note,.demo-note,.filters-note,.cmp-footnote{color:var(--muted-2)}
+
+/* --- 5. Hero: a visual composition, not a text block --------------------- */
+
+.hero{padding-block:clamp(40px,5vw,96px) clamp(28px,3vw,64px)}
+.hero-grid{
+  grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);
+  gap:clamp(32px,4vw,88px);
+  align-items:center;
+}
+.hero h1{
+  font-size:clamp(46px,6.4vw,104px);
+  line-height:.93;letter-spacing:-.06em;font-weight:700;
+  margin-bottom:22px;
+}
+.hero h1 .accent{
+  background:var(--grad-cobalt);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-copy{font-size:clamp(16.5px,1.15vw,20px);line-height:1.65;color:var(--muted);margin-bottom:34px;max-width:62ch}
+
+/* The search field is the primary action of the page. */
+.search-wrap{
+  border-radius:999px;border:1px solid var(--line);
+  box-shadow:var(--shadow-md);
+  padding:6px;
+  transition:border-color .18s, box-shadow .18s;
+}
+.search-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft),var(--shadow-md)}
+.search-row{gap:8px}
+.search-row input{font-size:16.5px;padding:14px 0}
+.search-btn{border-radius:999px;height:48px;padding:0 24px;font-weight:700}
+.suggestions{border-radius:20px;border:1px solid var(--line);box-shadow:var(--shadow-lg);overflow:hidden}
+.suggestion{border-radius:14px}
+.quick{margin-top:22px}
+.quick-label{font-size:13px;color:var(--muted);font-weight:600}
+
+/* The hero visual: real catalogue imagery in a light composition, with the
+   compare preview floating on top of it. */
+.hero-visual{
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-radius:var(--radius-2xl);
+  padding:clamp(14px,1.4vw,22px);
+  box-shadow:var(--shadow-lg);
+}
+.hero-collage{display:grid;grid-template-columns:1.25fr 1fr;grid-template-rows:repeat(2,1fr);gap:12px;margin-bottom:14px}
+.hero-collage a{
+  position:relative;display:block;overflow:hidden;
+  border-radius:var(--radius-lg);background:var(--surface);
+  border:1px solid var(--line);
+  aspect-ratio:4/3;
+}
+.hero-collage a:first-child{grid-row:span 2;aspect-ratio:auto}
+.collage-tile{display:grid;place-items:center;width:100%;height:100%;font-size:clamp(28px,2.6vw,46px)}
+.hero-collage img{width:100%;height:100%;object-fit:cover;display:block}
+.collage-label{
+  position:absolute;left:10px;bottom:10px;right:10px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 12px;border-radius:999px;
+  background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-line);
+  font-size:12px;font-weight:700;color:var(--text);
+  letter-spacing:-.01em;
+}
+.collage-label b{font-weight:700;font-family:var(--font-round);white-space:nowrap}
+.compare-card{
+  border-radius:var(--radius-xl);
+  padding:clamp(14px,1.2vw,20px);
+  box-shadow:var(--shadow-md);
+}
+.compare-title{font-family:var(--font-round);font-weight:700;letter-spacing:-.03em}
+.compare-sub{color:var(--muted)}
+.option{border-radius:16px;background:var(--surface);border:1px solid var(--line)}
+.option:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm);border-color:var(--line-2)}
+.visual-badge{background:var(--surface);border:1px solid var(--line);color:var(--text-2);font-weight:600}
+.floating-stat{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:18px;box-shadow:var(--shadow-lg);
+}
+.demo-note{
+  margin-top:14px;padding:12px 14px;border-radius:16px;
+  background:var(--surface);border:1px solid var(--line);
+  font-size:11.5px;line-height:1.6;color:var(--muted);
+}
+
+/* --- 6. Discovery surfaces ---------------------------------------------- */
+
+/* Explore by category: large visual tiles, each with its own accent. */
+.categories{gap:clamp(12px,1.1vw,18px)}
+.category{
+  position:relative;overflow:hidden;
+  padding:clamp(18px,1.5vw,26px);
+  min-height:clamp(150px,13vw,210px);
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xl);
+  display:flex;flex-direction:column;justify-content:flex-end;gap:6px;
+  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.category::before{
+  content:"";position:absolute;inset:0 0 auto 0;height:5px;
+  background:var(--tile-accent,var(--grad-cobalt));
+}
+.category::after{display:none}
+.category:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg);border-color:transparent}
+.category .cat-icon{
+  position:absolute;top:clamp(16px,1.4vw,24px);left:clamp(18px,1.5vw,26px);
+  width:56px;height:56px;border-radius:18px;
+  display:grid;place-items:center;font-size:26px;
+  background:var(--tile-soft,var(--accent-soft));
+  border:1px solid rgba(255,255,255,.6);
+  box-shadow:var(--shadow-sm);
+}
+.category:hover .cat-icon{transform:translateY(-2px) scale(1.03)}
+.category strong{font-family:var(--font-round);font-size:clamp(17px,1.3vw,21px);font-weight:700;letter-spacing:-.03em}
+.category span{color:var(--muted);font-size:13.5px;line-height:1.55;display:block;max-width:34ch}
+.category .cat-count{margin-top:8px;color:var(--muted-2);font-size:12px;font-weight:600}
+
+/* Explore by need: discovery pills, grouped by intent. */
+.needs{gap:clamp(14px,1.4vw,24px)}
+.need-group{gap:12px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.need-group:last-child{padding-bottom:0;border-bottom:none}
+.need-group-label{
+  font-family:var(--font-round);
+  font-size:13px;font-weight:700;letter-spacing:.01em;
+  color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--line);
+  padding:7px 14px;border-radius:999px;
+}
+.need-chips{gap:10px}
+.need-chip{
+  display:inline-flex;align-items:center;gap:8px;
+  height:auto;height:46px;padding:0 20px;
+  font-size:14.5px;font-weight:650;
+  border-radius:999px;
+  transition:transform .18s, box-shadow .18s, border-color .18s, background .18s;
+}
+.need-chip:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--accent);background:var(--accent-soft)}
+.need-chip span[aria-hidden]{font-size:17px;line-height:1}
+
+/* The deals banner: one strong coloured surface in an otherwise white page. */
+.deal-banner{
+  background:var(--grad-coral);
+  border-radius:var(--radius-2xl);
+  padding:clamp(24px,2.4vw,44px);
+  border:none;
+  box-shadow:0 20px 50px rgba(255,90,56,.22);
+  margin-bottom:clamp(20px,2vw,32px);
+}
+.deal-banner h3{font-size:clamp(24px,2.2vw,40px);letter-spacing:-.04em;font-weight:700;color:#fff}
+.deal-banner p{color:rgba(255,255,255,.92);font-size:15px;margin-top:10px}
+.deal-banner::after{display:none}
+.deal-banner .btn-secondary{
+  background:#fff;color:var(--coral);border-color:transparent;font-weight:700;
+}
+.deal-banner .btn-secondary:hover{background:#fff;transform:translateY(-1px);box-shadow:var(--shadow-lg)}
+
+/* --- 7. One card language: large imagery, white surfaces, obvious action -- */
+
+.products-grid{gap:clamp(16px,1.5vw,28px)}
+.deals-grid{gap:clamp(16px,1.5vw,28px)}
+.deal-card,.product-card{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xl);
+  overflow:hidden;
+  box-shadow:var(--shadow-sm);
+  transition:transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+}
+.deal-card:hover,.product-card:hover{
+  transform:translateY(-6px);
+  box-shadow:var(--shadow-lg);
+  border-color:var(--line-2);
+}
+.card-media{
+  aspect-ratio:4/3;
+  max-height:none;
+  min-height:0;
+  background:linear-gradient(150deg,#F4F6FA,#E9ECF3);
+}
+.card-media::after{display:none}
+.card-media .media-icon{font-size:clamp(38px,3.4vw,58px)}
+.card-media img{transition:transform .5s cubic-bezier(.2,.7,.3,1)}
+.deal-card:hover .card-media img,
+.product-card:hover .card-media img{transform:scale(1.045)}
+.type-flag{
+  background:var(--glass-strong);
+  -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-line);
+  color:var(--text);
+  font-weight:650;letter-spacing:.005em;
+  border-radius:999px;padding:6px 12px;
+  box-shadow:var(--shadow-sm);
+}
+.discount{
+  background:var(--coral);color:#fff;border:none;
+  border-radius:999px;font-weight:700;
+  box-shadow:0 8px 20px rgba(255,90,56,.32);
+}
+.badge-pill{border-radius:999px}
+.card-body{padding:clamp(18px,1.5vw,26px);gap:0}
+.card-top{gap:10px;margin-bottom:10px}
+.card-top .store{font-size:12.5px;font-weight:650;color:var(--text-2);letter-spacing:.005em}
+.store-sub{color:var(--muted-2)}
+.type-chip{
+  background:var(--surface-2);border:1px solid var(--line);
+  color:var(--text-2);font-weight:650;
+  border-radius:999px;padding:4px 11px;font-size:11.5px;
+}
+.product-card:hover .type-chip,.deal-card:hover .type-chip{background:var(--surface-2);color:var(--text-2)}
+.card-body h3{
+  font-size:clamp(17px,1.35vw,21px);
+  line-height:1.2;letter-spacing:-.032em;font-weight:700;
+  margin:0 0 6px;
+}
+.card-desc{
+  font-size:14px;line-height:1.6;color:var(--muted);
+  margin:0;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.price-row{align-items:baseline;gap:10px;margin-top:16px}
+.price{font-size:clamp(20px,1.6vw,26px);font-weight:700;letter-spacing:-.035em}
+.price-note{font-size:12px;color:var(--muted-2)}
+.card-meta{gap:8px 14px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.meta-item{font-size:12.5px;color:var(--muted)}
+.status-pill{border-radius:999px;font-weight:650}
+.card-reason{background:var(--accent-soft);border-radius:12px;padding:8px 10px;color:var(--accent-hover)}
+.card-actions{gap:10px;padding-top:18px;margin-top:auto}
+.small-btn{
+  height:44px;border-radius:999px;
+  border:1px solid var(--line-2);
+  font-size:13.5px;font-weight:700;letter-spacing:-.012em;
+  background:var(--surface);
+  transition:background .18s, border-color .18s, color .18s, transform .18s, box-shadow .18s;
+}
+.small-btn:hover{border-color:var(--text);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.small-btn.primary{
+  background:var(--accent);color:#fff;border-color:var(--accent);
+  box-shadow:0 1px 2px rgba(43,75,242,.22);
+}
+.small-btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);box-shadow:var(--shadow-accent)}
+/* The compare control stays a secondary action on the card. */
+.compare-btn{
+  border-radius:999px;border:1px solid var(--line-2);
+  background:var(--surface);color:var(--text);
+  font-weight:700;letter-spacing:-.012em;
+}
+.compare-btn:hover{border-color:var(--text);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.compare-btn.is-on{
+  background:var(--text);color:#fff;border-color:var(--text);
+}
+
+/* The offer block: the promotional surface of the card, so it carries colour. */
+.offer-block{
+  margin-top:16px;padding:14px;border-radius:18px;
+  background:linear-gradient(140deg,var(--coral-soft),rgba(255,237,231,.35));
+  border:1px solid rgba(255,90,56,.22);
+}
+.offer-flag{color:var(--coral);font-weight:700;letter-spacing:.01em}
+.offer-headline{color:var(--text);font-weight:650}
+.offer-was{color:var(--muted)}
+.offer-now strong{font-family:var(--font-round);font-size:19px;letter-spacing:-.03em}
+.save-pill{background:var(--coral);color:#fff;border-radius:999px;font-weight:700}
+
+/* --- 8. Guides: editorial, not administrative --------------------------- */
+
+.guides-grid{gap:clamp(18px,1.6vw,30px)}
+.guide-card{
+  padding:clamp(22px,1.9vw,32px);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xl);
+  background:var(--surface);
+  transition:transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+}
+.guide-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg);border-color:var(--line-2)}
+.guide-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.guide-media{
+  width:64px;height:64px;border-radius:20px;
+  display:grid;place-items:center;font-size:30px;
+  background:var(--grad-teal);color:#fff;
+  box-shadow:0 12px 28px rgba(18,194,168,.28);
+}
+.guide-card:nth-child(3n+2) .guide-media{background:var(--grad-coral);box-shadow:0 12px 28px rgba(255,90,56,.26)}
+.guide-card:nth-child(3n+3) .guide-media{background:var(--grad-cobalt);box-shadow:0 12px 28px rgba(43,75,242,.26)}
+.guide-cat{
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text-2);
+  border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:650;
+}
+.guide-card h3{font-size:clamp(19px,1.5vw,24px);line-height:1.2;letter-spacing:-.035em;font-weight:700;margin-bottom:8px}
+.guide-question{color:var(--text-2);font-weight:600;font-size:14px}
+.guide-details summary{font-weight:650;color:var(--accent);border-radius:10px}
+.guide-covers li{color:var(--muted)}
+.guide-foot{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.guide-link{font-weight:700;color:var(--accent)}
+.guide-related{color:var(--muted-2)}
+
+/* --- 9. How it works: four quiet steps ---------------------------------- */
+
+.steps{gap:clamp(14px,1.2vw,22px)}
+.step{
+  padding:clamp(20px,1.7vw,30px);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xl);
+  background:var(--surface);
+  transition:transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+}
+.step:hover{transform:translateY(-5px);box-shadow:var(--shadow-lg);border-color:var(--line-2)}
+.step-num{
+  font-family:var(--font-round);
+  font-size:12px;font-weight:700;letter-spacing:.06em;
+  color:var(--text-2);background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;
+}
+.step-icon{
+  width:52px;height:52px;border-radius:17px;
+  display:grid;place-items:center;font-size:22px;
+  background:var(--accent-soft);color:var(--accent);
+  border:1px solid var(--accent-soft-2);
+  margin:14px 0 16px;
+}
+.step h3{font-size:clamp(18px,1.4vw,22px);letter-spacing:-.03em;font-weight:700;margin-bottom:8px}
+.step p{font-size:14.5px;line-height:1.6;color:var(--muted)}
+.step:hover .step-num{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* --- 10. Compare: an invitation, and a tray that floats ------------------ */
+
+.compare-cta{
+  border-radius:var(--radius-2xl);
+  padding:clamp(28px,2.8vw,56px);
+  background:var(--grad-ink);
+  border:none;
+  box-shadow:0 30px 70px rgba(16,26,74,.28);
+  align-items:center;
+  gap:clamp(24px,2.6vw,56px);
+}
+.compare-cta h2{color:#fff;font-size:clamp(26px,2.6vw,44px);letter-spacing:-.045em;font-weight:700;line-height:1.05}
+.compare-cta p{color:rgba(255,255,255,.82);font-size:clamp(15px,1vw,17px);line-height:1.65;max-width:62ch}
+.compare-cta .eyebrow{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+.compare-cta .eyebrow-dot{background:#5BFFE0;box-shadow:0 0 0 4px rgba(91,255,224,.18)}
+.compare-cta .btn-primary{background:#fff;color:var(--accent-dark);box-shadow:none}
+.compare-cta .btn-primary:hover{background:#fff;color:var(--accent-dark);box-shadow:0 14px 34px rgba(0,0,0,.24)}
+.compare-cta .btn-secondary{background:rgba(255,255,255,.10);color:#fff;border-color:rgba(255,255,255,.28)}
+.compare-cta .btn-secondary:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.5)}
+.cta-state{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:999px}
+.cta-state-label{color:rgba(255,255,255,.75)}
+
+/* The floating comparison tray: a piece of glass above the page. */
+.compare-tray{
+  border-radius:var(--radius-2xl);
+  border:1px solid var(--glass-line);
+  box-shadow:0 28px 70px rgba(10,14,23,.22);
+  background:var(--glass-strong);
+  -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+}
+.tray-title{font-family:var(--font-round);letter-spacing:-.03em}
+.tray-label{color:var(--text-2);font-weight:650}
+.tray-toggle{border-radius:999px;border:1px solid var(--line-2);background:var(--surface);font-weight:650}
+.tray-toggle:hover{border-color:var(--text)}
+.tray-chip{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:18px;box-shadow:var(--shadow-sm);
+}
+.tray-thumb{background:linear-gradient(150deg,#F4F6FA,#E9ECF3);border-radius:12px}
+.tray-hint{color:var(--muted)}
+.tray-right .btn-ghost{color:var(--muted)}
+.tray-x{border-radius:999px}
+
+/* --- 11. Empty, loading and error states -------------------------------- */
+
+.empty{
+  border:1px dashed var(--line-2);
+  border-radius:var(--radius-xl);
+  background:var(--surface);
+  padding:clamp(28px,2.6vw,48px);
+}
+.empty h3{font-size:clamp(18px,1.5vw,23px);letter-spacing:-.03em;font-weight:700}
+.empty p{color:var(--muted);font-size:14.5px;max-width:60ch;margin-inline:auto}
+.state-loading .empty-icon{font-size:32px}
+.state-error{border-style:solid;border-color:rgba(180,35,24,.24);background:#FFFDFC}
+
+/* --- 12. Footer: calm, dark, still the same footer ---------------------- */
+
+footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp(48px,4.4vw,84px)}
+.footer-grid{gap:clamp(28px,3vw,64px)}
+.footer-brand p{color:rgba(255,255,255,.62);font-size:14px;line-height:1.7}
+.footer-col h2{font-family:var(--font-round);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+.footer-col a,.footer-col .link-btn{color:rgba(255,255,255,.78);font-size:14px}
+.footer-col a:hover,.footer-col .link-btn:hover{color:#fff}
+.footer-bottom{border-top:1px solid rgba(255,255,255,.1);margin-top:clamp(32px,3vw,56px)}
+
+/* --- 13. Discover: a refined control surface, a more spacious grid ------- */
+
+/* The category rail above the results reads as quiet navigation, not a bar. */
+.cat-strip{gap:10px;padding-block:6px}
+.cat-pill{
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--text-2);
+  font-weight:650;font-size:13.5px;
+  padding:10px 18px;
+  transition:border-color .18s, background .18s, color .18s, transform .18s;
+}
+.cat-pill:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-hover);transform:translateY(-1px)}
+.cat-pill.is-active{background:var(--text);border-color:var(--text);color:#fff;box-shadow:var(--shadow-md)}
+
+/* The toolbar: one clean line of controls on a white surface. */
+.toolbar{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  padding:14px 16px;
+  gap:14px;
+  margin-bottom:18px;
+  box-shadow:var(--shadow-sm);
+}
+.toolbar-title{font-size:clamp(19px,1.5vw,24px);letter-spacing:-.035em;font-weight:700}
+.results-meta{font-size:13.5px;color:var(--muted);font-weight:600}
+.select{
+  height:44px;border-radius:999px;
+  border:1px solid var(--line-2);background:var(--surface);
+  font-weight:650;padding-inline:16px;
+}
+.select:focus-visible{border-color:var(--accent)}
+.filters-toggle{
+  height:44px;border-radius:999px;
+  border:1px solid var(--line-2);background:var(--surface);
+  font-weight:700;padding-inline:18px;
+}
+.filters-toggle:hover{border-color:var(--text)}
+.filters-toggle .count{background:var(--accent);color:#fff;border-radius:999px;font-weight:700}
+.active-filters{gap:10px;margin-bottom:18px}
+.active-filters .chip{background:var(--surface-2);border-color:var(--line)}
+.chip-clear{border-radius:999px;font-weight:700;color:var(--accent)}
+
+/* The filter rail: a calm white panel with generous targets. */
+.filters{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xl);
+  padding:22px;
+  box-shadow:var(--shadow-sm);
+}
+.filters-head h3{font-size:17px;letter-spacing:-.03em;font-weight:700}
+.filters-close{border-radius:999px}
+.filter-group{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.filter-legend{
+  font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+}
+.check{
+  border-radius:12px;padding:8px 10px;
+  font-size:13.5px;
+  transition:background .16s;
+}
+.check:hover{background:var(--surface-2)}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.check input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.filter-reset{
+  border-radius:999px;border:1px solid var(--line-2);background:var(--surface);
+  font-weight:650;padding:8px 14px;
+}
+.filter-reset:hover{border-color:var(--text);color:var(--text)}
+.filters-note{font-size:11.5px;color:var(--muted-2);line-height:1.6}
+.filters-backdrop{background:rgba(10,14,23,.34);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+
+/* Search on the catalogue pages: the same field as the hero, at catalogue size. */
+.search-wrap.wide{
+  border-radius:999px;padding:5px;
+  box-shadow:var(--shadow-md);
+}
+.search-wrap.wide .search-row input{padding:14px 0;font-size:16px}
+.search-wrap.wide .search-btn{height:46px;border-radius:999px}
+
+/* The results grid: fewer, larger, better-spaced cards. */
+.products-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
+.results-col .products-grid{gap:clamp(18px,1.6vw,30px)}
+
+/* --- 14. Detail: immersive, not a database record ----------------------- */
+
+.detail-top{padding-block:clamp(18px,1.8vw,32px) clamp(10px,1vw,16px)}
+.crumbs{font-size:12.5px;color:var(--muted)}
+.detail-media-wrap{border-radius:var(--radius-2xl);overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow-md)}
+.detail-info h1{
+  font-size:clamp(30px,3.4vw,58px);
+  line-height:1.02;letter-spacing:-.05em;font-weight:700;
+}
+.detail-lead{font-size:clamp(15.5px,1.05vw,18px);line-height:1.65;color:var(--muted)}
+.detail-price{font-family:var(--font-round);font-size:clamp(26px,2.4vw,40px);letter-spacing:-.04em;font-weight:700}
+.detail-price-row{gap:12px;align-items:baseline}
+.spec-list dt{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.spec-list dd{font-size:14.5px}
+.spec-group{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);padding:clamp(18px,1.5vw,26px)}
+.side-panel{padding:0;background:transparent;border:none;box-shadow:none;display:grid;gap:18px}
+.panel{border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);box-shadow:var(--shadow-sm)}
+.panel-title{font-size:17px;letter-spacing:-.03em;font-weight:700}
+.info-strip{border-radius:var(--radius-xl);border:1px solid var(--line);background:var(--surface)}
+.quick-facts,.facts{display:grid;gap:12px}
+
+/* --- 15. Compare page: a calm workspace --------------------------------- */
+
+.cmp-pickers{gap:18px}
+.cmp-picker{border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);padding:18px;box-shadow:var(--shadow-sm)}
+.cmp-tools{border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow-sm)}
+.cmp-intro{max-width:88ch;color:var(--muted)}
+.cmp-table{border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+.cmp-table th,.cmp-table td{padding:16px 18px;font-size:14px}
+.cmp-group th{background:var(--surface-2);font-family:var(--font-round);letter-spacing:-.02em}
+.cmp-stack-card{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface)}
+.compare-hint{
+  background:var(--accent-soft);border:1px solid var(--accent-soft-2);
+  border-radius:var(--radius-lg);padding:14px 18px;color:var(--text-2);
+}
+.compare-hint-icon{background:var(--accent);color:#fff;border-radius:999px}
+.clear-filters{border-radius:999px;font-weight:650}
+
+/* --- 16. Account and authentication ------------------------------------- */
+
+.auth-controls{display:inline-flex;align-items:center;gap:10px}
+.auth-wrap{display:grid;gap:18px;max-width:760px}
+.auth-panel{border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);box-shadow:var(--shadow-md)}
+.auth-panel h2{font-size:clamp(22px,1.9vw,30px);letter-spacing:-.04em;font-weight:700;margin-bottom:6px}
+.auth-switch{gap:10px}
+.auth-switch .small-btn{flex:0 0 auto;padding-inline:18px;height:42px}
+.auth-switch .small-btn.is-on{background:var(--text);color:#fff;border-color:var(--text)}
+.auth-actions{gap:12px;margin-top:6px}
+.auth-note{font-size:12.5px;color:var(--muted);line-height:1.65;max-width:70ch}
+.auth-facts{display:grid;gap:12px;margin:6px 0 20px}
+.auth-fact{
+  display:grid;gap:3px;
+  padding:16px 18px;
+  border:1px solid var(--line);border-radius:var(--radius-lg);
+  background:var(--surface-2);
+}
+.auth-fact span{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.auth-fact strong{font-size:15.5px;font-weight:700;overflow-wrap:anywhere}
+.auth-fact small{font-size:12px;color:var(--muted)}
+.field{display:grid;gap:8px;margin-bottom:16px}
+.field label{font-size:13px;font-weight:650;color:var(--text-2)}
+.field input{
+  width:100%;height:52px;padding:0 18px;
+  border:1px solid var(--line-2);border-radius:16px;
+  background:var(--surface);color:var(--text);
+  font-size:16px;font-weight:500;
+  transition:border-color .18s, box-shadow .18s;
+}
+.field input:hover{border-color:var(--muted-2)}
+.field input:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.field input[aria-invalid="true"]{border-color:#B42318;box-shadow:0 0 0 4px #FEF3F2}
+.field-help{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.field-help:empty{display:none}
+.form-error{
+  margin:0 0 16px;padding:12px 14px;
+  border:1px solid #FDA29B;border-radius:14px;
+  background:#FEF3F2;color:#B42318;
+  font-size:13.5px;font-weight:650;line-height:1.55;
+}
+.form-error[hidden]{display:none}
+
+/* The mobile panel carries the account controls on small screens: its buttons
+   join the action grid directly rather than nesting a second row. */
+.mobile-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.mobile-actions .auth-controls{display:contents}
+.mobile-actions .btn-primary,.mobile-actions .btn-secondary,.mobile-actions .btn-ghost{
+  width:100%;justify-content:center;
+}
+@media(max-width:1024px){
+  /* The account controls live in the mobile panel below this width. */
+  #authControls{display:none}
+}
+
+/* --- 17. Responsive restatements ----------------------------------------
+   Each component restyled above also states its behaviour at the smaller
+   widths here, so nothing depends on a rule from an earlier layer that the
+   showroom layer would otherwise win over. 320 / 375 / 390 / 768 / 1024 / 1440
+   are the tested widths.
+   ------------------------------------------------------------------------ */
+
+@media(min-width:1200px){
+  .search-wrap.wide .search-row input{padding:17px 0;font-size:16.5px}
+  .search-wrap.wide .search-btn{height:52px;padding:0 28px}
+  .search-wrap.wide .suggestions{top:74px}
+}
+
+@media(max-width:1024px){
+  .hero-grid{gap:34px}
+  .hero-collage{grid-template-columns:1.2fr 1fr}
+  .section-head h2{font-size:clamp(26px,3.4vw,36px)}
+  .page-head h1{font-size:clamp(32px,5.4vw,48px)}
+  .hero h1{font-size:clamp(42px,8vw,64px)}
+  .category{min-height:160px}
+  .compare-cta{grid-template-columns:1fr;gap:24px}
+  .compare-cta p{max-width:100%}
+}
+
+@media(max-width:900px){
+  /* The filter rail becomes the drawer again: same panel, drawer geometry. */
+  .filters{width:min(90vw,360px);padding:20px 18px 40px;border-radius:0 var(--radius-xl) var(--radius-xl) 0}
+  .filters-toggle{display:inline-flex}
+}
+
+@media(max-width:768px){
+  .results-col .products-grid{gap:18px}
+  .hero-collage{grid-template-columns:1fr 1fr;grid-template-rows:auto}
+  .hero-collage a:first-child{grid-row:auto}
+  .hero-collage a{aspect-ratio:16/11}
+}
+
+@media(max-width:600px){
+  /* Phones: one full-width column reads better than two cramped ones. */
+  .products-grid,.deals-grid{grid-template-columns:1fr}
+}
+
+@media(max-width:720px){
+  .hero{padding-block:32px 40px}
+  .hero h1{font-size:clamp(38px,11.2vw,52px);letter-spacing:-.05em}
+  .hero-copy{font-size:16.5px;margin-bottom:26px}
+  .hero-visual{min-height:0;padding:12px}
+  .compare-card{border-radius:var(--radius-lg)}
+  .section{padding-block:clamp(44px,9vw,64px)}
+  .section-tight{padding-block:clamp(24px,6vw,36px)}
+  .section-head{flex-direction:column;align-items:flex-start;margin-bottom:24px}
+  .section-head h2{font-size:clamp(24px,6.4vw,32px)}
+  .section-head p{font-size:15px;max-width:100%}
+  .page-head{padding-block:24px 12px}
+  .page-head h1{font-size:clamp(30px,8vw,40px)}
+  .page-lead{font-size:15.5px;margin-top:10px}
+  .eyebrow{margin-bottom:14px}
+  .categories{grid-template-columns:1fr 1fr;gap:12px}
+  .category{min-height:148px;padding:16px;border-radius:var(--radius-lg)}
+  .category .cat-icon{width:46px;height:46px;font-size:22px;border-radius:15px;top:14px;left:16px}
+  .category span{font-size:13px}
+  .category .cat-count{margin-top:6px}
+  .need-chip{height:44px;padding:0 16px;font-size:14px}
+  .deal-banner{padding:24px;border-radius:var(--radius-xl);flex-direction:column;align-items:flex-start;gap:16px}
+  .deal-banner h3{font-size:clamp(22px,6vw,30px)}
+  .deal-banner .btn-secondary{width:100%;justify-content:center}
+  .deal-card,.product-card,.guide-card,.step,.filter-group,.spec-group,.panel,.empty{border-radius:var(--radius-lg)}
+  .card-body{padding:16px}
+  .card-media{aspect-ratio:16/11}
+  .card-actions{gap:8px}
+  .small-btn{height:46px;font-size:13px}
+  .compare-cta{padding:26px;border-radius:var(--radius-xl)}
+  .compare-cta h2{font-size:clamp(24px,6.4vw,32px)}
+  .compare-cta-side{grid-template-columns:1fr}
+  .compare-cta-side .btn-primary,.compare-cta-side .btn-secondary{width:100%;justify-content:center}
+  .steps{gap:14px}
+  .step{padding:20px}
+  .empty{padding:30px 20px}
+  .toolbar{padding:12px;border-radius:var(--radius-lg)}
+  .toolbar-title{font-size:19px}
+  .cat-strip{gap:8px}
+  .cat-pill{padding:9px 15px;font-size:13px}
+  .cmp-pickers{gap:14px}
+  .guide-media{width:56px;height:56px;font-size:26px;border-radius:18px}
+  .auth-wrap{max-width:100%}
+  .field input{height:50px}
+  body.has-tray{padding-bottom:146px}
+  body.has-tray .toast{bottom:164px}
+}
+
+@media(max-width:480px){
+  .categories{grid-template-columns:1fr}
+  .category{min-height:132px}
+  .hero-collage{grid-template-columns:1fr 1fr}
+  .hero-collage a{aspect-ratio:4/3}
+  .section-head h2{font-size:clamp(23px,7vw,28px)}
+  .auth-switch .small-btn{flex:1 1 auto}
+  .field input{height:48px;font-size:16px}   /* 16px avoids zoom-on-focus on iOS */
+  .select,.filters-toggle{height:42px}
+}
+
+/* Screens narrower than the smallest tested width still hold together. */
+@media(max-width:360px){
+  .need-chip{padding:0 14px;font-size:13.5px}
+  .category{min-height:124px}
+  .card-body{padding:14px}
+}
+
+/* --- 18. Motion, contrast and focus ------------------------------------- */
+
+@keyframes pv-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* Anyone who has asked their system for less motion gets a still interface:
+   no transforms, no reveals, no smooth scrolling. */
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .product-card:hover,.deal-card:hover,.guide-card:hover,.step:hover,.category:hover,
+  .need-chip:hover,.small-btn:hover,.btn-primary:hover,.btn-secondary:hover,.icon-btn:hover{
+    transform:none;
+  }
+  .product-card:hover .card-media img,
+  .deal-card:hover .card-media img{transform:none}
+}
+
+/* Windows high-contrast / forced colours: keep borders and focus visible. */
+@media(forced-colors:active){
+  .btn-primary,.btn-secondary,.small-btn,.chip,.cat-pill,.compare-btn{
+    border:1px solid ButtonBorder;
+  }
+  .card-media{border-bottom:1px solid ButtonBorder}
+  :focus-visible{outline:2px solid Highlight}
+}
+
+/* --- 19. The closing invitation ----------------------------------------- */
+
+.closing-cta{
+  display:grid;
+  grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);
+  align-items:center;
+  gap:clamp(24px,3vw,64px);
+  padding:clamp(30px,3.2vw,64px);
+  border-radius:var(--radius-2xl);
+  background:var(--surface);
+  border:1px solid var(--line);
+  box-shadow:var(--shadow-md);
+  position:relative;
+  overflow:hidden;
+}
+/* One quiet accent wash rather than a full colour block: the page stays white. */
+.closing-cta::before{
+  content:"";
+  position:absolute;
+  inset:auto -10% -60% auto;
+  width:min(46vw,520px);height:min(46vw,520px);
+  background:radial-gradient(circle at 30% 30%, rgba(43,75,242,.16), rgba(109,74,255,.10) 45%, transparent 70%);
+  pointer-events:none;
+}
+.closing-copy{position:relative}
+.closing-cta h2{
+  font-size:clamp(28px,3vw,52px);
+  line-height:1.02;letter-spacing:-.05em;font-weight:700;
+  margin:0 0 14px;
+}
+.closing-cta p{color:var(--muted);font-size:clamp(15px,1vw,17.5px);line-height:1.65;margin:0;max-width:56ch}
+.closing-actions{position:relative;display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end}
+
+@media(max-width:1024px){
+  .closing-cta{grid-template-columns:1fr;gap:24px}
+  .closing-actions{justify-content:flex-start}
+}
+@media(max-width:720px){
+  .closing-cta{padding:26px;border-radius:var(--radius-xl)}
+  .closing-cta h2{font-size:clamp(24px,6.6vw,32px)}
+  .closing-actions{width:100%}
+  .closing-actions .btn-primary,.closing-actions .btn-secondary{width:100%;justify-content:center}
 }
