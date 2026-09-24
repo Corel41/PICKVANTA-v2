@@ -3735,6 +3735,47 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
 .auth-switch .small-btn.is-on{background:var(--text);color:#fff;border-color:var(--text)}
 .auth-actions{gap:12px;margin-top:6px}
 .auth-note{font-size:12.5px;color:var(--muted);line-height:1.65;max-width:70ch}
+
+/* --- provider sign-in (Google) ------------------------------------------
+   One action, above the email form. It is styled as the calm, primary choice
+   without competing with the product's own accent: a white surface with a
+   subtle border, the provider's mark, and the wording people expect. The rest
+   of the panel is unchanged, so the page stays a small account surface rather
+   than an authentication landing page. */
+
+.provider-block{display:grid;gap:10px;margin:0 0 18px}
+.btn-provider{
+  display:inline-flex;align-items:center;justify-content:center;gap:11px;
+  width:100%;
+  background:var(--surface);
+  color:var(--text);
+  border:1px solid var(--line-2);
+  border-radius:var(--radius-md);
+  font-weight:650;letter-spacing:-.01em;
+  box-shadow:var(--shadow-sm);
+  transition:border-color .18s, box-shadow .18s, transform .18s, background .18s;
+}
+.btn-provider:hover{border-color:var(--muted-2);box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.btn-provider:active{transform:translateY(0)}
+.btn-provider[disabled]{opacity:.66;cursor:progress;transform:none;box-shadow:var(--shadow-sm)}
+.btn-provider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.provider-mark{flex:0 0 auto;width:18px;height:18px}
+.provider-help{margin:0;font-size:12px;line-height:1.6;color:var(--muted)}
+.provider-note{
+  margin:0;padding:12px 14px;
+  border:1px dashed var(--line-2);border-radius:var(--radius-md);
+  background:var(--surface-2);color:var(--muted);
+  font-size:12.5px;line-height:1.6;
+}
+.provider-divider{
+  display:flex;align-items:center;gap:12px;
+  margin-top:6px;
+  color:var(--muted-2);font-size:11.5px;font-weight:650;
+  letter-spacing:.06em;text-transform:uppercase;
+}
+.provider-divider::before,.provider-divider::after{
+  content:"";flex:1;height:1px;background:var(--line);
+}
 .auth-facts{display:grid;gap:12px;margin:6px 0 20px}
 .auth-fact{
   display:grid;gap:3px;
@@ -3876,6 +3917,7 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
   .hero-collage a{aspect-ratio:4/3}
   .section-head h2{font-size:clamp(23px,7vw,28px)}
   .auth-switch .small-btn{flex:1 1 auto}
+  .btn-provider{height:48px;font-size:14.5px}
   .field input{height:48px;font-size:16px}   /* 16px avoids zoom-on-focus on iOS */
   .select,.filters-toggle{height:42px}
 }

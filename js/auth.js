@@ -19,7 +19,27 @@
      project's public anon key, so the site stays dependency-free and static:
      no SDK bundle, no build step, no new runtime.
 
+   Providers
+     Email + password and Google both go through Supabase Auth — there is one
+     account system, not two, and one profile row per person either way.
+
+       email/password   POST /auth/v1/token?grant_type=password
+       Google           GET  /auth/v1/authorize?provider=google&redirect_to=…
+                        → Google → Supabase /auth/v1/callback → back to this app
+                        with the session in the URL fragment
+       both             GET  /auth/v1/user  confirms the session before it is
+                        trusted, and public.profiles is read with that token
+
+     The provider list is data, not code paths: adding Apple later is one more
+     entry in PROVIDERS, because starting an OAuth sign-in is the same request
+     for every provider. What is provider-specific (a client id, a secret) lives
+     in the Supabase project's own configuration — never in this repository and
+     never in the browser.
+
    What is NOT here, on purpose
+     • No OAuth client secret and no client id. The browser asks *our own
+       Supabase project* to start the flow; Google's credentials live in that
+       project's settings, which is the only place they are ever used.
      • No fake login. There is no code path that invents a user, and nothing is
        trusted because it sits in localStorage. The only signed-in state this
        module reports is one the Supabase Auth server has just confirmed.
@@ -47,8 +67,19 @@ window.PV.auth = (function () {
   'use strict';
 
   const SESSION_KEY = 'pickvanta.auth.session.v1';
+  /* Set while an OAuth flow is away at the provider, so the return trip knows
+     whether an empty-handed callback is a cancellation or just a plain visit.
+     Per-tab and deliberately short-lived: it is a note, not a session. */
+  const OAUTH_PENDING_KEY = 'pickvanta.auth.oauth.pending.v1';
   const REQUEST_TIMEOUT_MS = 15000;
   const EXPIRY_SKEW_MS = 60 * 1000;
+
+  /* The providers this layer can start a sign-in with. Data, not logic: the
+     flow below is identical for every one of them, so a future provider is an
+     entry here (plus its configuration in the Supabase project). */
+  const PROVIDERS = [
+    { id: 'google', label: 'Google', verb: 'Continue with Google' }
+  ];
 
   /* ------------------------------------------------------------- config --- */
   /* The same public configuration the catalogue uses. Nothing here is secret:
@@ -79,6 +110,16 @@ window.PV.auth = (function () {
     role: null,
     error: null,
     message: '',
+    /* 'oauth' while a provider redirect is being completed, so the interface
+       can say what is happening instead of showing a sign-in form again. */
+    redirecting: '',
+    /* True once this page has been handed redirect parameters — a return from a
+       provider. Views use it to keep that outcome on screen, since it is not
+       something the person triggered from a form they can look at. */
+    fromProvider: false,
+    /* { google: true } once /auth/v1/settings has answered. null until then:
+       unknown is not the same as disabled. */
+    providers: null,
     checkedAt: 0
   };
 
@@ -89,6 +130,9 @@ window.PV.auth = (function () {
     return {
       available: state.available,
       status: state.status,
+      redirecting: state.redirecting,
+      fromProvider: state.fromProvider,
+      providers: state.providers ? Object.assign({}, state.providers) : null,
       user: state.user ? { id: state.user.id, email: state.user.email } : null,
       profile: state.profile ? Object.assign({}, state.profile) : null,
       role: state.role,
@@ -188,6 +232,21 @@ window.PV.auth = (function () {
     }
     if (kind === 'session') {
       return 'That session has expired. Sign in again to continue.';
+    }
+    if (kind === 'oauth-cancelled') {
+      return 'Google sign-in was cancelled. Nothing was changed — you can try again, or sign in with your email address.';
+    }
+    if (kind === 'oauth-provider') {
+      return 'Google sign-in is not switched on for this PickVanta project yet. You can still sign in with your email address.';
+    }
+    if (kind === 'oauth-config') {
+      return 'Google sign-in could not be completed because this deployment is not fully configured for it. Signing in with your email address still works.';
+    }
+    if (kind === 'oauth-expired') {
+      return 'That Google sign-in took too long and is no longer valid. Please start again.';
+    }
+    if (kind === 'oauth') {
+      return 'We could not finish signing you in with Google. Please try again, or use your email address.';
     }
     if (kind === 'profile') {
       return 'Your account is signed in, but its profile could not be read. Try again in a moment.';
@@ -358,12 +417,262 @@ window.PV.auth = (function () {
     return profile;
   }
 
+  /* ------------------------------------------------------------ providers -- */
+  /**
+   * Which providers this project actually offers. `/auth/v1/settings` is a
+   * public endpoint (apikey only, no session) and is the authority — the
+   * interface must not offer a button that cannot work. Until it answers,
+   * `providers` stays null and the interface keeps the button visible: an
+   * unreachable settings call is not proof that Google is switched off.
+   */
+  function loadProviders() {
+    if (!available || state.providers) return Promise.resolve(state.providers);
+    return call('/auth/v1/settings').then((data) => {
+      const external = (data && data.external) || {};
+      const map = {};
+      PROVIDERS.forEach((provider) => { map[provider.id] = external[provider.id] === true; });
+      state.providers = map;
+      emit();
+      return map;
+    }).catch(() => {
+      /* Leave it unknown rather than guessing: the button stays, and if the
+         provider really is off, Supabase says so when the flow starts. */
+      return null;
+    });
+  }
+
+  /** What the interface needs to render one provider's control. */
+  function provider(name) {
+    const known = PROVIDERS.filter((p) => p.id === name)[0];
+    if (!known) return null;
+    return {
+      id: known.id,
+      label: known.label,
+      verb: known.verb,
+      /* enabled === false only when the server explicitly said so. */
+      enabled: state.providers ? state.providers[known.id] === true : null,
+      available: available
+    };
+  }
+
+  const providers = () => PROVIDERS.map((p) => provider(p.id));
+
+  /** Where the provider sends the person back to. No query, no fragment: the
+   *  project appends its own parameters and a query string in the redirect
+   *  target is what breaks Supabase's error redirects. */
+  function returnUrl() {
+    try {
+      const loc = window.location;
+      if (!loc || !loc.origin || loc.origin === 'null') return '';
+      return loc.origin + loc.pathname;
+    } catch (err) {
+      return '';
+    }
+  }
+
+  /* ------------------------------------------------------- OAuth (Google) -- */
+  function markPending(providerId) {
+    state.redirecting = providerId;
+    try { window.sessionStorage.setItem(OAUTH_PENDING_KEY, providerId); } catch (err) { /* one-page memory is fine */ }
+  }
+
+  function clearPending() {
+    state.redirecting = '';
+    try { window.sessionStorage.removeItem(OAUTH_PENDING_KEY); } catch (err) { /* nothing to clear */ }
+  }
+
+  function pendingProvider() {
+    try { return window.sessionStorage.getItem(OAUTH_PENDING_KEY) || ''; } catch (err) { return ''; }
+  }
+
+  /**
+   * Start an OAuth sign-in. This is a navigation, not a request: the browser
+   * leaves for the provider and comes back to this same page with the session
+   * in the URL fragment (see handleRedirect, which runs on the way back in).
+   * Only the provider name and our own return address are sent — this project's
+   * Supabase URL is public, and the client secret never leaves Supabase.
+   */
+  function signInWithProvider(name, options) {
+    const known = PROVIDERS.filter((p) => p.id === name)[0];
+    if (!known) return { ok: false, message: 'That sign-in method is not available.' };
+    if (!available) return { ok: false, message: errorMessage(fail('unavailable')) };
+    if (state.providers && state.providers[known.id] !== true) {
+      return { ok: false, message: errorMessage(fail('oauth-provider')) };
+    }
+
+    const target = (options && options.redirectTo) || returnUrl();
+    let url;
+    try {
+      url = new URL(CONFIG.url + '/auth/v1/authorize');
+      url.searchParams.set('provider', known.id);
+      if (target) url.searchParams.set('redirect_to', target);
+    } catch (err) {
+      return { ok: false, message: errorMessage(fail('oauth-config')) };
+    }
+
+    markPending(known.id);
+    emit();
+    if (!window.location || typeof window.location.assign !== 'function') {
+      clearPending();
+      return { ok: false, message: errorMessage(fail('oauth-config')) };
+    }
+    try {
+      window.location.assign(url.toString());
+    } catch (err) {
+      clearPending();
+      return { ok: false, message: errorMessage(fail('oauth-config')) };
+    }
+    return { ok: true, message: 'Taking you to ' + known.label + '…', url: url.toString() };
+  }
+
+  /* The parameters GoTrue puts in the fragment on success, and in the fragment
+     or the query string when the provider refuses. */
+  const OAUTH_KEYS = ['access_token', 'refresh_token', 'expires_in', 'token_type', 'type', 'error', 'error_code', 'error_description'];
+
+  function readParams(source) {
+    const out = {};
+    const raw = String(source || '').replace(/^[#?]/, '');
+    if (!raw) return out;
+    raw.split('&').forEach((pair) => {
+      if (!pair) return;
+      const at = pair.indexOf('=');
+      const key = decodeURIComponent(at === -1 ? pair : pair.slice(0, at));
+      if (OAUTH_KEYS.indexOf(key) === -1) return;
+      out[key] = decodeURIComponent((at === -1 ? '' : pair.slice(at + 1)).replace(/\+/g, ' '));
+    });
+    return out;
+  }
+
+  /** The redirect parameters this page came back with, if any. */
+  function redirectParams() {
+    let hash = '';
+    let search = '';
+    try {
+      hash = window.location.hash || '';
+      search = window.location.search || '';
+    } catch (err) { /* nothing to read */ }
+    const fromHash = readParams(hash);
+    /* Some failures come back as a query string instead of a fragment. */
+    return Object.keys(fromHash).length ? fromHash : readParams(search);
+  }
+
+  /** Turns a provider refusal into the same small error object used everywhere. */
+  function oauthFailure(params) {
+    const code = String(params.error || '');
+    const detail = String(params.error_description || '');
+    const text = (code + ' ' + detail).toLowerCase();
+    if (code === 'access_denied' || /denied|cancell?ed|user.*refus/.test(text)) return fail('oauth-cancelled');
+    if (/provider is not enabled|not enabled|unsupported provider/.test(text)) return fail('oauth-provider');
+    if (/redirect_uri_mismatch|invalid.*redirect|invalid client|client_id/.test(text)) return fail('oauth-config');
+    if (/expired|invalid.*state|state.*invalid|otp_expired/.test(text)) return fail('oauth-expired');
+    return fail('oauth', detail || code);
+  }
+
+  /**
+   * Removes the session (or the error) from the address bar. A token in a URL
+   * is a token that can be copied, bookmarked or left in a browser history, so
+   * it is cleared as soon as it has been read — the real session lives in
+   * localStorage and is confirmed with the server before it is trusted.
+   */
+  function cleanUrl() {
+    try {
+      const loc = window.location;
+      if (!loc || !window.history || typeof window.history.replaceState !== 'function') return;
+      if (!loc.hash && !/[?&](error|code)=/.test(loc.search || '')) return;
+      window.history.replaceState({}, document.title, loc.pathname + (loc.search || '').replace(/[?&](error|error_code|error_description)=[^&]*/g, '').replace(/^&/, '?').replace(/\?$/, ''));
+    } catch (err) { /* a URL that cannot be tidied is not worth breaking over */ }
+  }
+
+  /**
+   * Completes a return from an OAuth provider. Called by init(); also usable on
+   * its own. Returns { handled, ok, message } so a caller can react, and never
+   * throws.
+   *
+   * Nothing here trusts the URL on its own: the tokens are used to build a
+   * session and then confirmed against /auth/v1/user, exactly like a session
+   * restored from storage. A callback cannot sign anybody in on its say-so.
+   */
+  async function handleRedirect() {
+    const params = redirectParams();
+    if (!params || !Object.keys(params).length) {
+      /* No parameters at all. If we had left for a provider, this is the person
+         coming back having changed their mind. */
+      if (pendingProvider()) {
+        clearPending();
+        const cancelled = fail('oauth-cancelled');
+        state.error = cancelled;
+        state.message = errorMessage(cancelled);
+        /* Still an outcome of a provider flow — one this page should report,
+           not silently forget. */
+        state.fromProvider = true;
+        state.checkedAt = Date.now();
+        emit();
+        return { handled: true, ok: false, message: state.message };
+      }
+      return { handled: false, ok: false, message: '' };
+    }
+
+    state.redirecting = pendingProvider() || 'google';
+    state.fromProvider = true;
+    state.checkedAt = 0;
+    emit();
+
+    if (params.error) {
+      const problem = oauthFailure(params);
+      clearPending();
+      cleanUrl();
+      state.redirecting = '';
+      state.error = problem;
+      state.message = errorMessage(problem);
+      state.checkedAt = Date.now();
+      emit();
+      return { handled: true, ok: false, message: state.message };
+    }
+
+    if (!params.access_token) {
+      clearPending();
+      cleanUrl();
+      state.redirecting = '';
+      return { handled: false, ok: false, message: '' };
+    }
+
+    try {
+      const session = sessionFrom({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+        expires_in: params.expires_in,
+        token_type: params.token_type
+      }, null);
+      /* Confirm before trusting — same rule as a restored session. */
+      const confirmed = await call('/auth/v1/user', { headers: authHeaders(session.accessToken) });
+      if (!confirmed || !confirmed.id) throw fail('oauth');
+      session.user = { id: confirmed.id, email: confirmed.email || '' };
+      writeStored(session);
+      adopt(session);
+      await loadProfile(session);
+      clearPending();
+      cleanUrl();
+      state.redirecting = '';
+      emit();
+      return { handled: true, ok: true, message: 'Signed in.' };
+    } catch (err) {
+      clearPending();
+      cleanUrl();
+      state.redirecting = '';
+      const problem = err.authKind === 'network' ? err : (err.status === 401 || err.status === 403 ? fail('oauth-expired') : fail('oauth', err.detail || ''));
+      clear(problem);
+      emit();
+      return { handled: true, ok: false, message: errorMessage(problem) };
+    }
+  }
+
   /* ----------------------------------------------------------------- API -- */
   /** Restores the session, confirms it with the server and loads the profile. */
   function init() {
     if (readyPromise) return readyPromise;
     readyPromise = (async () => {
       if (!available) {
+        /* Demonstration mode: no project, so no provider is on offer either. */
         state.status = 'signed-out';
         state.error = 'unavailable';
         state.message = errorMessage(fail('unavailable'));
@@ -371,6 +680,22 @@ window.PV.auth = (function () {
         emit();
         return snapshot();
       }
+
+      /* A return from Google (or any future provider) is handled before
+         anything else: the fragment carries a session that has not been
+         confirmed yet. */
+      let fromProvider = { handled: false, ok: false };
+      try {
+        fromProvider = await handleRedirect();
+      } catch (err) {
+        fromProvider = { handled: true, ok: false };
+      }
+      if (fromProvider.handled && fromProvider.ok) return snapshot();
+
+      /* Fire and forget: the interface renders at once and the provider state
+         fills in when the answer arrives. Asked for on every signed-out visit
+         too — that is when the sign-in control is on screen. */
+      loadProviders();
 
       let session = null;
       try {
@@ -598,6 +923,12 @@ window.PV.auth = (function () {
     signIn: signIn,
     signUp: signUp,
     signOut: signOut,
+    /* OAuth. Starting a flow is a navigation; finishing one is handled by
+       init() automatically on the way back in. */
+    signInWithProvider: signInWithProvider,
+    handleRedirect: handleRedirect,
+    providers: providers,
+    provider: provider,
     onChange: onChange,
     errorMessage: errorMessage,
     validate: validate,
