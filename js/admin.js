@@ -32,8 +32,12 @@ PV.admin = (function () {
   if (!root) return {};
 
   const QUEUE_PAGE = 50;
+  /* How many canonical records the Products section shows. The counts above the
+     tables are the database's totals, so a list cut short by this number says
+     how many more there are instead of implying it is all of them. */
+  const CATALOGUE_PREVIEW = 25;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const SECTIONS = ['dashboard', 'sellers', 'sources', 'jobs'];
+  const SECTIONS = ['dashboard', 'sellers', 'products', 'sources', 'jobs'];
 
   /* The panel's structure. `active` items work today; `planned` items are the
      intended architecture and are deliberately not clickable — a dead control
@@ -50,7 +54,7 @@ PV.admin = (function () {
       label: 'Marketplace',
       items: [
         { id: 'listings', label: 'Listings' },
-        { id: 'products', label: 'Products' },
+        { id: 'products', label: 'Products', active: true },
         { id: 'categories', label: 'Categories' },
         { id: 'deals', label: 'Deals' }
       ]
@@ -110,6 +114,15 @@ PV.admin = (function () {
     jobsLoaded: false,
     jobsError: '',
     importedTotal: null,
+    /* The canonical layer (Step 15). Raw, ordered reads — nothing is derived,
+       ranked or summarised into a new number. */
+    catalogueCounts: null,
+    catalogueProducts: [],
+    catalogueOffers: [],
+    catalogueMerchants: [],
+    catalogueSources: [],
+    catalogueLoaded: false,
+    catalogueError: '',
     action: null,          /* the review action awaiting confirmation */
     note: '',
     noteError: '',
@@ -224,14 +237,17 @@ PV.admin = (function () {
         );
       }).join('') +
       '<p class="admin-nav-note">Planned sections are the intended architecture. ' +
-      'None of them is built yet, and none of them is clickable. The Deal Engine is ' +
-      'its foundation only: sources can be listed, and no connector reads one.</p>' +
+      'None of them is built yet, and none of them is clickable. Products is an ' +
+      'operational view, not an editor: it counts the canonical records and shows ' +
+      'the most recent, and nothing there can be changed. The Deal Engine is its ' +
+      'foundation only: sources can be listed, and no connector reads one.</p>' +
       '</nav>'
     );
   }
 
   function activeSectionTitle() {
     if (state.section === 'sellers') return state.selectedId ? 'Application' : 'Seller & provider review';
+    if (state.section === 'products') return 'Products';
     if (state.section === 'sources') return 'Sources';
     if (state.section === 'jobs') return 'Jobs';
     return 'Dashboard';
@@ -680,6 +696,190 @@ PV.admin = (function () {
       'is shown yet.</p>';
   }
 
+  /* ------------------------------------------ catalogue: the canonical layer
+     Product, Variant and Merchant Offer — what a reviewed imported record
+     becomes. This is deliberately NOT a product editor. It exists to prove the
+     model is real and readable by an administrator: how many canonical records
+     there are, what the most recent ones are, what state they are in, and which
+     merchant and source an offer came from. There is no create, no edit, no
+     approve, no publish, no import and no connector on this page — and no
+     button that suggests one. A canonical record is made by a reviewed
+     conversion in a later step, not here, and the page says so.
+     ------------------------------------------------------------------------ */
+
+  const merchantById = (id) => state.catalogueMerchants.filter((m) => m.id === id)[0] || null;
+  const sourceById = (id) => state.catalogueSources.filter((s) => s.id === id)[0] || null;
+
+  function merchantCell(id) {
+    const merchant = id ? merchantById(id) : null;
+    if (merchant) return esc(merchant.name);
+    return '<span class="admin-muted">' + (id ? 'A merchant not in this list' : 'No merchant recorded') + '</span>';
+  }
+
+  function sourceCell(id) {
+    const source = id ? sourceById(id) : null;
+    if (source) return esc(source.name);
+    return '<span class="admin-muted">' + (id ? 'A source not in this list' : 'No source recorded') + '</span>';
+  }
+
+  /**
+   * An offer's price, and the compare-at price only when it can be supported.
+   *
+   * Two recorded prices are not on their own a comparison: without a recorded
+   * currency, and with a compare-at below what is being asked, there is nothing
+   * to compare and the cell says which of the two is the case. The amount is
+   * never converted, never rounded into a claim and never given a currency the
+   * source did not state.
+   */
+  function offerPriceCell(offer) {
+    const price = D.merchantOfferPriceText(offer);
+    if (!price) return '<span class="admin-muted">No price recorded</span>';
+    const amount = esc(price) + (offer.currency ? '' : ' <span class="admin-muted">(currency not recorded)</span>');
+    if (!D.merchantOfferComparisonSupported(offer)) {
+      return '<span class="admin-offer-price">' + amount + '</span>';
+    }
+    const original = D.merchantOfferPriceText({ priceAmount: offer.originalPrice, currency: offer.currency });
+    return '<span class="admin-offer-price">' + amount + '</span>' +
+      '<span class="admin-offer-was">Compare-at ' + esc(original) + '</span>';
+  }
+
+  function offerObservedCell(offer) {
+    if (offer.lastObservedAt) return esc(formatDateTime(offer.lastObservedAt));
+    if (offer.importedAt) {
+      return '<span class="admin-muted">Not observed since import (' +
+        esc(formatDateTime(offer.importedAt)) + ')</span>';
+    }
+    return '<span class="admin-muted">Not observed</span>';
+  }
+
+  function productRows() {
+    return state.catalogueProducts.map(function (product) {
+      const status = product.statusCopy;
+      return '<tr>' +
+        '<td data-label="Product"><strong>' + esc(product.name) + '</strong></td>' +
+        '<td data-label="Brand">' + (product.brand || '<span class="admin-muted">Not recorded</span>') + '</td>' +
+        '<td data-label="Model">' + (product.modelNumber
+          ? '<code class="admin-job-id">' + esc(product.modelNumber) + '</code>'
+          : '<span class="admin-muted">Not recorded</span>') + '</td>' +
+        '<td data-label="Identity key">' + (product.identityKey
+          ? '<code class="admin-job-id">' + esc(product.identityKey) + '</code>'
+          : '<span class="admin-muted">No identity signals</span>') + '</td>' +
+        '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
+          esc(status.label) + '</span></td>' +
+        '<td data-label="Recorded">' + (product.createdAt ? esc(formatDateTime(product.createdAt))
+          : '<span class="admin-muted">Not recorded</span>') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function offerRows() {
+    return state.catalogueOffers.map(function (offer) {
+      const status = offer.statusCopy;
+      return '<tr>' +
+        '<td data-label="Merchant">' + merchantCell(offer.merchantId) + '</td>' +
+        '<td data-label="Source">' + sourceCell(offer.sourceId) + '</td>' +
+        '<td data-label="Merchant’s own title">' + (offer.merchantTitle
+          ? esc(offer.merchantTitle)
+          : '<span class="admin-muted">Nothing recorded</span>') + '</td>' +
+        '<td data-label="Price">' + offerPriceCell(offer) + '</td>' +
+        '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
+          esc(status.label) + '</span></td>' +
+        '<td data-label="Observed">' + offerObservedCell(offer) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function listFoot(shown, total, noun) {
+    const database = typeof total === 'number'
+      ? 'The database counts ' + total + ' ' + (total === 1 ? noun : noun + 's') + ' in total.'
+      : 'The database did not return a total, so none is shown.';
+    return '<p class="admin-table-foot">Showing the ' + shown + ' most recent' +
+      (shown === 1 ? '' : '') + '. ' + database + '</p>';
+  }
+
+  function productsView() {
+    if (state.catalogueError) {
+      return '<div class="admin-panel panel">' +
+        '<h3>The canonical records could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.catalogueError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-catalogue="1">Try again</button></div>' +
+        '</div>';
+    }
+    if (!state.catalogueLoaded) {
+      return PV.card.loading({ title: 'Reading the canonical layer…',
+        text: 'Counting products, variants and merchant offers, and fetching the most recent.' });
+    }
+
+    const c = state.catalogueCounts || {};
+    const head =
+      '<div class="admin-panel panel">' +
+      '<h3>The canonical catalogue, read-only</h3>' +
+      '<p class="panel-text">Three separate records, and keeping them separate is the point: a ' +
+      '<strong>product</strong> is what the thing is, independent of who sells it — no seller, no price ' +
+      'and no location; a <strong>variant</strong> is one purchasable configuration of a product, and only ' +
+      'exists for products sold in more than one; a <strong>merchant offer</strong> is one merchant’s offer ' +
+      'through one source, with the merchant’s own title, price, links and observed time. An offer is never ' +
+      'the canonical product, and a merchant’s title never replaces a canonical name.</p>' +
+      '<p class="panel-note">Nothing on this page can be changed. There is no editor, no approval and no ' +
+      'publish control, because a canonical record is produced by a reviewed conversion — a later step — and ' +
+      'not by a button here. Nothing in this build turns an imported record into a product, and no connector ' +
+      'reads a source. The public catalogue does not read these tables yet.</p>' +
+      '</div>' +
+
+      '<h3 class="admin-subhead">Records</h3>' +
+      '<ul class="admin-stat-grid">' +
+      statCard('Products', c.products, 'Canonical identities. Not listings, and not anyone’s account.') +
+      statCard('Variants', c.variants, 'Configurations of a product. Optional: a single-configuration product has none.') +
+      statCard('Merchant offers', c.offers, 'Offers by an external merchant through a source. Read-only here.') +
+      '</ul>' +
+
+      '<h3 class="admin-subhead">Recent products</h3>';
+
+    const products = state.catalogueProducts.length
+      ? '<table class="admin-table">' +
+        '<caption class="visually-hidden">The most recently recorded canonical products</caption>' +
+        '<thead><tr><th scope="col">Product</th><th scope="col">Brand</th><th scope="col">Model</th>' +
+        '<th scope="col">Identity key</th><th scope="col">Status</th><th scope="col">Recorded</th>' +
+        '</tr></thead><tbody>' + productRows() + '</tbody></table>' +
+        listFoot(state.catalogueProducts.length, c.products, 'product')
+      : '<div class="admin-panel panel">' +
+        '<h3>No products have been recorded</h3>' +
+        '<p class="panel-text">That is what this build expects: the canonical layer exists and is empty ' +
+        'because nothing converts an imported record into a product yet. When the review step that does so ' +
+        'exists, the products it creates will be listed here — with the merchant title they came from kept ' +
+        'beside the canonical name, not instead of it.</p>' +
+        '</div>';
+
+    const offersHead = '<h3 class="admin-subhead">Recent merchant offers</h3>' +
+      '<p class="admin-subhead-note">Each offer shows the merchant it is from, the source it was supplied ' +
+      'through, and the merchant’s own title. Prices are shown exactly as recorded: no conversion, and no ' +
+      'currency supplied by this page.</p>';
+
+    const offers = state.catalogueOffers.length
+      ? '<table class="admin-table">' +
+        '<caption class="visually-hidden">The most recently recorded merchant offers</caption>' +
+        '<thead><tr><th scope="col">Merchant</th><th scope="col">Source</th>' +
+        '<th scope="col">Merchant’s own title</th><th scope="col">Price</th><th scope="col">Status</th>' +
+        '<th scope="col">Observed</th></tr></thead><tbody>' + offerRows() + '</tbody></table>' +
+        listFoot(state.catalogueOffers.length, c.offers, 'offer')
+      : '<div class="admin-panel panel">' +
+        '<h3>No merchant offers have been recorded</h3>' +
+        '<p class="panel-text">An offer arrives only from a source, through the pipeline, after a review. ' +
+        'This build has no connector and no automatic conversion, so an empty list is the honest state of it ' +
+        'rather than a failure.</p>' +
+        '</div>';
+
+    return head + products + offersHead + offers +
+      '<div class="admin-note">' +
+      '<p><strong>An unavailable offer is not an unavailable product.</strong> An offer’s state says what ' +
+      'that merchant was offering when it was last observed; the product it points at keeps its own state, ' +
+      'because a shelf being empty is not the same as the catalogue being empty.</p>' +
+      '<p><strong>Merchants and sources here are provenance.</strong> An external merchant is not a ' +
+      'PickVanta seller or provider and never becomes one; the source is where the record came from. Neither ' +
+      'can be assigned, claimed or edited from this panel, by an administrator or by anyone else.</p>' +
+      '</div>';
+  }
+
   /* ------------------------------------------------------------- queue --- */
   function filterTabs() {
     const counts = state.counts && state.counts.applications ? state.counts.applications : null;
@@ -890,6 +1090,8 @@ PV.admin = (function () {
     let main;
     if (state.section === 'sellers') {
       main = state.selectedId ? detailView() : queueView();
+    } else if (state.section === 'products') {
+      main = productsView();
     } else if (state.section === 'sources') {
       main = sourcesView();
     } else if (state.section === 'jobs') {
@@ -1007,11 +1209,57 @@ PV.admin = (function () {
     });
   }
 
+  /**
+   * The canonical layer, read.
+   *
+   * Five reads, all of them the database's, issued together: the three counts,
+   * the most recent products, the most recent merchant offers, and — so that an
+   * offer can name who supplied it and through which source — the external
+   * merchants and the sources those offers point at. Nothing here is a join
+   * this layer composes into a new record: each list is shown as it came back,
+   * and a name that is not in the list says so rather than being guessed.
+   *
+   * One failure fails the section. A page that showed three of five reads and
+   * silently left the others blank would be reporting a partial catalogue as
+   * though it were the whole of one.
+   */
+  function loadCatalogue() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.catalogueError = '';
+    state.catalogueLoaded = false;
+    return Promise.all([
+      PV.store.canonical.counts(s),
+      PV.store.canonical.products(s, { limit: CATALOGUE_PREVIEW }),
+      PV.store.canonical.offers(s, { limit: CATALOGUE_PREVIEW }),
+      PV.store.dealEngine.merchants(s),
+      PV.store.dealEngine.sources(s)
+    ]).then(function (results) {
+      state.catalogueCounts = results[0];
+      state.catalogueProducts = (results[1] && results[1].products) || [];
+      state.catalogueOffers = (results[2] && results[2].offers) || [];
+      state.catalogueMerchants = (results[3] && results[3].merchants) || [];
+      state.catalogueSources = (results[4] && results[4].sources) || [];
+      state.catalogueLoaded = true;
+      render();
+    }).catch(function (err) {
+      state.catalogueCounts = null;
+      state.catalogueProducts = [];
+      state.catalogueOffers = [];
+      state.catalogueMerchants = [];
+      state.catalogueSources = [];
+      state.catalogueLoaded = true;
+      state.catalogueError = messageFor(err);
+      render();
+    });
+  }
+
   function loadForSection() {
     if (!isAdmin()) return Promise.resolve();
     if (state.section === 'sellers') {
       return Promise.all([loadCounts(), state.selectedId ? loadDetail() : loadQueue()]);
     }
+    if (state.section === 'products') return loadCatalogue();
     if (state.section === 'sources') return loadSources();
     if (state.section === 'jobs') return loadJobs();
     return loadCounts();
@@ -1360,6 +1608,7 @@ PV.admin = (function () {
     }
     if (target.closest('[data-cancel-source-form]')) { cancelSourceForm(); return; }
     if (target.closest('[data-retry-jobs]')) { loadJobs(); return; }
+    if (target.closest('[data-retry-catalogue]')) { loadCatalogue(); return; }
     if (target.closest('[data-retry-counts]')) { loadCounts(); return; }
     if (target.closest('[data-retry-sources]')) { loadSources(); return; }
     if (target.closest('[data-retry-queue]')) { loadQueue(); return; }
