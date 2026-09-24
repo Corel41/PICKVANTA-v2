@@ -56,10 +56,12 @@
 -- ---------------------------------------------------------------- pre-checks ---
 do $$
 begin
-  if to_regproc('public.set_updated_at()') is null then
+  /* to_regprocedure, not to_regproc: only the former accepts a function name
+     together with its argument list (see 0002 for the same guard). */
+  if to_regprocedure('public.set_updated_at()') is null then
     raise exception 'Apply db/migrations/0001_catalogue.sql before this file: public.set_updated_at() is missing.';
   end if;
-  if to_regproc('public.is_admin()') is null then
+  if to_regprocedure('public.is_admin()') is null then
     raise exception 'Apply db/migrations/0002_auth_profiles.sql before this file: public.is_admin() is missing.';
   end if;
   if to_regclass('auth.users') is null then

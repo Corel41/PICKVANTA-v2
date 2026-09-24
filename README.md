@@ -20,15 +20,22 @@ entity plus ownership, not a role, so one person may later run more than one bus
 `js/auth.js` remains the only module that talks to Supabase Auth, and the public catalogue
 stays fully browsable without an account.
 
-Still absent: no seller or provider dashboard, no listing tools, no Deal Engine, no merchant
-offers or affiliate links, no payments, no live pricing, and no browser writes to the
-catalogue. The admin panel reviews accounts and counts rows — it manages no products, no
-categories and no imports.
+Still absent: no seller or provider dashboard, no listing tools, no merchant offers or
+affiliate links, no payments, no live pricing, and no browser writes to the catalogue. The
+admin panel reviews accounts, counts rows and lists Deal Engine sources — it manages no
+products, no categories and no imports.
 
-> **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`) and
-> the admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`) are written but
-> have not been applied to any project.** Run `0001`, `0002`, `0003` and `0004` in that
-> order, then the seed. Until `0003` is applied, the onboarding page says plainly that
+**The Deal Engine's foundation exists as of Step 13, and nothing is connected to it.** The
+database models where imported deals come from, what arrived, what happened to it and where
+it sits in the import pipeline; there is no connector, no scraper, no affiliate network, no
+worker, no schedule and no automatic publishing. See
+[The Deal Engine](#the-deal-engine-step-13).
+
+> **The seller/provider migration (`db/migrations/0003_seller_provider_profiles.sql`), the
+> admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`) and the Deal Engine
+> migration (`db/migrations/0005_deal_engine_foundation.sql`) are written but have not been
+> applied to any project.** Run `0001`, `0002`, `0003`, `0004` and `0005` in that order,
+> then the seed. Until `0003` is applied, the onboarding page says plainly that
 > applications need the live catalogue connection rather than offering a form that cannot be
 > stored. See [Applying the schema](#applying-the-schema-and-the-seed).
 >
@@ -50,7 +57,7 @@ categories and no imports.
 | Detail | `detail.html?id=…` | One reusable template ordered as breadcrumb → identity → visual → type/category/subcategory → illustrative price → seller/provider → location or service area → availability → **Quick facts** → highlights → **What to consider** → actions → offer (**Price / Offer / Important context**) → specifications → **Good to know** → **Related options**. Products and services lead with different facts and prompts. Related records explain *why* they appear (“Why this appears: same subcategory · similar price · Nairobi”). |
 | Compare | `compare.html?ids=a,b,c` | Up to three options side by side with a **Compare focus** selector (price, performance, features, portability, availability, location, specifications, service coverage, included services) that highlights matching rows and says “Your selected comparison areas are highlighted below.” Rows are grouped per category (products and services use different groups; unknown combinations fall back to the generic grouping), rows that are empty for every option are dropped, “Show differences only” hides identical rows, values that no other selected option shares are tinted (tint marks the difference, never superiority), and small screens get a stacked card layout. Equal treatment throughout — no scoring, ranking or winner. |
 | Account | `account.html` | Sign in, create an account, or — when signed in — see the account the database knows about (email, account status, role), find **Sell or provide on PickVanta** (start an application, or see each existing one with its current status) and sign out. In demonstration mode the page says plainly that accounts need the live catalogue; it never fakes a sign-in. |
-| Admin | `admin.html` | **Step 12.** The operational panel, for administrators only: a dashboard of live row counts (applications by status, published listings, active offers) and the **seller and provider review queue** — filter by status, open an application, read its details and its review history, and approve, reject, suspend or archive it. Sent to `noindex`; nothing is linked to it from the public pages, and no admin request is made until the database has confirmed the role. |
+| Admin | `admin.html` | **Steps 12–13.** The operational panel, for administrators only: a dashboard of live row counts (applications by status, published listings, active offers), the **seller and provider review queue** — filter by status, open an application, read its details and its review history, and approve, reject, suspend or archive it — and the Deal Engine's **Sources**, which lists where imported deals will come from and states plainly that no connector reads them yet. Reachable as `admin.html?section=dashboard\|sellers\|sources`. Sent to `noindex`; nothing is linked to it from the public pages, and no admin request is made until the database has confirmed the role. |
 | Sell or provide | `sell.html` | **Step 11.** Apply to run a seller (products) or provider (services) account: choose the type, describe the business, submit, and read the outcome. Existing applications are listed with their real status; a pending one can be edited. Nothing here publishes a listing, and the page never claims an approval the database did not give. |
 | Guides | `guides.html` | Guide outlines with category filtering and search. Each card states the question it answers, hides its topics behind a disclosure, and links into the matching slice of the catalogue (for example “How to choose a Wi-Fi router” → `discover.html?category=technology&sub=Networking`). Full articles are intentionally not written yet. |
 
@@ -171,10 +178,12 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Step 11)
+### Current (Steps 11–13)
 
 There are two paths, and they are deliberately separate. Browsing is public; an account
-is only needed for the parts of the product that belong to a person.
+is only needed for the parts of the product that belong to a person. Behind them, and
+reachable from neither, sits the admin panel with its review queue and the Deal Engine's
+private records — a third area that only a database-confirmed administrator can read.
 
 ```
 public catalogue                              authenticated features
@@ -301,6 +310,11 @@ the catalogue and nothing else; the only row a signed-in person can write is the
 | `seller_profile_set_seller(uuid, text)` | `0003` | as above | Links an approved account to its public catalogue record (used by a later stage) |
 | `admin_dashboard_counts()` | `0004` | `authenticated`, and the function checks `is_admin()` itself | Returns the dashboard's row counts as one jsonb object — counts only, never rows |
 
+`0005` defines **no function at all**: its tables are read through RLS by an administrator
+and written by nothing in this stage. When the pipeline needs to write — recording an import,
+advancing a stage — that write belongs in a function with its own validation, added in the
+step that builds it, rather than in a policy that lets a client write untrusted data.
+
 JSON is used only where a value genuinely is a document (specification rows, image
 entries, guide sections, `service_area text[]`, settings values). Every relationship
 that is a relationship is a foreign key; there is no record that stores an array of ids
@@ -314,6 +328,7 @@ db/migrations/0001_catalogue.sql              # tables, constraints, indexes, tr
 db/migrations/0002_auth_profiles.sql          # profiles, roles, is_admin(), RLS, column grants
 db/migrations/0003_seller_provider_profiles.sql  # seller/provider accounts, RLS, review functions
 db/migrations/0004_admin_dashboard.sql           # admin_dashboard_counts(), is_admin()-gated
+db/migrations/0005_deal_engine_foundation.sql    # imported deals: sources, records, media, jobs, events
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -321,19 +336,21 @@ psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0002_auth_profiles.sql \
                      -f db/migrations/0003_seller_provider_profiles.sql \
                      -f db/migrations/0004_admin_dashboard.sql \
+                     -f db/migrations/0005_deal_engine_foundation.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
-`0003_seller_provider_profiles.sql` must run **after** `0001` and `0002`, and
-`0004_admin_dashboard.sql` after `0003` — each one refuses to run otherwise, naming the file
-it needs — and each ends with a self-check that fails the migration if a policy, a grant or
-a function is not what it should be. Like the others they are idempotent: re-running one
-replaces its trigger, policies and functions.
+`0003_seller_provider_profiles.sql` must run **after** `0001` and `0002`,
+`0004_admin_dashboard.sql` after `0003`, and `0005_deal_engine_foundation.sql` after `0001`,
+`0002` and `0004` — each one refuses to run otherwise, naming the file it needs — and each
+ends with a self-check that fails the migration if a policy, a grant, a constraint or a
+function is not what it should be. Like the others they are idempotent: re-running one
+replaces its triggers, policies and functions.
 
 **What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
-person's application to run a business, and `0004` is the one counting function the admin
-dashboard needs. No migration alters an earlier one, and none of them creates a table the
-public catalogue reads.
+person's application to run a business, `0004` is the one counting function the admin
+dashboard needs, and `0005` is the private side of imported deals. No migration alters an
+earlier one, and none of them creates a table the public catalogue reads.
 
 `0002_auth_profiles.sql` is separate from the catalogue migration because it is a
 different concern: `0001` is the catalogue, `0002` is people. Run `0002` **after** your
@@ -782,15 +799,253 @@ The sidebar states the intended architecture and marks what does not exist yet:
 | Section | State |
 | ------- | ----- |
 | **Operations** — Dashboard, Seller & provider review | **Built** |
+| **Deal Engine** — Sources | **Built** (Step 13: lists real rows, contacts nothing) |
+| Deal Engine — Import Deals, Review Queue, Scheduled Scans, Affiliate Links, Import History | Planned |
 | Marketplace — Listings, Products, Categories, Deals | Planned |
-| Deal Engine — Import sources, Affiliate links, Import history | Planned |
 | Insights — Analytics | Planned |
 | System — Settings | Planned |
 
 Planned entries are not links and not buttons — they cannot be clicked, because a dead
 control promising a feature is worse than an honest label. The panel's code reaches exactly
-four store methods (`counts`, `accounts`, `account`, `review`); there is no listing, product,
-import, affiliate or commission logic behind any of those labels.
+five admin store methods (`counts`, `accounts`, `account`, `review`, `available`) and one
+Deal Engine read (`sources`); there is no listing, product, variant, import, connector,
+affiliate, commission or publishing logic behind any of the other labels.
+
+## The Deal Engine (Step 13)
+
+**Step 13 builds the engine room, not the engine.** It models the records an imported deal
+passes through and the pipeline it will move along; it connects to nothing. There is no
+marketplace connector, no affiliate network, no merchant API, no feed reader, no scraper,
+no crawler, no sitemap scan, no worker, no cron job, no price monitoring and no automatic
+publishing. Every external integration named in this section is **future work**, and the
+database is shaped so that the future work has somewhere to land.
+
+The engine has two halves that never touch the public catalogue's read path:
+
+```
+   IMPORTED → VALIDATED → NORMALIZED → DEDUPLICATED → PENDING-REVIEW → APPROVED → PUBLISHED
+                                                        │
+                        rejected · archived · failed ───┘  (terminal, and always traceable)
+```
+
+The public catalogue is unchanged. `public.deals` from `0001` remains the presentation
+model — what a visitor reads on `deals.html` and `detail.html`. The Deal Engine's records
+live in their own tables, are readable only by an administrator, and reach a public page
+only by becoming a published deal that a person approved.
+
+### What exists after this step
+
+All six tables come from `db/migrations/0005_deal_engine_foundation.sql`.
+
+| Table | What it holds | Why it is separate |
+| ----- | ------------- | ------------------ |
+| `deal_sources` | Where imported information comes from: type, provider/network, market country, endpoint reference, status, non-secret configuration | A source is an agreement, not a scraper, and a credential never lives in a row |
+| `external_merchants` | A merchant (marketplace or affiliate-side business) an import came from, with its own identifier | An external merchant is **not** a PickVanta seller or provider, and no column links it to one |
+| `deal_engine_jobs` | One run of one task: type, status, progress, stats, error, start/finish times | The pipeline runs outside the request/response cycle; a worker needs somewhere honest to report |
+| `imported_deals` | One imported record: provenance, the affiliate destination, normalised fields, pipeline and review state | Raw external data must never be a public deal, and its provenance must never be lost |
+| `imported_deal_media` | References to media the source hosts: URL, type, order, attribution, optional fallback | PickVanta points at merchant assets instead of downloading them |
+| `deal_engine_events` | Append-only history: stage, outcome, detail, who or what acted | "What happened to this deal?" has to be answerable, and an event is never rewritten |
+
+### Imported deal vs public deal
+
+The two are different records on purpose:
+
+* an **imported deal** is what a source said, kept as it arrived (`imported_metadata` holds
+  the source's own payload, unchanged, as evidence for a reviewer);
+* a **public deal** is what PickVanta decided to show, in the catalogue's own tables.
+
+`imported_deals.published_deal_id` is the single link between them, written when a reviewer
+publishes. Nothing else connects the two, and no public page reads an imported record —
+`js/store.js` keeps the Deal Engine behind its own namespace, and no catalogue page calls it.
+
+### Source URL vs affiliate URL
+
+These are different things, and the schema makes that structural:
+
+| Column | Meaning |
+| ------ | ------- |
+| `source_url` | Where the product information came from. Provenance, not a paid link. |
+| `affiliate_url` | The tracked destination a buyer would be sent through, once an affiliate agreement exists. |
+
+`imported_deals_source_and_affiliate_differ` refuses a row where the two are the same value,
+so a report, a review or a link can never confuse one for the other. **No affiliate URL is
+generated anywhere in this repository, and none is hard-coded**: the column is written by
+the pipeline in a later step, from an agreement that does not exist yet, and never by a
+browser. When a "get this deal" action is eventually built, it uses the approved affiliate
+or deep link — and until such a link exists, the honest answer is that there is nothing to
+follow.
+
+### External merchant vs PickVanta seller or provider
+
+There are three different things in this project and they stay different:
+
+| Concept | Where it lives | What it is |
+| ------- | -------------- | ---------- |
+| PickVanta seller/provider | `public.seller_provider_profiles` (0003) | A person who applied to sell or provide on PickVanta, with a review lifecycle |
+| Catalogue seller | `public.sellers` (0001) | The public display record a listing points at |
+| External merchant | `public.external_merchants` (0005) | A marketplace or affiliate-side business an import came from — **not** a PickVanta account |
+
+An external merchant is never assigned a `seller_provider_profiles` row, has no owner, and
+cannot become a participant by being imported. The two tables share no column, and the
+migration's self-check fails if a merchant ever grows a column pointing at an account.
+
+### The future shape: Product → Variant → Merchant Offer → Affiliate Link
+
+The intended marketplace architecture is:
+
+```
+Product → Variant → Merchant Offer → Affiliate Link
+PickVanta Seller/Provider → PickVanta Listings        (a separate line)
+```
+
+The same product sold by three merchants is one product with three offers, not three
+customer-facing products. **None of that is built here** and no table for it exists yet:
+what this step establishes is the boundary that keeps it possible — the imported record
+already carries the signals a future product match will need (external product identifier,
+GTIN, brand, model number, a normalised name) and the merchant it came from, so the step
+that introduces products and variants will not have to unpick this one.
+
+### Provenance and import history
+
+Every imported record can answer the questions an administrator will ask:
+
+| Question | Where the answer is |
+| -------- | ------------------- |
+| Where did this come from? | `source_id` → `deal_sources`; `source_url`; `merchant_name`, `merchant_ref`, `external_merchant_id` |
+| When was it imported? | `imported_at`, `created_at`, and `job_id` → the run that fetched it |
+| What happened to it? | `deal_engine_events` — one row per stage, append-only |
+| Was it normalised? | `normalization_status`, `normalization_result`, the `normalized_*` columns |
+| Was it considered a duplicate? | `deduplication_status`, `dedup_match_class`, `dedup_matched_deal_id` |
+| Who approved it? | `review_status`, `reviewed_by`, `reviewed_at`, `review_note` |
+| What URL would a buyer follow? | `affiliate_url` (and `source_url` for provenance) |
+
+Events are append-only by trigger: an event cannot be rewritten or deleted, and because the
+history belongs to the record, **an imported record that has a history cannot be deleted at
+all** — it is archived instead. That is the intent: a failed import stays traceable rather
+than disappearing.
+
+### Validation, normalization and deduplication
+
+* **Validation** answers "is this structurally usable?" — the required identifier, a real
+  URL, a non-negative price, an ISO-4217 currency, a name. In this step the constraints do
+  the enforcing: the status vocabulary, the URL shapes, the currency shape, the non-negative
+  price, the GTIN shape, and "at least one of an external id, a title or a URL". A record
+  that fails keeps its failure visible (`validation_status`, `validation_result`, `error`)
+  instead of vanishing.
+* **Normalization** maps external formats onto PickVanta's own: currency, category,
+  availability, product/service classification, a standardised merchant name. The columns
+  and statuses exist; the mapping does not, and there is no AI anywhere in this project —
+  when one is added it will be a processor behind the same interface, not a rewrite.
+* **Deduplication** is deterministic and never merges by itself. The classes are `new-product`,
+  `exact-match`, `probable-match` and `uncertain-match`, and a matched record must name what
+  it matched (`dedup_matched_deal_id`), so an uncertain case can go to a person instead of
+  being decided. `(source_id, external_product_id)` is unique, which stops the same item
+  being imported twice from one source while keeping the same item from a *different* source
+  as its own record with its own provenance — cross-source identity is a product-level
+  decision for a later step, not a delete-and-merge here.
+
+### Media: references, not copies
+
+`imported_deal_media` stores where an asset is, its type, its order, its attribution and an
+optional fallback — never the bytes. PickVanta does not download, proxy, resize or
+health-check a merchant's assets in this step. The existing image system (local fallback
+included) is untouched.
+
+### Jobs: what a future worker will report
+
+`deal_engine_jobs` models one run of one task — `source-scan`, `feed-import`, `url-discovery`,
+`extraction`, `normalization`, `deduplication`, `price-check`, `availability-check`,
+`deal-expiry`, `link-health` — with `queued`, `running`, `succeeded`, `failed` or `cancelled`,
+progress, stats, timings and an error. A job marked `failed` must record why (a constraint
+enforces it). **No worker, scheduler or background process exists**: the public website never
+waits on one, and nothing here runs on a timer.
+
+### Security: who may read, who may write
+
+* RLS is enabled on all six tables.
+* Each table has **exactly one policy, and it is a SELECT policy gated on
+  `public.is_admin()`**. A signed-out visitor is refused outright (`anon` holds no privilege
+  at all); a signed-in member of the public gets zero rows, by listing and by guessing an id.
+* **No INSERT, UPDATE or DELETE policy exists for any client role — not even for an
+  administrator.** Imported data is untrusted external input, so no browser is allowed to
+  write it; the future pipeline writes with a server-side key or through its own validating
+  function. The admin panel therefore has no write controls for these tables, because
+  offering one would be offering something the database refuses.
+* `deal_sources.config` refuses a credential-shaped key by constraint. Credentials belong in
+  the server environment — never in a row, never in the browser. The panel does not even
+  request the `config` column when it lists sources.
+* Imported text is untrusted: it is escaped at every point it is rendered, and a recorded URL
+  becomes a link only if `isSafeHttpUrl()` accepts it (http/https, no quotes, no control
+  characters). A `javascript:` value is shown as inert text, never as an `href`.
+
+### Two corrections to earlier migrations, made in this step
+
+Both were found by applying `0001`–`0005` to a real PostgreSQL and watching what actually
+happened, and both would have blocked the project:
+
+1. **`0002` and `0003` could never pass their own pre-checks.** They asked
+   `to_regproc('public.set_updated_at()')`, but `to_regproc` takes a bare function name —
+   given a signature it returns `NULL`, so both migrations raised "apply 0001 first" on a
+   project where `0001` was applied. They now use `to_regprocedure`, which is the function
+   that accepts a name *with* its argument list.
+2. **The first administrator could never be created.** `profiles_guard_role()` refused any
+   role that is not `user` unless the caller was already an administrator — including the
+   out-of-band `update` this README documents, which meant the admin panel could never be
+   reached on a real project. The guard is now scoped to clients (`anon` / `authenticated`,
+   i.e. anything that arrives through the API) and still refuses every attempt from a
+   browser; an operator's SQL, a migration or the server-side key may bootstrap the first
+   administrator.
+
+Neither correction weakens anything: the guard still refuses a self-promotion even if a
+future grant allowed the column, and the pre-checks still fail loudly when a required
+migration is genuinely missing.
+
+### Global by construction, not Kenya-only
+
+The engine stores ISO-3166-1 alpha-2 country codes (`market_country`, `country`) and
+ISO-4217 currency codes (`imported_currency`), both constrained, with `''` meaning "not
+recorded". Nothing in the engine assumes Kenya, a single market, a single currency or a
+single network. Display currency, preferred countries, shipping availability and
+country-specific affiliate eligibility are later work; the storage does not preclude any of
+them.
+
+### Future architecture, and what is deliberately not built
+
+| Area | State after Step 13 |
+| ---- | ------------------- |
+| Sources, imported records, media references, jobs, events | **Modelled** (tables, constraints, indexes, RLS) |
+| Sources list in the admin panel | **Built** — real rows, honest empty state, contacts nothing |
+| Connectors (feeds, merchant APIs, affiliate networks), scraping, discovery | Not built |
+| Workers, schedulers, cron, scans, monitoring | Not built |
+| Validation, normalization, deduplication processors | Not built (the states and columns exist) |
+| Import Deals, Review Queue, Scheduled Scans, Affiliate Links, Import History screens | Not built (nav entries are labelled *Planned* and are not clickable) |
+| Affiliate network, affiliate accounts, link generation, clicks, conversions, commissions, revenue | Not built — and no fake accounts, clicks, conversions or figures exist anywhere |
+| Product / Variant / Merchant Offer tables | Not built |
+| Seller or provider dashboards, listing creation or editing | Not built |
+| Approval or publishing of an imported record | Not built — and nothing publishes itself |
+
+The three future architectures the model is shaped for: a **connector** reads a source and
+records an import with its provenance; a **worker** runs a job and appends events while it
+advances the pipeline; an **affiliate account** issues a tracked link per merchant offer,
+and clicks, conversions and commissions are recorded against that link. Each of those is a
+later step, and each has a place to stand in this schema.
+
+### Migration order for this step
+
+```bash
+psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql
+psql "$DATABASE_URL" -f db/migrations/0002_auth_profiles.sql
+psql "$DATABASE_URL" -f db/migrations/0003_seller_provider_profiles.sql
+psql "$DATABASE_URL" -f db/migrations/0004_admin_dashboard.sql
+psql "$DATABASE_URL" -f db/migrations/0005_deal_engine_foundation.sql
+```
+
+`0005` refuses to run without `0001` (for `public.deals` and `public.set_updated_at()`),
+`0002` (for `public.is_admin()`) and Supabase Auth (`auth.users`), and it ends with a
+self-check that fails if RLS is off, if `anon` can read anything, if a client can write
+anything, if a write policy exists, if the source/affiliate separation is missing, if the
+pipeline vocabulary is unconstrained, if a credential-shaped configuration would be accepted,
+or if the event log is not append-only.
 
 ## Configuration
 
@@ -873,12 +1128,12 @@ HTML/CSS/JS.
 | ---- | ---- |
 | `config.js` | Runtime configuration (public values only): which source to use, the Supabase URL and anon key, and the failure policy. Loaded first by every page. `config.example.js` is a template for a local, git-ignored override. |
 | `data.js` | The demonstration catalogue only: `taxonomy`, `locations`, `sellers`, `listings`, `offers`, `guides` and the Step 5 decision-support config (`considerations`, `goodToKnow`, `compareFocus`, `compareGroups`, `needs`, `popularTags`). Loaded **on demand** by the demo adapter — it is the fallback, not an API the pages use, and no page includes it as a script. |
-| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. Since Step 11 it also holds the seller/provider vocabularies and copy, and since Step 12 the operational wording (`adminStatusCopy`, `adminAccountTypeCopy`), the review actions and their note limits. No DOM, no network, no data. |
-| `store.js` | **Data access layer.** Owns both adapters, the public catalogue reads and the two write paths — a person's own application, and an administrator's review — the latter kept in its own `PV.store.admin` namespace so a privileged call is always recognisable at the call site and the catalogue's read paths never touch a private table. Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
+| `domain.js` | **The domain model.** Canonical vocabularies, shape normalisers, label/format helpers (`money`, `priceText`, `locationLabel`, `availabilityInfo`, …) and the validators used by the store. Since Step 11 it also holds the seller/provider vocabularies and copy, since Step 12 the operational wording (`adminStatusCopy`, `adminAccountTypeCopy`), the review actions and their note limits, and since Step 13 the Deal Engine vocabularies (`DEAL_SOURCE_TYPES`, `DEAL_SOURCE_STATUS`, the pipeline stages and their terminal outcomes) plus `isSafeHttpUrl()` — the validator that decides whether a URL recorded from outside may become a link. No DOM, no network, no data. |
+| `store.js` | **Data access layer.** Owns both adapters, the public catalogue reads and the two write paths — a person's own application, and an administrator's review — the latter kept in its own `PV.store.admin` namespace so a privileged call is always recognisable at the call site and the catalogue's read paths never touch a private table. Since Step 13 it also exposes `PV.store.dealEngine.sources()` — read-only, admin-gated by RLS, with no demonstration-data fallback: private records either come from the database or the panel says so. Owns both adapters (Supabase REST and the bundled demo catalogue) and the fallback policy, normalises and validates every record against `js/domain.js`, and implements retrieval, search, filtering, sorting, related options, offers, guides, taxonomy, the homepage selections and the paged `query()` envelope. **The single write path in the whole project** is `sellerAccounts.create/update`, which requires the person's own session and can only ever name their own row. No DOM, no user state. |
 | `core.js` | Interface layer: DOM/format helpers, cards, loading/error/empty states, header/footer chrome, toast, compare tray, the browser-local compare and recently-viewed stores, and the filter/sort/search controls. It re-exports the data layer's price and label helpers through `PV.util` so view code has one import surface. |
 | `auth.js` | **Authentication layer (Step 9).** The only module that talks to Supabase Auth. Owns the session (store, restore, refresh, drop), the current user and profile, the sign-up/sign-in/sign-out calls, the friendly message for every failure, and the account controls in the shared header (`#authControls`, `#authControlsMobile`). Exposes `PV.auth`; pages read state, they never keep their own copy. No DOM outside those two header hosts, no catalogue knowledge, no SDK — it is plain `fetch`, so the site stays dependency-free. |
 | `account.js` | Account view controller for `account.html`: renders what `PV.auth` reports (sign-in form, create-account form, the signed-in summary, or the demonstration-mode notice), reads the person's own seller/provider applications for the **Sell or provide on PickVanta** section, and passes typed input to the layer. It makes no authentication decision of its own. |
-| `admin.js` | **Step 12.** Admin panel controller for `admin.html`: the four access states, the dashboard, the review queue, the application detail and the review confirmations. It issues no request of its own — everything goes through `PV.store.admin`, and every refusal is the database's. It decides what to *draw*, never what is allowed. |
+| `admin.js` | **Steps 12–13.** Admin panel controller for `admin.html`: the four access states, the dashboard, the review queue, the application detail, the review confirmations, and the Deal Engine's Sources list with the pipeline it feeds. It issues no request of its own — everything goes through `PV.store.admin` and `PV.store.dealEngine` — and every refusal is the database's. It decides what to *draw*, never what is allowed. Imported text is escaped at every rendering point: a hostile source name is shown as characters, never as markup. |
 | `sell.js` | **Step 11.** Onboarding controller for `sell.html`: the account-type choice, the application form and its validation, the list of existing applications with their real status, and the honest failure states (signed out, no project configured, service unreachable, an edit the database refused). It asks `PV.store` for everything and issues no request of its own. |
 | `listing.js` | The shared listing view behind Discover and Deals. Renders the result envelope from `PV.store.query()`, including the loading, empty and error states. |
 | `app.js` | Home page controller. |
@@ -1035,7 +1290,15 @@ suspend, archive, with a note. That is the whole of it. It manages no products, 
 categories, no listings and no imports; its other navigation sections are labelled *Planned*
 and are not clickable, because they do not exist.
 
-What is still not built around the panel and the application is the marketplace itself: no
-seller dashboard, no listing tools, no product variants, no merchant offers, no affiliate
-links, no Deal Engine, no commissions, no payments and no subscriptions. Step 11 built the
-foundation and Step 12 the first review surface over it; neither is the marketplace.
+Since Step 13 there is also the **Deal Engine's foundation**: six private tables modelling
+where imported deals come from, what arrived, what happened to it and where it sits in the
+pipeline, plus a Sources list in the admin panel. Nothing is connected to them. There is no
+connector, no feed reader, no merchant API, no affiliate network, no scraper, no worker, no
+schedule, no monitoring and no automatic publishing — and no fake imports, clicks,
+conversions, commissions or revenue anywhere.
+
+What is still not built around the panel, the application and those records is the
+marketplace itself: no seller dashboard, no listing tools, no product variants, no merchant
+offers, no affiliate links, no commissions, no payments and no subscriptions. Step 11 built
+the participation foundation, Step 12 the first review surface over it, and Step 13 the
+engine room underneath it; none of them is the marketplace.

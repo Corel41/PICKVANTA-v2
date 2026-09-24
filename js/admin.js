@@ -1,8 +1,8 @@
 /* ==========================================================================
-   PickVanta — admin panel controller (Step 12)
+   PickVanta — admin panel controller (Steps 12–13)
    --------------------------------------------------------------------------
-   The operational side of PickVanta: a dashboard of real counts and the seller
-   /provider review queue.
+   The operational side of PickVanta: a dashboard of real counts, the seller
+   /provider review queue, and the Deal Engine's sources.
 
    What this file is not: an authorization layer. It decides what to *draw*,
    never what is allowed. Every request goes to js/store.js, which sends the
@@ -33,7 +33,7 @@ PV.admin = (function () {
 
   const QUEUE_PAGE = 50;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const SECTIONS = ['dashboard', 'sellers'];
+  const SECTIONS = ['dashboard', 'sellers', 'sources'];
 
   /* The panel's structure. `active` items work today; `planned` items are the
      intended architecture and are deliberately not clickable — a dead control
@@ -58,9 +58,12 @@ PV.admin = (function () {
     {
       label: 'Deal Engine',
       items: [
-        { id: 'sources', label: 'Import sources' },
-        { id: 'affiliates', label: 'Affiliate links' },
-        { id: 'imports', label: 'Import history' }
+        { id: 'sources', label: 'Sources', active: true },
+        { id: 'imports', label: 'Import Deals' },
+        { id: 'review', label: 'Review Queue' },
+        { id: 'scans', label: 'Scheduled Scans' },
+        { id: 'affiliates', label: 'Affiliate Links' },
+        { id: 'history', label: 'Import History' }
       ]
     },
     {
@@ -96,6 +99,9 @@ PV.admin = (function () {
     detail: null,
     detailLoaded: false,
     detailError: '',
+    sources: [],
+    sourcesLoaded: false,
+    sourcesError: '',
     action: null,          /* the review action awaiting confirmation */
     note: '',
     noteError: '',
@@ -210,13 +216,15 @@ PV.admin = (function () {
         );
       }).join('') +
       '<p class="admin-nav-note">Planned sections are the intended architecture. ' +
-      'None of them is built yet, and none of them is clickable.</p>' +
+      'None of them is built yet, and none of them is clickable. The Deal Engine is ' +
+      'its foundation only: sources can be listed, and no connector reads one.</p>' +
       '</nav>'
     );
   }
 
   function activeSectionTitle() {
     if (state.section === 'sellers') return state.selectedId ? 'Application' : 'Seller & provider review';
+    if (state.section === 'sources') return 'Sources';
     return 'Dashboard';
   }
 
@@ -347,6 +355,121 @@ PV.admin = (function () {
       'is estimated, extrapolated or modelled: these are row counts, and where a number could not be read it says so.</p>' +
       '</div>'
     );
+  }
+
+  /* ------------------------------------------------- Deal Engine: sources --
+     The first operational piece of the Deal Engine: where imported deals will
+     come from. It reads real rows, and says plainly that nothing imports
+     anything yet — no connector, no scraper, no schedule, no affiliate
+     network. Nothing on this page contacts an endpoint; a recorded URL is
+     shown as a reference an operator may open, never fetched by the page.
+     ------------------------------------------------------------------------ */
+
+  /** The host part of a recorded endpoint, or the value itself if unreadable. */
+  function endpointLabel(url) {
+    const value = String(url || '').trim();
+    if (!value) return '';
+    try {
+      return new URL(value).host || value;
+    } catch (err) {
+      return value;
+    }
+  }
+
+  function endpointCell(url) {
+    const value = String(url || '').trim();
+    if (!value) return '<span class="admin-muted">Not recorded</span>';
+    /* Only a URL the validator accepts becomes a link. Anything else — a
+       value the database constraint should have refused — stays text. */
+    if (!D.isSafeHttpUrl(value)) {
+      return '<span class="admin-muted">' + esc(value) + '</span>';
+    }
+    return '<a class="admin-source-link" href="' + esc(value) + '" target="_blank" ' +
+      'rel="noopener noreferrer">' + esc(endpointLabel(value)) + '</a>';
+  }
+
+  function pipelineStrip() {
+    return '<h3 class="admin-subhead">The pipeline this feeds</h3>' +
+      '<ol class="admin-pipeline">' +
+      D.DEAL_PIPELINE_STAGES.map(function (stage) {
+        return '<li class="admin-pipeline-step">' +
+          '<span class="admin-pipeline-label">' + esc(stage.label) + '</span>' +
+          '<span class="admin-pipeline-note">' + esc(stage.blurb) + '</span>' +
+          '</li>';
+      }).join('') +
+      '</ol>' +
+      '<p class="admin-note-line">Ends as ' +
+      D.DEAL_PIPELINE_TERMINAL.map(function (stage) { return esc(stage.label.toLowerCase()); }).join(', ') +
+      '. No stage of this runs yet: there is no connector, no worker and no schedule, and nothing ' +
+      'publishes itself — an imported record waits for a person.</p>';
+  }
+
+  function sourcesView() {
+    if (state.sourcesError) {
+      return '<div class="admin-panel panel">' +
+        '<h3>Sources could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.sourcesError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-sources="1">Try again</button></div>' +
+        '</div>';
+    }
+    if (!state.sourcesLoaded) {
+      return PV.card.loading({ title: 'Reading sources…', text: 'Fetching the Deal Engine sources from the database.' });
+    }
+
+    const head =
+      '<div class="admin-panel panel">' +
+      '<h3>Where imported deals will come from</h3>' +
+      '<p class="panel-text">A source is an agreement and a place to read from — a marketplace feed, ' +
+      'an affiliate network feed, a merchant API, a merchant product feed, or a source PickVanta is ' +
+      'permitted to read. This page lists them; it does not contact them.</p>' +
+      '<p class="panel-note">Nothing is imported yet. There is no connector, no scraper and no schedule ' +
+      'in this build, and an imported record could never be published automatically: it would wait in a ' +
+      'review queue for an administrator. Configure a source in the database (see the README) until a ' +
+      'connector exists.</p>' +
+      '<p class="panel-note">A source row never carries a credential: an agreement’s key or token belongs ' +
+      'in the server environment. This page does not even ask the database for a source’s configuration, ' +
+      'so there is nothing here to leak.</p>' +
+      '</div>';
+
+    if (!state.sources.length) {
+      return head +
+        '<div class="admin-panel panel">' +
+        '<h3>No sources are configured</h3>' +
+        '<p class="panel-text">None is recorded in the database, so there is nothing to list. A source ' +
+        'is added by an operator with SQL for now; the panel does not create them, and no credential is ' +
+        'ever stored in a source row or in this page.</p>' +
+        '</div>' + pipelineStrip();
+    }
+
+    return head +
+      '<table class="admin-table">' +
+      '<caption class="visually-hidden">Deal Engine sources, by name</caption>' +
+      '<thead><tr>' +
+      '<th scope="col">Source</th><th scope="col">Type</th><th scope="col">Provider</th>' +
+      '<th scope="col">Market</th><th scope="col">Endpoint</th><th scope="col">Status</th>' +
+      '<th scope="col">Added</th>' +
+      '</tr></thead><tbody>' +
+      state.sources.map(function (source) {
+        const type = D.dealSourceTypeCopy(source.sourceType);
+        const status = D.dealSourceStatusCopy(source.status);
+        return '<tr>' +
+          '<td data-label="Source"><strong>' + esc(source.name) + '</strong></td>' +
+          '<td data-label="Type">' + esc(type.label) + '</td>' +
+          '<td data-label="Provider">' + (source.providerName ? esc(source.providerName)
+            : '<span class="admin-muted">Not recorded</span>') + '</td>' +
+          '<td data-label="Market">' + (source.marketCountry ? esc(source.marketCountry)
+            : '<span class="admin-muted">Not recorded</span>') + '</td>' +
+          '<td data-label="Endpoint">' + endpointCell(source.endpointUrl) + '</td>' +
+          '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
+            esc(status.label) + '</span></td>' +
+          '<td data-label="Added">' + esc(formatDateTime(source.createdAt)) + '</td>' +
+          '</tr>';
+      }).join('') +
+      '</tbody></table>' +
+      '<p class="admin-table-foot">' + state.sources.length + ' source' +
+      (state.sources.length === 1 ? '' : 's') + ' recorded. Imported deals are a later stage — the ' +
+      'records and their history are already modelled in the database, and no interface reads them yet.</p>' +
+      pipelineStrip();
   }
 
   /* ------------------------------------------------------------- queue --- */
@@ -559,6 +682,8 @@ PV.admin = (function () {
     let main;
     if (state.section === 'sellers') {
       main = state.selectedId ? detailView() : queueView();
+    } else if (state.section === 'sources') {
+      main = sourcesView();
     } else {
       main = dashboardView();
     }
@@ -627,11 +752,29 @@ PV.admin = (function () {
     });
   }
 
+  function loadSources() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.sourcesError = '';
+    state.sourcesLoaded = false;
+    return PV.store.dealEngine.sources(s).then(function (result) {
+      state.sources = result.sources || [];
+      state.sourcesLoaded = true;
+      render();
+    }).catch(function (err) {
+      state.sources = [];
+      state.sourcesLoaded = true;
+      state.sourcesError = messageFor(err);
+      render();
+    });
+  }
+
   function loadForSection() {
     if (!isAdmin()) return Promise.resolve();
     if (state.section === 'sellers') {
       return Promise.all([loadCounts(), state.selectedId ? loadDetail() : loadQueue()]);
     }
+    if (state.section === 'sources') return loadSources();
     return loadCounts();
   }
 
@@ -796,6 +939,7 @@ PV.admin = (function () {
     if (target.closest('[data-cancel-action]')) { cancelAction(); return; }
     if (target.closest('[data-confirm-action]')) { confirmAction(); return; }
     if (target.closest('[data-retry-counts]')) { loadCounts(); return; }
+    if (target.closest('[data-retry-sources]')) { loadSources(); return; }
     if (target.closest('[data-retry-queue]')) { loadQueue(); return; }
     if (target.closest('[data-retry-detail]')) { loadDetail(); return; }
     if (target.closest('[data-retry-access]')) { render(); return; }
@@ -823,6 +967,9 @@ PV.admin = (function () {
   function forgetData() {
     state.counts = null;
     state.countsError = '';
+    state.sources = [];
+    state.sourcesLoaded = false;
+    state.sourcesError = '';
     state.queue = [];
     state.queueLoaded = false;
     state.queueMore = false;

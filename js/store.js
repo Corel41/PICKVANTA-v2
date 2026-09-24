@@ -312,6 +312,9 @@ window.PV.store = (function () {
       adminAccounts: noAdmin,
       adminAccount: noAdmin,
       adminReview: noAdmin,
+      /* The same refusal as the rest of the panel: the Deal Engine reads real
+         records, and there is no demonstration version of them. */
+      dealEngineSources: noAdmin,
       list: (state, opts) => Promise.resolve(helpers.page(state, () => (
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
@@ -373,6 +376,16 @@ window.PV.store = (function () {
        enough that a queue page is one modest request; the queue reports when
        there are more rather than pretending it has them all. */
     const ADMIN_QUEUE_PAGE = 50;
+
+    /* Deal Engine sources (Step 13). Explicit column list, and no `config`:
+       the panel shows where a source points and whether it is switched on,
+       and there is no reason to pull an operator's configuration into a
+       browser to do that. */
+    const DEAL_SOURCE_FIELDS = [
+      'id', 'name', 'source_type', 'provider_name', 'market_country', 'endpoint_url',
+      'status', 'created_at', 'updated_at'
+    ].join(',');
+    const DEAL_SOURCE_PAGE = 50;
 
     const GUIDE_FIELDS = [
       'id', 'title', 'slug', 'category_id', 'question', 'summary', 'content', 'tags',
@@ -612,7 +625,44 @@ window.PV.store = (function () {
       });
     }
 
+    /* ------------------------------------------- Deal Engine (Step 13) ----
+       The private side of PickVanta: which sources exist, and (in the steps
+       that follow) what has been imported from them.
+
+       Three deliberate choices, all of them about keeping imported data away
+       from the public catalogue:
+         • this is a separate boundary from the catalogue methods above, and
+           the only one in this file that reads records no member of the
+           public owns. The database decides who may read it: the policies in
+           0005 are SELECT-only and gated on public.is_admin();
+         • there is no write method at all. 0005 grants a client no way to
+           write these tables, not even to an administrator, so adding one
+           here would only produce a refusal;
+         • `config` and `notes` are not requested. The panel does not need a
+           source's configuration, and what is not fetched cannot leak.
+       ---------------------------------------------------------------------- */
+    function dealEngineSources(session) {
+      return write('deal_sources',
+        ['select=' + DEAL_SOURCE_FIELDS, 'order=name.asc', 'limit=' + DEAL_SOURCE_PAGE],
+        session, { method: 'GET' }
+      ).then((result) => ({ sources: result.rows.map(dealSourceFromRow) }));
+    }
+
     /* -------------------------------------------------- row → domain ------ */
+    function dealSourceFromRow(row) {
+      return {
+        id: row.id,
+        name: row.name,
+        sourceType: row.source_type,
+        providerName: row.provider_name || '',
+        marketCountry: row.market_country || '',
+        endpointUrl: row.endpoint_url || '',
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    }
+
     function sellerFromRow(row) {
       if (!row) return null;
       return {
@@ -786,6 +836,7 @@ window.PV.store = (function () {
       adminAccounts: adminAccounts,
       adminAccount: adminAccount,
       adminReview: adminReview,
+      dealEngineSources: dealEngineSources,
 
       init: function () {
         return Promise.all([
@@ -1711,6 +1762,15 @@ window.PV.store = (function () {
       accounts: (session, options) => Promise.resolve(activeAdapter.adminAccounts(session, options)),
       account: (session, id) => Promise.resolve(activeAdapter.adminAccount(session, id)),
       review: (session, id, status, note) => Promise.resolve(activeAdapter.adminReview(session, id, status, note))
+    },
+
+    /* ---- Deal Engine (Step 13) -------------------------------------------
+       Imported records and the pipeline around them. Read-only, admin-only,
+       and separate from the catalogue above. Public discovery never calls
+       anything here: a visitor's page cannot reach an imported record, and no
+       part of this falls back to the demonstration data. */
+    dealEngine: {
+      sources: (session) => Promise.resolve(activeAdapter.dealEngineSources(session))
     },
 
     /* ---- reporting / metadata ------------------------------------------- */

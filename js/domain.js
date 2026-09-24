@@ -406,6 +406,107 @@ window.PV.domain = (function () {
     return REVIEW_ACTIONS.filter((action) => allowed.indexOf(action.status) !== -1);
   }
 
+  /* ======================================================================
+     Deal Engine (Step 13)
+
+     The private side of PickVanta: records that were imported from outside,
+     and the pipeline that will carry them from a source to a published deal.
+     These vocabularies mirror db/migrations/0005_deal_engine_foundation.sql
+     exactly, so the interface can never name a value the database would
+     refuse — and so a reader can compare the two directly.
+
+     Two things the wording here must never do: call an imported record a
+     listing (it is not one until a person publishes it), and call the
+     affiliate destination a source. They are different columns in the
+     database for the same reason.
+     ====================================================================== */
+
+  /** How imported information is reached. None of these is connected yet. */
+  const DEAL_SOURCE_TYPES = ['marketplace-feed', 'affiliate-network-feed', 'merchant-api',
+    'merchant-product-feed', 'permitted-url-source'];
+  const DEAL_SOURCE_STATUS = ['active', 'paused', 'disabled', 'archived'];
+
+  const DEAL_SOURCE_TYPE_COPY = {
+    'marketplace-feed': {
+      label: 'Marketplace feed',
+      blurb: 'A feed published by a marketplace for partners to read.'
+    },
+    'affiliate-network-feed': {
+      label: 'Affiliate network feed',
+      blurb: 'A product feed from an affiliate network, where a tracked link is issued per product.'
+    },
+    'merchant-api': {
+      label: 'Merchant API',
+      blurb: 'A merchant’s own interface, read with credentials kept on the server.'
+    },
+    'merchant-product-feed': {
+      label: 'Merchant product feed',
+      blurb: 'A file a merchant publishes directly for partners.'
+    },
+    'permitted-url-source': {
+      label: 'Permitted URL source',
+      blurb: 'A source PickVanta is allowed to read by agreement. Not crawling and not scanning.'
+    }
+  };
+
+  const DEAL_SOURCE_STATUS_COPY = {
+    active: { label: 'Active', tone: 'good' },
+    paused: { label: 'Paused', tone: 'waiting' },
+    disabled: { label: 'Disabled', tone: 'warning' },
+    archived: { label: 'Archived', tone: 'neutral' }
+  };
+
+  /**
+   * The stages an imported record moves through, in order, plus the three
+   * terminal outcomes. Nothing runs any of this yet: it is the shape the
+   * pipeline will have, and the panel says so where it shows it.
+   */
+  const DEAL_PIPELINE_STAGES = [
+    { id: 'imported', label: 'Imported', blurb: 'The record arrived from a source and is kept as it arrived.' },
+    { id: 'validated', label: 'Validated', blurb: 'Checked for the things that make it usable: an identifier, a name, a readable price and URL.' },
+    { id: 'normalized', label: 'Normalized', blurb: 'External formats mapped to PickVanta’s own: currency, category, availability.' },
+    { id: 'deduplicated', label: 'Deduplicated', blurb: 'Matched against what is already here — exactly, probably, or with uncertainty kept for a person.' },
+    { id: 'pending-review', label: 'Pending review', blurb: 'Waiting for an administrator. Nothing publishes itself.' },
+    { id: 'approved', label: 'Approved', blurb: 'Reviewed and accepted, not yet public.' },
+    { id: 'published', label: 'Published', blurb: 'A public deal exists and can be browsed.' }
+  ];
+  const DEAL_PIPELINE_TERMINAL = [
+    { id: 'rejected', label: 'Rejected', blurb: 'Reviewed and not accepted. Kept for records.' },
+    { id: 'archived', label: 'Archived', blurb: 'Closed and kept, never deleted.' },
+    { id: 'failed', label: 'Failed', blurb: 'Processing could not finish. The reason is recorded.' }
+  ];
+
+  /** The wording for a source type or status, with a safe fallback. */
+  function dealSourceTypeCopy(sourceType) {
+    const key = trim(sourceType);
+    return DEAL_SOURCE_TYPES.indexOf(key) === -1 ? {
+      label: 'Unknown type',
+      blurb: 'This source type is not one the interface knows.'
+    } : DEAL_SOURCE_TYPE_COPY[key];
+  }
+  function dealSourceStatusCopy(status) {
+    const key = trim(status);
+    return DEAL_SOURCE_STATUS.indexOf(key) === -1 ? { label: 'Unknown', tone: 'neutral' }
+      : DEAL_SOURCE_STATUS_COPY[key];
+  }
+
+  /**
+   * A URL that is safe to put in a link, and only http(s).
+   *
+   * Imported data is untrusted input: a source URL arrives from outside and a
+   * `javascript:` or `data:` value in an href is an executable script, not a
+   * link. The database already constrains these columns, and this is the
+   * second check, at the only place in the interface that renders one — so a
+   * row that somehow got past the constraint still cannot become a link.
+   */
+  function isSafeHttpUrl(value) {
+    const url = trim(value);
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) return false;
+    /* Control characters and quotes cannot appear in a real URL and would be
+       an attempt to break out of the attribute. */
+    return !/[\u0000-\u001f"<>\\]/.test(url);
+  }
+
   /**
    * The admin dashboard's counts.
    *
@@ -974,6 +1075,9 @@ window.PV.domain = (function () {
     SELLER_TYPES, SELLER_STATUS, VERIFICATION_STATUS, LOCATION_FORMATS, GUIDE_STATUS,
     SELLER_ACCOUNT_TYPES, SELLER_ACCOUNT_STATUS, SELLER_ACCOUNT_COPY, SELLER_ACCOUNT_STATUS_COPY,
     ADMIN_STATUS_COPY, ADMIN_ACCOUNT_TYPE_COPY, REVIEW_ACTIONS, REVIEW_NOTE_MAX, ADMIN_ACTION_TARGETS,
+    DEAL_SOURCE_TYPES, DEAL_SOURCE_STATUS, DEAL_SOURCE_TYPE_COPY, DEAL_SOURCE_STATUS_COPY,
+    DEAL_PIPELINE_STAGES, DEAL_PIPELINE_TERMINAL, dealSourceTypeCopy, dealSourceStatusCopy,
+    isSafeHttpUrl,
     DEFAULT_CURRENCY, DEFAULT_COUNTRY,
 
     /* value helpers */
