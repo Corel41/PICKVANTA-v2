@@ -134,8 +134,10 @@ alter function public.seller_profiles_guard()          set search_path = public,
 --
 --    All four bodies qualify every object they touch, so this changes no
 --    result. It makes one invariant true and checkable instead of most-of-one:
---    after this file, every function in the public schema pins exactly
---    `public, pg_temp`.
+--    after this file, every function PickVanta defines in the public schema pins
+--    exactly `public, pg_temp`. (Extension functions that live in public — the
+--    pg_trgm functions behind the search index — are not this file's to pin, and
+--    its self-check no longer reports them; see section 6a.)
 -- ---------------------------------------------------------------------------
 alter function public.handle_new_user()          set search_path = public, pg_temp;
 alter function public.handle_user_email_change() set search_path = public, pg_temp;
@@ -255,14 +257,39 @@ do $$
 declare
   offender text;
 begin
-  /* 6a. No public function may still have a mutable search_path. */
+  /* 6a. No function PickVanta owns may still have a mutable search_path.
+
+     "Every function in public" is the wrong rule here, and on a real project it
+     is the difference between this file passing and failing. pg_trgm is
+     deliberately installed in public (section 5 — it provides the gin_trgm_ops
+     operator class behind public.listings_search_trgm_idx), its functions are
+     written in C with no SQL to protect, and because they are extension
+     functions they have no search_path to pin. This migration neither can nor
+     should alter them, so reporting them as failures of the hardening would be
+     simply wrong — it is what a `proconfig is null` scan of public does, and
+     that is what stopped this file on the live database.
+
+     Extension membership is exactly what `deptype = 'e'` in pg_depend records,
+     so the exclusion is the criterion PostgreSQL itself uses rather than a list
+     of names: it stays correct for pg_trgm, for anything else an operator has
+     installed in public, and for extensions added later. What remains is the
+     rule this check exists to state — every function PickVanta owns pins its
+     path — and section 6b still proves that what is pinned is pinned to exactly
+     the intended path, not something wider. */
   select string_agg(p.proname, ', ' order by p.proname) into offender
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
-     and p.proconfig is null;
+     and p.proconfig is null
+     and not exists (
+       select 1
+         from pg_depend d
+        where d.classid = 'pg_proc'::regclass
+          and d.objid = p.oid
+          and d.deptype = 'e'
+     );
   if offender is not null then
-    raise exception 'A public function still has a mutable search_path: %', offender;
+    raise exception 'A function PickVanta owns still has a mutable search_path: %', offender;
   end if;
 
   /* 6b. Every pinned path must be exactly what this file set — nothing wider. */

@@ -1533,8 +1533,11 @@ and that schema is writable by whoever is connected. All four bodies fully quali
 touch, so nothing was exploitable, but `public.is_admin()` is the authorization primitive the
 entire admin surface and every Deal Engine policy rests on, and it is not a good place to
 leave an implicit caller-writable first look. `0007` completes those four pins as well. After
-it, **every function in `public` pins exactly `public, pg_temp`** — one invariant, checkable,
-rather than most of one.
+it, **every function PickVanta defines in `public` pins exactly `public, pg_temp`** — one
+invariant, checkable, rather than most of one. Extension functions installed in `public`
+(`pg_trgm`'s, behind the search index) are not PickVanta's to pin and are excluded by the
+criterion the self-check uses: membership of an extension, which is what PostgreSQL records in
+`pg_depend` — not a hand-kept list of names.
 
 **2. A signed-in user held write privileges on the whole catalogue.**
 `0001` revoked `INSERT, UPDATE, DELETE, TRUNCATE` from `anon` and stated in a comment that
@@ -1623,8 +1626,10 @@ this repository needs no change before or after.
 
 ### What `0007` refuses to do
 
-It fails loudly rather than reporting success. Its self-check verifies that no public function
-has a mutable `search_path`, that no client holds a catalogue write privilege, that no client
+It fails loudly rather than reporting success. Its self-check verifies that no function
+PickVanta owns has a mutable `search_path` — extension functions installed in `public` are
+excluded, which is what stopped the first attempt to apply this file to the live project — that
+no client holds a catalogue write privilege, that no client
 can create objects in `public`, that `anon` can still read the catalogue and `authenticated`
 can still insert its own profile and application, that the six Deal Engine tables carry no
 privilege they should not, and that Row Level Security is still enabled on every table. Run it
