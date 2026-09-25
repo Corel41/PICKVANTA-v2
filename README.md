@@ -46,9 +46,11 @@ See [The Deal Engine](#the-deal-engine-step-13) and
 > admin dashboard migration (`db/migrations/0004_admin_dashboard.sql`), the Deal Engine
 > foundation (`db/migrations/0005_deal_engine_foundation.sql`), the Deal Engine
 > operations migration (`db/migrations/0006_deal_engine_operations.sql`) and the security
-> hardening migration (`db/migrations/0007_security_hardening.sql`) are written but have
-> not been applied to any project.** Run `0001`, `0002`, `0003`, `0004`, `0005`, `0006` and
-> `0007` in that order, then the seed. Until `0003` is applied, the onboarding page says
+> hardening migration (`db/migrations/0007_security_hardening.sql`), the canonical
+> catalogue (`db/migrations/0008_canonical_catalogue.sql`) and the relationship-integrity
+> migration (`db/migrations/0009_canonical_relationship_integrity.sql`) are written but have
+> not been applied to any project.** Run `0001`, `0002`, `0003`, `0004`, `0005`, `0006`,
+> `0007`, `0008` and `0009` in that order, then the seed. Until `0003` is applied, the onboarding page says
 > plainly that applications need the live catalogue connection rather than offering a form
 > that cannot be stored, and until `0005` and `0006` are applied the Deal Engine areas say
 > the same. `0007` changes no behaviour the site depends on; it tightens privileges and
@@ -383,6 +385,7 @@ db/migrations/0005_deal_engine_foundation.sql    # imported deals: sources, reco
 db/migrations/0006_deal_engine_operations.sql    # the Deal Engine's admin-only source function
 db/migrations/0007_security_hardening.sql         # search_path pins, catalogue privileges, schema CREATE
 db/migrations/0008_canonical_catalogue.sql        # Product → Variant → Merchant Offer, read-only to clients
+db/migrations/0009_canonical_relationship_integrity.sql  # the conversion's product, variant and offer must agree
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -394,6 +397,7 @@ psql "$DATABASE_URL" -f db/migrations/0001_catalogue.sql \
                      -f db/migrations/0006_deal_engine_operations.sql \
                      -f db/migrations/0007_security_hardening.sql \
                      -f db/migrations/0008_canonical_catalogue.sql \
+                     -f db/migrations/0009_canonical_relationship_integrity.sql \
                      -f db/seed/0001_catalogue.sql
 ```
 
@@ -409,15 +413,19 @@ otherwise for the same reason. `0007_security_hardening.sql` runs after `0006`, 
 and `0001`, and also refuses otherwise. `0008_canonical_catalogue.sql` runs after `0005` (it
 references `deal_sources`, `external_merchants` and `imported_deals`), and after `0002` and
 `0001`; it refuses, naming the file it needs, if any of them is missing.
+`0009_canonical_relationship_integrity.sql` runs after `0008`, and refuses otherwise: it
+constrains the conversion records `0008` created.
 
 **What each migration is about:** `0001` is the catalogue, `0002` is people, `0003` is a
 person's application to run a business, `0004` is the one counting function the admin
 dashboard needs, `0005` is the private side of imported deals, `0006` is the one function
 that lets an administrator configure a source, `0007` is the security hardening pass over
 all of it — see [Database Security Hardening](#database-security-hardening-migration-0007) —
-and `0008` is the canonical catalogue the Deal Engine's imported records are eventually
-resolved into — see [The canonical catalogue](#the-canonical-catalogue-step-15). No migration
-alters an earlier one, and none of them creates a table the public catalogue reads. `0007` is
+`0008` is the canonical catalogue the Deal Engine's imported records are eventually
+resolved into — see [The canonical catalogue](#the-canonical-catalogue-step-15) — and `0009`
+makes the relationships inside that catalogue something the database checks rather than
+something an application is trusted to have checked. No migration alters an earlier one, and
+none of them creates a table the public catalogue reads. `0007` is
 the only one that changes no object definition at all: it alters function settings and
 revokes privileges.
 
@@ -1428,9 +1436,64 @@ variant-belongs-to-product constraint is absent, if the URL separation is not en
 any function in `public` has lost the `search_path` pin `0007` gave it. It is idempotent and
 creates nothing else: no function, no seed row, and no change to any existing object.
 
-**It is a repository change until it is applied.** Migrations `0002`–`0008` have **not** been
+**It is a repository change until it is applied.** Migrations `0002`–`0009` have **not** been
 applied to the live Supabase project from here, and this sandbox cannot observe that project;
 the operator runs every statement.
+
+### Relationship integrity (migration `0009`, Step 15A)
+
+Step 15 created the four records of the canonical chain — imported deal, product, variant,
+merchant offer — and the table that records a conversion. It made the chain unambiguous on
+the **offer** side: `0008`'s composite key stops an offer from naming a variant that belongs
+to a different product. It did not do the same for the conversion, and `0009` closes that.
+
+**What was wrong.** `imported_deal_conversions` had three independent foreign keys — to a
+product, to a variant and to an offer — and each of them was satisfied by any row of the
+right type. Nothing tied them to one another, so the database accepted a conversion saying
+*this imported record became Product A, via the configuration of Product B, and the offer I
+published is Product C's*. That is not a provenance record; the two questions the table
+exists to answer — which offer did this become, and which product was that offer for — would
+contradict each other in the same row. Measured on a real PostgreSQL before anything was
+changed: all of it was accepted.
+
+**What `0009` does.** It adds no table, no function, no policy and no column. It establishes
+the uniqueness two composite keys need and then lets those keys — plus a third — do the
+work, so PostgreSQL refuses a mismatched relationship:
+
+| Key | What it guarantees |
+| --- | --- |
+| `merchant_offers (id, product_id)` unique | lets a conversion name one offer *and* the product that offer is for |
+| `merchant_offers (id, variant_id)` unique | the same for the variant an offer is for; a product-level offer has no variant, so many can coexist |
+| `imported_deal_conversions (variant_id, product_id)` → `product_variants (id, product_id)` | a conversion's variant must be a variant of that conversion's product |
+| `imported_deal_conversions (merchant_offer_id, product_id)` → `merchant_offers (id, product_id)` | a conversion's offer must be an offer of that conversion's product — this holds even when the conversion names no variant |
+| `imported_deal_conversions (merchant_offer_id, variant_id)` → `merchant_offers (id, variant_id)` | when a conversion names a variant, the offer must be that variant's offer |
+
+**The null semantics are untouched.** `variant_id` stays nullable and no column became NOT
+NULL. A conversion always has a product and an offer, because `0008` made both required; the
+variant is the optional part and stays optional, so a product-level conversion remains
+valid — it is just no longer possible for its offer to belong to a different product.
+
+**Two details that are not obvious, both measured rather than assumed.** Deleting a variant
+still nulls the reference instead of deleting the record that pointed at it, and the new
+variant key has to say `on delete set null (variant_id)`: a composite key's plain `set null`
+would also try to null `product_id`, which is NOT NULL, so the deletion would fail with a
+not-null violation — or appear to work, depending on the order PostgreSQL happened to create
+its triggers in. The two offer keys are deliberately plain `no action`: deleting a variant
+nulls both the offer's and the conversion's variant, and `no action` checks at the end of the
+statement, after those nulls are applied. `restrict` would fire mid-statement and refuse a
+deletion the schema documents as supported.
+
+**Existing inconsistent rows are refused, not repaired.** Both new keys are added validated,
+so `0009` cannot install on data that contradicts the chain. A pre-flight block runs first
+and names the imported deal and conversion at fault and explains that nothing will be
+deleted, merged or reassigned — which of the three references was the mistake is a person's
+decision, not a migration's. Nothing in the repository has been applied live, so in practice
+this is the guard for the future, not a cleanup.
+
+**No application change.** `js/store.js` reads `product_variants` and `merchant_offers` with
+`GET` only, and no file in the front end mentions `imported_deal_conversions` at all, so
+there is no write path that could build a chain the database would now refuse. The change is
+SQL only.
 
 ## Database Security Hardening (migration `0007`)
 
