@@ -552,13 +552,41 @@ begin
   end if;
 
   /* 9e. This file added no function, so 0007's invariant must still hold in
-         full: every function in public pins exactly public, pg_temp. */
+         full: every function PickVanta owns in public pins exactly
+         public, pg_temp.
+
+         Two things about this check, both deliberate.
+
+         Extension-owned functions are excluded. pg_trgm is installed in public
+         on purpose (0001 — it provides the gin_trgm_ops operator class behind
+         public.listings_search_trgm_idx, and section 5 of 0007 explains why it
+         is not moved). Its functions are written in C, have no SQL to protect,
+         and therefore have no search_path to pin; neither this file nor 0007
+         may alter them. Extensions are excluded by membership, which is what
+         PostgreSQL records in pg_depend `deptype = 'e'` — not by a list of
+         names — so the rule also holds for anything else an operator has
+         installed in public, and for extensions added later.
+
+         The path must also be *present*. `coalesce(p.proconfig, '{}')` matters:
+         `not (p.proconfig @> …)` is NULL when proconfig is NULL, and a NULL
+         WHERE clause quietly excludes the row, so without it a function left
+         with no search_path at all would pass this check while the sentence
+         above claimed otherwise. Emptying the array instead of negating a NULL
+         makes an unpinned function an offender, which is what the invariant
+         means. */
   select string_agg(p.proname, ', ' order by p.proname) into offender
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
-     and not (p.proconfig @> array['search_path=public, pg_temp']);
+     and not (coalesce(p.proconfig, '{}') @> array['search_path=public, pg_temp'])
+     and not exists (
+       select 1
+         from pg_depend d
+        where d.classid = 'pg_proc'::regclass
+          and d.objid = p.oid
+          and d.deptype = 'e'
+     );
   if offender is not null then
-    raise exception 'A public function does not pin public, pg_temp: %', offender;
+    raise exception 'A function PickVanta owns does not pin exactly public, pg_temp: %', offender;
   end if;
 
   /* 9f. The public catalogue this file must not disturb is untouched. */
