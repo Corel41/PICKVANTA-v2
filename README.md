@@ -1490,6 +1490,12 @@ deleted, merged or reassigned — which of the three references was the mistake 
 decision, not a migration's. Nothing in the repository has been applied live, so in practice
 this is the guard for the future, not a cleanup.
 
+**It needs PostgreSQL 15 or later.** The column list is PostgreSQL 15 syntax — before
+that, `SET NULL` always nulled every column of the key, which cannot work here because
+`product_id` is NOT NULL. The migration's pre-flight block checks the server version first and
+refuses before running any DDL, so an older server is told what it needs rather than meeting a
+syntax error partway through. Supabase projects run PostgreSQL 15 or newer.
+
 **No application change.** `js/store.js` reads `product_variants` and `merchant_offers` with
 `GET` only, and no file in the front end mentions `imported_deal_conversions` at all, so
 there is no write path that could build a chain the database would now refuse. The change is

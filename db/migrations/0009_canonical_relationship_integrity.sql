@@ -140,6 +140,12 @@
 -- of the three references was the mistake.
 --
 -- Apply after db/migrations/0008_canonical_catalogue.sql. Re-runnable.
+-- Requires PostgreSQL 15 or later: the column list in `on delete set null
+-- (variant_id)` is PostgreSQL 15 syntax (before that, SET NULL always nulled
+-- every column of the key, which cannot work here because `product_id` is NOT
+-- NULL). The pre-flight block checks this first and refuses before running any
+-- DDL, so an older server is told what it needs instead of meeting a syntax
+-- error halfway down the file. Supabase projects run PostgreSQL 15 or newer.
 -- This file creates no table, no function and no policy, changes no existing
 -- constraint, and touches no data.
 -- ============================================================================
@@ -154,6 +160,16 @@ declare
   n_bad_offer    bigint := 0;
   example        text;
 begin
+  /* The variant key below is declared `on delete set null (variant_id)`, and a
+     column list on SET NULL is PostgreSQL 15 syntax. On an older server the
+     file cannot work at all, so it says so here — before any DDL runs — rather
+     than letting an operator meet a bare syntax error partway down the file
+     with the two uniqueness keys already created. */
+  if current_setting('server_version_num')::int < 150000 then
+    raise exception 'This file needs PostgreSQL 15 or later: it uses ON DELETE SET NULL (variant_id) on a composite key, which older versions do not accept. This server reports %.',
+      current_setting('server_version');
+  end if;
+
   if to_regclass('public.imported_deal_conversions') is null
      or to_regclass('public.products') is null
      or to_regclass('public.product_variants') is null
