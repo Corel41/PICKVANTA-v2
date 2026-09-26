@@ -1,0 +1,24 @@
+{
+  "store": {
+    "name": "Fixture Merchant Alpha",
+    "ref": "fixture-alpha",
+    "website_url": "https://fixture-alpha.example",
+    "country": "KE"
+  },
+  "page": 2,
+  "per_page": 2,
+  "total_pages": 2,
+  "products": [
+    {
+      "id": 1003,
+      "sku": "FX-A-1003",
+      "name": "Fixture USB Cable 1003",
+      "permalink": "https://fixture-alpha.example/p/fx-a-1003",
+      "description": "The short page ends pagination, which is what the adapter stops on.",
+      "prices": { "price": "950", "currency_code": "KES", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Accessories" }],
+      "images": []
+    }
+  ]
+}

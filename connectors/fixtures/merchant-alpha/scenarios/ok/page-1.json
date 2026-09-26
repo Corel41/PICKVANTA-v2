@@ -1,0 +1,40 @@
+{
+  "store": {
+    "name": "Fixture Merchant Alpha",
+    "ref": "fixture-alpha",
+    "website_url": "https://fixture-alpha.example",
+    "country": "KE"
+  },
+  "page": 1,
+  "per_page": 2,
+  "total_pages": 2,
+  "products": [
+    {
+      "id": 1001,
+      "sku": "FX-A-1001",
+      "name": "Fixture Wireless Headphones 1001",
+      "permalink": "https://fixture-alpha.example/p/fx-a-1001",
+      "description": "<p>A <strong>fixture</strong> product used to exercise the PickVanta connector contract.</p><p>&amp; it is not a real listing.</p>",
+      "prices": { "price": "12950", "currency_code": "USD", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }, { "name": "Headphones" }],
+      "images": [
+        { "src": "https://fixture-alpha.example/media/fx-a-1001-1.jpg", "alt": "Fixture product image" }
+      ]
+    },
+    {
+      "id": 1002,
+      "sku": "FX-A-1002",
+      "name": "Fixture Desk Lamp 1002",
+      "permalink": "https://fixture-alpha.example/p/fx-a-1002",
+      "description": "A second fixture product for the same run.",
+      "prices": { "price": "4500", "currency_code": "KES", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "Out of stock" },
+      "categories": [{ "name": "Lighting" }],
+      "images": [
+        { "src": "https://fixture-alpha.example/media/fx-a-1002-1.jpg", "alt": "" },
+        { "src": "https://fixture-alpha.example/media/fx-a-1002-2.jpg", "alt": "" }
+      ]
+    }
+  ]
+}

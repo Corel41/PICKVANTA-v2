@@ -1,0 +1,3 @@
+{
+  "simulate": { "failure": "http", "status": 503, "body": "upstream unavailable" }
+}

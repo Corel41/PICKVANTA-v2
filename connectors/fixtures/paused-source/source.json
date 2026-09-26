@@ -1,0 +1,14 @@
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "name": "Fixture Paused Source",
+  "provider_name": "fixture-paused",
+  "source_type": "merchant-api",
+  "market_country": "KE",
+  "endpoint_url": "https://fixture-paused.example/api/products",
+  "status": "paused",
+  "config": {
+    "adapter": "store-json",
+    "timeout_ms": 5000
+  },
+  "requires_credential": false
+}
