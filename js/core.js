@@ -1149,6 +1149,63 @@ window.PV = Object.assign(window.PV || {}, (function () {
         document.body.style.overflow = !expanded ? 'hidden' : '';
       });
       $$('a', mobilePanel).forEach((a) => a.addEventListener('click', closeMobile));
+
+      /* Global document listeners for mobile menu dismiss (registered once) */
+      if (!window.__pvMobileNavBound) {
+        window.__pvMobileNavBound = true;
+
+        /* Keyboard accessibility: close mobile menu on Escape */
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            const panel = $('#mobilePanel');
+            const btn = $('#hamburger');
+            if (panel && panel.classList.contains('open')) {
+              panel.classList.remove('open');
+              panel.hidden = true;
+              if (btn) {
+                btn.setAttribute('aria-expanded', 'false');
+                btn.focus();
+              }
+              document.body.style.overflow = '';
+            }
+          }
+        });
+
+        /* Click outside header to dismiss mobile menu */
+        document.addEventListener('click', (e) => {
+          const header = $('#siteHeader');
+          const panel = $('#mobilePanel');
+          const btn = $('#hamburger');
+          if (header && panel && panel.classList.contains('open') && !header.contains(e.target)) {
+            panel.classList.remove('open');
+            panel.hidden = true;
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+            document.body.style.overflow = '';
+          }
+        });
+      }
+    }
+
+    /* Scroll listener for smooth elevation transition on topbar (registered once) */
+    const siteHeaderEl = $('#siteHeader');
+    if (siteHeaderEl) {
+      if (window.scrollY > 8) siteHeaderEl.classList.add('scrolled');
+      if (!window.__pvScrollElevationBound) {
+        window.__pvScrollElevationBound = true;
+        let ticking = false;
+        window.addEventListener('scroll', () => {
+          if (!ticking) {
+            window.requestAnimationFrame(() => {
+              const currentHeader = $('#siteHeader');
+              if (currentHeader) {
+                currentHeader.classList.toggle('scrolled', window.scrollY > 8);
+              }
+              ticking = false;
+            });
+            ticking = true;
+          }
+        }, { passive: true });
+      }
     }
 
     /* header search button → focus the page search, or go to Discover */
