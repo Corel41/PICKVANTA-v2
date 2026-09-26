@@ -172,8 +172,14 @@ PV.listing = (function () {
 
     function render() {
       const token = ++renderToken;
-      if (PV.store.isAsync()) renderLoading();
+      let loadingTimer = null;
+      if (PV.store.isAsync()) {
+        loadingTimer = setTimeout(function () {
+          if (token === renderToken) renderLoading();
+        }, 200);
+      }
       queryData().then(function (envelope) {
+        if (loadingTimer) clearTimeout(loadingTimer);
         if (token !== renderToken) return;
         if (!envelope.ok) {
           renderFailure(envelope);

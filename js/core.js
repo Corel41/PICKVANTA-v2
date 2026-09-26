@@ -813,8 +813,118 @@ window.PV = Object.assign(window.PV || {}, (function () {
   }
 
   /* ------------------------------------------------------- search binding */
+  /* Phase 3A: In-memory suggestion cache (FIFO/LRU, capped at 40) */
+  const suggestionCache = new Map();
+  const SUGGEST_CACHE_MAX = 40;
+
+  function cacheGet(q) {
+    return suggestionCache.get(q);
+  }
+
+  function cacheSet(q, val) {
+    if (suggestionCache.size >= SUGGEST_CACHE_MAX) {
+      const first = suggestionCache.keys().next().value;
+      suggestionCache.delete(first);
+    }
+    suggestionCache.set(q, val);
+  }
+
+  /* Phase 3A: Session-scoped recent search queries (in-memory only, no DB, max 5) */
+  const sessionRecentQueries = [];
+  const RECENT_QUERIES_MAX = 5;
+
+  function recordSessionQuery(q) {
+    const trimmed = (q || '').trim();
+    if (!trimmed || trimmed.length < 2) return;
+    const existingIdx = sessionRecentQueries.indexOf(trimmed);
+    if (existingIdx !== -1) sessionRecentQueries.splice(existingIdx, 1);
+    sessionRecentQueries.unshift(trimmed);
+    if (sessionRecentQueries.length > RECENT_QUERIES_MAX) {
+      sessionRecentQueries.pop();
+    }
+  }
+
   /**
-   * Bind a search form. Works on the homepage, Discover and Deals.
+   * Phase 3A: XSS-safe text highlighter for matched query terms.
+   * Splits rawText into matched and non-matched segments, escaping every segment.
+   */
+  function highlightTerms(rawText, rawQuery) {
+    if (!rawText) return '';
+    if (!rawQuery) return esc(rawText);
+    const terms = rawQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return esc(rawText);
+
+    const lower = rawText.toLowerCase();
+    const ranges = [];
+    for (let i = 0; i < terms.length; i++) {
+      const term = terms[i];
+      let start = 0;
+      while ((start = lower.indexOf(term, start)) !== -1) {
+        ranges.push([start, start + term.length]);
+        start += term.length;
+      }
+    }
+    if (!ranges.length) return esc(rawText);
+
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    let cur = ranges[0];
+    for (let i = 1; i < ranges.length; i++) {
+      if (ranges[i][0] <= cur[1]) {
+        cur[1] = Math.max(cur[1], ranges[i][1]);
+      } else {
+        merged.push(cur);
+        cur = ranges[i];
+      }
+    }
+    merged.push(cur);
+
+    let out = '';
+    let lastIdx = 0;
+    for (let i = 0; i < merged.length; i++) {
+      const start = merged[i][0];
+      const end = merged[i][1];
+      out += esc(rawText.slice(lastIdx, start));
+      out += '<mark class="sugg-hl">' + esc(rawText.slice(start, end)) + '</mark>';
+      lastIdx = end;
+    }
+    out += esc(rawText.slice(lastIdx));
+    return out;
+  }
+
+  /**
+   * Phase 3A: Categorize suggestions into visually grouped taxonomy buckets.
+   */
+  function groupSuggestionRows(rows) {
+    const groups = [
+      { id: 'products', title: 'Products & Services', items: [] },
+      { id: 'categories', title: 'Categories', items: [] },
+      { id: 'sellers', title: 'Merchants & Providers', items: [] },
+      { id: 'guides', title: 'Guides & Topics', items: [] }
+    ];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const href = r.href || '';
+      const meta = r.meta || '';
+      if (href.indexOf('detail.html') !== -1) {
+        groups[0].items.push(r);
+      } else if (meta === 'Category' || href.indexOf('category=') !== -1) {
+        groups[1].items.push(r);
+      } else if (r.icon === '🏬' || (meta.indexOf('Guide') === -1 && href.indexOf('discover.html?q=') !== -1)) {
+        groups[2].items.push(r);
+      } else if (meta === 'Guide outline' || href.indexOf('guides.html') !== -1) {
+        groups[3].items.push(r);
+      } else {
+        groups[0].items.push(r);
+      }
+    }
+    return groups.filter((g) => g.items.length > 0);
+  }
+
+  /**
+   * Bind a search form with debouncing, caching, stale request cancellation,
+   * visual grouping, term highlighting, delayed skeleton loading, and recent searches.
    * opts = { root, onSubmit(q), mode }
    */
   function bindSearch(opts) {
@@ -825,40 +935,194 @@ window.PV = Object.assign(window.PV || {}, (function () {
     const box = $('.suggestions', root);
     if (!form || !input) return null;
 
-    let items = [];
+    let debounceTimer = null;
+    let skeletonTimer = null;
+    let currentRequestId = 0;
+    let activeQuery = '';
+
     const close = () => {
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+      if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+      currentRequestId++;
       if (box) {
         box.classList.remove('show');
         input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
       }
-      items = [];
     };
 
-    function render() {
+    function renderSkeleton() {
       if (!box) return;
-      const rows = S.suggest(input.value, 6);
-      if (!rows.length) return close();
-      items = rows;
-      box.innerHTML = rows
-        .map(
-          (r, idx) =>
-            '<a class="suggestion" role="option" id="sugg-' + idx + '" href="' + esc(r.href) + '" data-value="' + esc(r.label) + '">' +
-            '<span><span aria-hidden="true">' + esc(r.icon || '🔎') + '</span> <strong>' + esc(r.label) + '</strong> <small>· ' + esc(r.meta) + '</small></span>' +
-            '<small>Open</small>' +
-            '</a>'
-        )
-        .join('');
+      box.innerHTML =
+        '<div class="sugg-skeleton" role="presentation" aria-hidden="true">' +
+          '<div class="sugg-skeleton-row"><span class="sugg-sk-icon"></span><span class="sugg-sk-line long"></span></div>' +
+          '<div class="sugg-skeleton-row"><span class="sugg-sk-icon"></span><span class="sugg-sk-line medium"></span></div>' +
+          '<div class="sugg-skeleton-row"><span class="sugg-sk-icon"></span><span class="sugg-sk-line short"></span></div>' +
+        '</div>';
       box.classList.add('show');
       input.setAttribute('aria-expanded', 'true');
     }
 
-    input.addEventListener('focus', render);
-    input.addEventListener('input', render);
+    function renderEmpty(q) {
+      if (!box) return;
+      box.innerHTML =
+        '<div class="sugg-empty" role="status">' +
+          '<div class="sugg-empty-icon" aria-hidden="true">🔎</div>' +
+          '<div class="sugg-empty-body">' +
+            '<p class="sugg-empty-title">No quick matches for “' + esc(q) + '”</p>' +
+            '<p class="sugg-empty-hint">Press <kbd class="sugg-kbd">Enter</kbd> to search the full catalogue, or try another keyword.</p>' +
+          '</div>' +
+        '</div>';
+      box.classList.add('show');
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    function renderGroupedList(groups, q) {
+      if (!box) return;
+      let html = '';
+      let globalIdx = 0;
+
+      groups.forEach((group) => {
+        if (group.title) {
+          html += '<div class="sugg-group-title" role="presentation">' + esc(group.title) + '</div>';
+        }
+        group.items.forEach((r) => {
+          const itemIdx = globalIdx++;
+          const metaText = r.meta ? ' <small class="suggestion-meta">· ' + highlightTerms(r.meta, q) + '</small>' : '';
+          html +=
+            '<a class="suggestion" role="option" id="sugg-' + itemIdx + '" href="' + esc(r.href) + '" data-value="' + esc(r.label) + '" aria-selected="false">' +
+              '<span class="suggestion-main">' +
+                '<span class="suggestion-icon" aria-hidden="true">' + esc(r.icon || '🔎') + '</span> ' +
+                '<strong class="suggestion-label">' + highlightTerms(r.label, q) + '</strong>' +
+                metaText +
+              '</span>' +
+              '<span class="suggestion-action" aria-hidden="true"><small>Open</small> →</span>' +
+            '</a>';
+        });
+      });
+
+      box.innerHTML = html;
+      box.classList.add('show');
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    function renderRecentAndTaxonomy() {
+      if (!box) return;
+      const reqId = ++currentRequestId;
+      Promise.resolve(S.suggest('', 6)).then((catRows) => {
+        if (reqId !== currentRequestId) return;
+        const groups = [];
+
+        if (sessionRecentQueries.length > 0) {
+          groups.push({
+            id: 'recent',
+            title: 'Recent Searches',
+            items: sessionRecentQueries.map((q) => ({
+              label: q,
+              meta: 'Recent search',
+              href: 'discover.html?q=' + encodeURIComponent(q),
+              icon: '🕒'
+            }))
+          });
+        }
+
+        if (catRows && catRows.length) {
+          groups.push({
+            id: 'categories',
+            title: 'Popular Categories',
+            items: catRows
+          });
+        }
+
+        if (!groups.length) {
+          close();
+          return;
+        }
+
+        renderGroupedList(groups, '');
+      }).catch(() => {
+        if (reqId !== currentRequestId) return;
+        close();
+      });
+    }
+
+    function executeQuery(q, immediate) {
+      const trimmed = q.trim();
+      activeQuery = trimmed;
+
+      if (!trimmed) {
+        renderRecentAndTaxonomy();
+        return;
+      }
+
+      const cacheKey = trimmed.toLowerCase();
+      const cached = cacheGet(cacheKey);
+      if (cached) {
+        if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+        if (!cached.length) {
+          if (trimmed.length >= 2) renderEmpty(trimmed);
+          else close();
+          return;
+        }
+        const groups = groupSuggestionRows(cached);
+        renderGroupedList(groups, trimmed);
+        return;
+      }
+
+      const reqId = ++currentRequestId;
+
+      // Skeleton displayed only after 200ms delay for async requests (not immediate/cached)
+      if (skeletonTimer) clearTimeout(skeletonTimer);
+      skeletonTimer = setTimeout(() => {
+        if (reqId === currentRequestId && box) {
+          renderSkeleton();
+        }
+      }, 200);
+
+      Promise.resolve(S.suggest(trimmed, 6)).then((rows) => {
+        if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+        // Cancellation check: discard if newer request arrived or query changed
+        if (reqId !== currentRequestId || input.value.trim() !== trimmed) return;
+
+        const safeRows = Array.isArray(rows) ? rows : [];
+        cacheSet(cacheKey, safeRows);
+
+        if (!safeRows.length) {
+          if (trimmed.length >= 2) renderEmpty(trimmed);
+          else close();
+          return;
+        }
+
+        const groups = groupSuggestionRows(safeRows);
+        renderGroupedList(groups, trimmed);
+      }).catch(() => {
+        if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+        if (reqId !== currentRequestId) return;
+        close();
+      });
+    }
+
+    function onInput() {
+      const val = input.value;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        executeQuery(val, false);
+      }, 180);
+    }
+
+    function onFocus() {
+      executeQuery(input.value, true);
+    }
+
+    input.addEventListener('focus', onFocus);
+    input.addEventListener('input', onInput);
+
     input.addEventListener('keydown', (e) => {
       const list = $$('.suggestion', box || root);
       if (!list.length) return;
       const active = $('.suggestion[aria-selected="true"]', box || root);
       let idx = active ? list.indexOf(active) : -1;
+
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         idx = (idx + 1) % list.length;
@@ -871,23 +1135,42 @@ window.PV = Object.assign(window.PV || {}, (function () {
       } else if (e.key === 'Enter') {
         if (active) {
           e.preventDefault();
-          window.location.href = active.getAttribute('href');
+          const targetHref = active.getAttribute('href');
+          if (targetHref) {
+            recordSessionQuery(active.getAttribute('data-value') || input.value);
+            window.location.href = targetHref;
+          }
         }
         return;
       } else {
         return;
       }
+
       list.forEach((n) => n.setAttribute('aria-selected', 'false'));
-      if (list[idx]) list[idx].setAttribute('aria-selected', 'true');
+      if (list[idx]) {
+        list[idx].setAttribute('aria-selected', 'true');
+        input.setAttribute('aria-activedescendant', list[idx].id);
+        if (typeof list[idx].scrollIntoView === 'function') {
+          list[idx].scrollIntoView({ block: 'nearest' });
+        }
+      }
     });
 
     if (box) {
-      box.addEventListener('click', () => close());
+      box.addEventListener('click', (e) => {
+        const item = e.target.closest('.suggestion');
+        if (item) {
+          const val = item.getAttribute('data-value');
+          if (val) recordSessionQuery(val);
+        }
+        close();
+      });
     }
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const q = input.value.trim();
+      recordSessionQuery(q);
       close();
       opts.onSubmit(q);
     });
