@@ -156,7 +156,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
         : '') +
       '<div class="card-actions">' +
       '<a class="small-btn primary" href="' + hrefDetail(record.id) + '">View details</a>' +
-      compareButton(record.id) +
+      compareButton(record.id) + favoriteButton(record.id) +
       '</div>' +
       '</div>' +
       '</article>'
@@ -449,6 +449,125 @@ window.PV = Object.assign(window.PV || {}, (function () {
   recentIds = readRecent();
 
   /* -------------------------------------------------------- compare store */
+  
+  /* --------------------------------------------------- favorites store */
+  const FAVORITES_KEY = "pickvanta.favorites.v1";
+  const favoritesListeners = [];
+
+  function readFavoritesStore() {
+    try {
+      const raw = window.localStorage.getItem(FAVORITES_KEY);
+      const val = raw ? JSON.parse(raw) : [];
+      return Array.isArray(val) ? val.filter((id) => typeof id === "string" && id) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeFavoritesStore(ids) {
+    try {
+      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
+    } catch (e) {}
+  }
+
+  const favorites = {
+    ids: readFavoritesStore,
+    has: (id) => readFavoritesStore().indexOf(id) !== -1,
+    toggle: (id) => {
+      if (!id || typeof id !== "string") return false;
+      const cur = readFavoritesStore();
+      const idx = cur.indexOf(id);
+      let added = false;
+      if (idx !== -1) {
+        cur.splice(idx, 1);
+      } else {
+        cur.unshift(id);
+        added = true;
+      }
+      writeFavoritesStore(cur);
+      syncFavoritesButtons();
+      favoritesListeners.forEach((fn) => {
+        try { fn(cur); } catch (e) {}
+      });
+      const name = (S.item(id) || {}).name || "Item";
+      toast(added ? "Saved \"" + name + "\" to favorites" : "Removed \"" + name + "\" from favorites", "info");
+      return added;
+    },
+    remove: (id) => {
+      const cur = readFavoritesStore().filter((x) => x !== id);
+      writeFavoritesStore(cur);
+      syncFavoritesButtons();
+      favoritesListeners.forEach((fn) => {
+        try { fn(cur); } catch (e) {}
+      });
+    },
+    clear: () => {
+      writeFavoritesStore([]);
+      syncFavoritesButtons();
+      favoritesListeners.forEach((fn) => {
+        try { fn([]); } catch (e) {}
+      });
+    },
+    count: () => readFavoritesStore().length
+  };
+
+  function onFavoritesChange(fn) {
+    if (typeof fn === "function" && favoritesListeners.indexOf(fn) === -1) {
+      favoritesListeners.push(fn);
+    }
+  }
+
+  function syncFavoritesButtons() {
+    const ids = favorites.ids();
+    $("[data-favorite-toggle]").forEach((btn) => {
+      const id = btn.getAttribute("data-favorite-toggle");
+      const active = ids.indexOf(id) !== -1;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.title = active ? "Remove from saved favorites" : "Save for later";
+      const icon = btn.querySelector(".fav-icon");
+      if (icon) {
+        icon.textContent = active ? "♥" : "♡";
+      }
+    });
+    const badge = $("#headerFavoritesCount");
+    if (badge) {
+      badge.textContent = ids.length ? String(ids.length) : "";
+      badge.style.display = ids.length ? "inline-flex" : "none";
+    }
+  }
+
+  function favoriteButton(id) {
+    const isFav = favorites.has(id);
+    return (
+      "<button type=\"button\" class=\"small-btn fav-btn\" data-favorite-toggle=\"" + esc(id) + "\"" +
+      " aria-pressed=\"" + (isFav ? "true" : "false") + "\"" +
+      " title=\"" + (isFav ? "Remove from saved favorites" : "Save for later") + "\">" +
+      "<span class=\"fav-icon\" aria-hidden=\"true\">" + (isFav ? "♥" : "♡") + "</span>" +
+      "<span class=\"btn-label\">Save</span>" +
+      "</button>"
+    );
+  }
+
+  function shareListing(id) {
+    const item = S.item(id);
+    if (!item) return;
+    const url = window.location.origin + window.location.pathname.replace(/[^/]*$/, "") + hrefDetail(id);
+    const title = item.name ? "PickVanta: " + item.name : "PickVanta Deal";
+    const text = item.shortDescription || item.name;
+    if (navigator.share && typeof navigator.share === "function") {
+      navigator.share({ title: title, text: text, url: url }).catch(() => {});
+    } else if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(url).then(() => {
+        toast("Listing link copied to clipboard", "success");
+      }).catch(() => {
+        toast(url, "info");
+      });
+    } else {
+      toast(url, "info");
+    }
+  }
+
   const COMPARE_KEY = 'pickvanta.compare.v1';
   const COMPARE_MAX = 3;
 
@@ -554,6 +673,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
   }
   function changed() {
     syncCompareButtons();
+      syncFavoritesButtons();
     renderTray();
     compareListeners.forEach((fn) => {
       try {
@@ -1611,6 +1731,9 @@ window.PV = Object.assign(window.PV || {}, (function () {
     card: { item: cardItem, offer: cardOffer, guide: cardGuide, media: mediaMarkup, empty: emptyState, loading: loadingState, error: errorState },
     compare,
     onCompareChange,
+    favorites,
+    onFavoritesChange,
+    share: shareListing,
     recent,
     onRecentChange,
     ui: {

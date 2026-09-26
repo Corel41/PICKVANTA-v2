@@ -4524,3 +4524,170 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
   .closing-actions{width:100%}
   .closing-actions .btn-primary,.closing-actions .btn-secondary{width:100%;justify-content:center}
 }
+
+
+/* ==========================================================================
+   PICKVANTA PRECISION COMMERCE — Shared Design System Polish & Enhancements
+   ========================================================================== */
+
+/* Modernized base tokens */
+:root {
+  --bg-subtle: #F8FAFC;
+  --surface-card: #FFFFFF;
+  --line-crisp: #E2E8F0;
+  --accent-blue: #2563EB;
+  --accent-blue-hover: #1D4ED8;
+  --accent-rose: #E11D48;
+  --accent-rose-soft: #FFE4E6;
+  --shadow-card-elevated: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-card-hover: 0 12px 24px -4px rgba(15, 23, 42, 0.10), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+}
+
+/* Polished Card Surface & Transitions */
+.product-card, .deal-card {
+  background: var(--surface-card);
+  border: 1px solid var(--line-crisp);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.22s var(--ease-spring), box-shadow 0.22s var(--ease-spring), border-color 0.2s ease;
+  overflow: hidden;
+}
+
+.product-card:hover, .deal-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: #CBD5E1;
+}
+
+/* Card Action Layout with Favorites & Compare */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.card-actions .small-btn.primary {
+  flex: 1 1 auto;
+  min-width: 120px;
+  text-align: center;
+  justify-content: center;
+  background: var(--accent-blue);
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-height: 44px;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.card-actions .small-btn.primary:hover {
+  background: var(--accent-blue-hover);
+}
+
+/* Compare & Favorite Buttons */
+.small-btn.compare-btn, .small-btn.fav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-height: 44px;
+  min-width: 44px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.small-btn.compare-btn:hover, .small-btn.fav-btn:hover {
+  background: #E2E8F0;
+  border-color: #CBD5E1;
+  color: var(--text);
+}
+
+.small-btn.compare-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Favorite Active State (Heart) */
+.small-btn.fav-btn .fav-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.small-btn.fav-btn:hover .fav-icon {
+  color: var(--accent-rose);
+  transform: scale(1.15);
+}
+
+.small-btn.fav-btn.active {
+  background: var(--accent-rose-soft);
+  border-color: #FDA4AF;
+  color: var(--accent-rose);
+}
+
+.small-btn.fav-btn.active .fav-icon {
+  color: var(--accent-rose);
+}
+
+/* Polished Price & Savings Display */
+.price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.price {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.price-old {
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.save-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Sticky Header Keyboard Hint */
+.search-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  user-select: none;
+}
