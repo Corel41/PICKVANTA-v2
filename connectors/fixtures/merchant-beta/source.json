@@ -1,0 +1,14 @@
+{
+  "id": "22222222-2222-4222-8222-222222222222",
+  "name": "Fixture Merchant Beta",
+  "provider_name": "fixture-beta",
+  "source_type": "merchant-product-feed",
+  "market_country": "GB",
+  "endpoint_url": "https://fixture-beta.example/feed.csv",
+  "status": "active",
+  "config": {
+    "adapter": "product-csv",
+    "timeout_ms": 5000
+  },
+  "requires_credential": false
+}
