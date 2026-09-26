@@ -199,7 +199,7 @@ prices, sellers, offers or availability — and the homepage shows a *curated* s
 
 ## Architecture
 
-### Current (Steps 11–15)
+### Current (Steps 11–17A)
 
 There are two paths, and they are deliberately separate. Browsing is public; an account
 is only needed for the parts of the product that belong to a person. Behind them, and
@@ -315,9 +315,11 @@ subscriptions, reviews, ratings, passwordless sign-in, multi-factor authenticati
 account deletion — and Apple Sign-In, which is *not* implemented: Google is the only
 social provider in this step. Nothing in the browser can write to the catalogue: the data
 API stays read-only for anon and for a signed-in user alike, `profiles` is the only table a
-signed-in person can touch — their own row, `display_name` only — and since Step 15 the
-canonical catalogue (`products`, `product_variants`, `merchant_offers`, their media and the
-conversion link) is read-only even for an administrator.
+signed-in person can touch — their own row, `display_name` only — and the canonical
+catalogue (`products`, `product_variants`, `merchant_offers`, their media and the conversion
+link) accepts no table write from anyone, an administrator included: canonical records are
+created only by `public.imported_deal_convert()`, which an administrator calls from the
+review queue and which validates every value itself.
 
 ## Database (Supabase / PostgreSQL)
 
@@ -348,12 +350,14 @@ private Deal Engine tables (`deal_sources`, `external_merchants`, `imported_deal
 `imported_deal_conversions` — listed in
 [The canonical catalogue](#the-canonical-catalogue-step-15)). Every one of them has Row
 Level Security enabled, is readable only by a database-confirmed administrator, and accepts
-no write from a browser at all.
+no write from a browser: the only way a browser can create a canonical record is to call
+`public.imported_deal_convert()` (Step 16), which checks `is_admin()` for itself and
+validates everything before it writes.
 
 ### Database functions
 
-`0008` adds **no** function: the canonical layer is read directly through its policies, and
-the write path that will eventually fill it is a later step's design.
+`0008` adds **no** function: the canonical layer is read directly through its policies.
+`0010`, the reviewed conversion, adds the single function that fills it.
 
 | Function | Migration | Who may call it | What it does |
 | -------- | --------- | --------------- | ------------- |
@@ -362,6 +366,7 @@ the write path that will eventually fill it is a later step's design.
 | `seller_profile_set_status(uuid, text, text)` | `0003` | `authenticated`, and the function checks `is_admin()` itself | The review action: validates the status, records the reviewer and the time, returns the row it wrote |
 | `seller_profile_set_seller(uuid, text)` | `0003` | as above | Links an approved account to its public catalogue record (used by a later stage) |
 | `admin_dashboard_counts()` | `0004` | `authenticated`, and the function checks `is_admin()` itself | Returns the dashboard's row counts as one jsonb object — counts only, never rows |
+| `imported_deal_convert(uuid, jsonb, jsonb, text, text)` | `0010` | `authenticated`, and the function checks `is_admin()` itself | The reviewed conversion: validates everything, creates or reuses the product, variant and merchant offer, records the decision, moves the imported record to approved, appends one event, and returns what the database now holds |
 
 `0005` defines **no function at all**: its tables are read through RLS by an administrator
 and written by nothing in this stage. When the pipeline needs to write — recording an import,
@@ -386,6 +391,7 @@ db/migrations/0006_deal_engine_operations.sql    # the Deal Engine's admin-only 
 db/migrations/0007_security_hardening.sql         # search_path pins, catalogue privileges, schema CREATE
 db/migrations/0008_canonical_catalogue.sql        # Product → Variant → Merchant Offer, read-only to clients
 db/migrations/0009_canonical_relationship_integrity.sql  # the conversion's product, variant and offer must agree
+db/migrations/0010_imported_deal_conversion.sql   # the reviewed conversion: one imported record → canonical records
 db/seed/0001_catalogue.sql                    # the catalogue, upserted by primary key
 
 # or from a terminal with a connection string (never committed):
@@ -891,7 +897,8 @@ The sidebar states the intended architecture and marks what does not exist yet:
 | **Deal Engine** — Sources | **Built** (Step 13 reads them; Step 14 adds and edits them through the database's own function) |
 | Deal Engine — Jobs | **Built** (Step 14: read-only; nothing in this build runs a job) |
 | Marketplace — Products | **Built** (Step 15: read-only operational visibility of the canonical catalogue — counts and the most recent records, no editing) |
-| Deal Engine — Import Deals, Review Queue, Import History, Affiliate Links, Scheduled Scans | Planned |
+| Deal Engine — Review Queue | **Built** (Step 17A: the records waiting for review, the evidence and history they arrived with, and the reviewed conversion that turns one into canonical records through the database's own function) |
+| Deal Engine — Import Deals, Import History, Affiliate Links, Scheduled Scans | Planned |
 | Marketplace — Listings, Categories, Deals | Planned |
 | Insights — Analytics | Planned |
 | System — Settings | Planned |
@@ -899,10 +906,14 @@ The sidebar states the intended architecture and marks what does not exist yet:
 Planned entries are not links and not buttons — they cannot be clicked, because a dead
 control promising a feature is worse than an honest label. The panel's code reaches exactly
 five admin store methods (`counts`, `accounts`, `account`, `review`, `available`), the Deal
-Engine boundary behind `sources`, `jobs`, `importedDeals`, `merchants`, `createSource` and
-`updateSource`, and the read-only canonical boundary behind `products`, `variants`, `offers`
-and `counts`. There is no listing, import, connector, affiliate, commission or publishing
-logic behind any of the other labels — and no write of any kind behind the canonical ones.
+Engine boundary behind `sources`, `jobs`, `importedDeals`, `merchants`, `createSource`,
+`updateSource`, `reviewQueue`, `importedDeal`, `importedDealEvents` and `convert`, the
+read-only canonical boundary behind `products`, `variants`, `offers` and `counts`, and one
+reference read, `reference.categoryOptions`, for the published taxonomy a conversion chooses
+from. There is no listing, import, connector, affiliate, commission or publishing logic
+behind any of the other labels. The canonical layer has exactly one write a browser can
+reach — the reviewed conversion, which is a call to `public.imported_deal_convert()` and
+never a table write — and no other admin method writes anything.
 
 ## The Deal Engine (Step 13)
 
@@ -1114,7 +1125,7 @@ them.
 | Connectors (feeds, merchant APIs, affiliate networks), scraping, discovery | Not built |
 | Workers, schedulers, cron, scans, monitoring | Not built |
 | Validation, normalization, deduplication processors | Not built (the states and columns exist) |
-| Import Deals, Review Queue, Scheduled Scans, Affiliate Links, Import History screens | Not built (nav entries are labelled *Planned* and are not clickable) |
+| Import Deals, Scheduled Scans, Affiliate Links, Import History screens | Not built (nav entries are labelled *Planned* and are not clickable) |
 | Affiliate network, affiliate accounts, link generation, clicks, conversions, commissions, revenue | Not built — and no fake accounts, clicks, conversions or figures exist anywhere |
 | Product / Variant / Merchant Offer tables | Not built |
 | Seller or provider dashboards, listing creation or editing | Not built |
@@ -1198,17 +1209,19 @@ build can write a job row at all — `0005` gives no client a write policy on
 `deal_engine_jobs` — so the honest state of that page today is an empty list that says so.
 
 `PV.store.dealEngine.importedDeals(session, { limit })` is the **prepared boundary** for the
-records the Review Queue will show in a later step: it returns the complete provenance shape
-(what the source said, `source_url` and `affiliate_url` kept apart, the four step statuses,
-the dedup class, both timestamps) and, separately, the database's own count. No view renders
-a record yet. The Jobs page uses the count only — "Imported records recorded so far: 0" —
-which is a fact from the database, not an estimate.
+imported records: it returns the complete provenance shape (what the source said, `source_url`
+and `affiliate_url` kept apart, the four step statuses, the dedup class, both timestamps) and,
+separately, the database's own count. The Jobs page uses the count only — "Imported records
+recorded so far: 0" — which is a fact from the database, not an estimate; from Step 17A the
+Review Queue reads the records themselves, filtered by the database.
 
 ### Events, unchanged
 
 `deal_engine_events` is still append-only (a trigger refuses every update and delete) and
 still readable only by an administrator. No interface writes an event and no interface
-fabricates one; when the Review Queue arrives, a record's history is already there to read.
+fabricates one: the one event a browser can cause is the one `public.imported_deal_convert()`
+appends when it converts a record, and the Review Queue reads a record's history back from
+the table exactly as the database holds it.
 
 ### Security model, restated
 
@@ -1326,10 +1339,13 @@ and what the canonical record says — and the person who decided, when a person
 imported record can become one offer (`imported_deal_id` is unique), and a product that a
 conversion points at cannot be deleted out from under it.
 
-**Nothing writes a row in that table today.** It exists so the relationship is recordable;
-the step that fills it is a later step's design. The pipeline itself is unchanged and
-unbypassed: `IMPORT → VALIDATE → NORMALIZE → DEDUPLICATE → PENDING REVIEW → APPROVED →
-PUBLISHED`.
+**The one thing that writes a row in that table is the reviewed conversion**
+(`public.imported_deal_convert()`, migration `0010`, called from the Review Queue in Step
+17A). Nothing else does — not a connector, not a worker, not a schedule, and nothing
+automatically. An administrator performs the conversion deliberately, on one record at a
+time, and the function validates every value before it writes. The pipeline itself is
+unchanged and unbypassed: `IMPORT → VALIDATE → NORMALIZE → DEDUPLICATE → PENDING REVIEW →
+APPROVED → PUBLISHED`.
 
 ### Identity and deduplication: deterministic, and never automatic
 
@@ -1497,9 +1513,123 @@ refuses before running any DDL, so an older server is told what it needs rather 
 syntax error partway through. Supabase projects run PostgreSQL 15 or newer.
 
 **No application change.** `js/store.js` reads `product_variants` and `merchant_offers` with
-`GET` only, and no file in the front end mentions `imported_deal_conversions` at all, so
-there is no write path that could build a chain the database would now refuse. The change is
-SQL only.
+`GET` only, and no file in the front end mentions `imported_deal_conversions` at all. The one
+write that creates a conversion is `public.imported_deal_convert()` (Step 16), which builds
+all five relationships itself — the product it created or chose, the variant of that product,
+and the offer for exactly that product — so it cannot build a chain these keys would refuse.
+The `0009` change is SQL only.
+
+
+## The review queue and the reviewed conversion (Steps 16–17A)
+
+**Step 16 wrote the conversion; Step 17A gives it an interface.** The design decision that
+shapes both is that the conversion is a *database function*, not client writes: an
+administrator asks the database to convert one imported record, the database checks
+`is_admin()` for itself, validates every value against the canonical tables, writes all of the
+records and hands back what it wrote.
+
+The address is `admin.html?section=review`, and a single record is
+`admin.html?section=review&id=<uuid>`. The id in the address is an identifier, never
+authorization: it is a UUID or it is ignored, and every byte on the page still comes from a
+request made with the signed-in administrator's own token.
+
+### What the queue is
+
+The database returns the records that are at pipeline status `pending-review` **and** review
+status `pending`. Both conditions are in the query (`pipeline_status=eq.pending-review&
+review_status=eq.pending`), with `order=created_at.desc` and `Prefer: count=exact`, so the
+list, its order and its total are the database's answers rather than the page's opinion. This
+is the same state `0010` refuses to convert anything outside of, so the queue can never offer
+a conversion the database would refuse for being in the wrong state.
+
+Opening a record shows, read-only:
+
+* **the source evidence** — the merchant's title and description, the merchant's own reference,
+  the external product id, the source and its URL, the recorded price and its recorded
+  currency, the recorded availability, the imported category text, the imported timestamp, and
+  the imported metadata exactly as it arrived;
+* **the pipeline's own proposals** — `normalized_*`, when an earlier stage recorded them,
+  labelled as proposals and never as canonical values;
+* **the event history** — `deal_engine_events` for that record, oldest first, with the stage,
+  outcome, detail and data each event recorded.
+
+Nothing on that page is filled in from the evidence. Every canonical value is typed by the
+reviewer.
+
+### The conversion, and what is sent
+
+One call: `POST /rest/v1/rpc/imported_deal_convert` with five keys and nothing else:
+
+```
+{
+  "p_imported_deal_id":   "<the record>",
+  "p_product":            { "mode": "create" | "existing", … },
+  "p_variant":            { "mode": "none" | "create" | "existing", … },
+  "p_review_note":        "…",     // ≤ 500 characters  → imported_deals.review_note
+  "p_normalization_note": "…"      // ≤ 1000 characters → imported_deal_conversions.normalization_note
+}
+```
+
+The product and variant objects carry **only the keys their chosen mode allows**, because
+`0010` refuses a field sent in the wrong mode:
+
+| Mode | Keys sent |
+| ---- | --------- |
+| product `create` | `mode`, `name`, `slug`, and any of `brand`, `model_number`, `mpn`, `gtin` (only when the variant mode is `none`), `category_id`, `subcategory_id` |
+| product `existing` | `mode`, `product_id` — nothing else |
+| variant `none` | `mode` |
+| variant `create` | `mode`, `name`, `slug`, and any of `sku`, `gtin`, `option_values` |
+| variant `existing` | `mode`, `variant_id` — nothing else |
+
+Nothing database-owned or source-owned is ever sent: no description, no status, no
+`brand_normalized`, no `identity_key`, no `option_key`, no merchant or source reference, no
+price, no currency, no URL, and no `imported_*`, `normalized_*` or timestamp field. The
+merchant title stays on the imported record as evidence; the canonical name is the reviewer's.
+
+`option_values` is sent only when the reviewer typed a JSON object, and the page says so
+rather than guessing what was meant.
+
+### What counts as success
+
+Only the complete answer. `0010` returns a conversion id, the product (id, slug, name, mode,
+status), the variant (`null`, or its id, slug, name and mode), the merchant offer (id, title,
+price, currency, status, `source_url`), and the record's new `pipeline_status` and
+`review_status`. If that shape does not come back whole, the page reports that the database
+did not return a complete conversion result, keeps everything the reviewer typed, and claims
+nothing. **An HTTP 200 is not a conversion.**
+
+After a confirmed conversion the page re-reads the record, its history, the queue and the
+dashboard counts, and only then treats the queue as updated. If the database still reports the
+record as pending review, the page says exactly that and leaves the form in place instead of
+pretending it moved.
+
+### What a refusal says
+
+`0010` raises messages written for the person doing the review — a slug another product
+already uses, a GTIN that belongs on the variant, a category that does not exist, a record
+that is not at pending review — and the page shows them, escaped, as text:
+
+| SQLSTATE | Meaning | What the page shows |
+| -------- | ------- | ------------------- |
+| `42501` | not an administrator | the database's own refusal |
+| `22023` | a value the function will not accept | the database's own explanation |
+| `23505` | a unique value already taken | the database's own explanation |
+| `P0002` | the record does not exist | the database's own explanation |
+| `22001` | a note longer than its column | the database's own explanation |
+| anything else | no live project, no session, an unreachable database, another failure | a safe sentence with no raw detail |
+
+Raw database text, stack traces, policy names and SQL are never displayed. The seller and
+provider flow's wording ("someone else changed it", "that application is no longer in the
+database") is never reused here: the conversion's refusals are its own.
+
+### What Step 17A deliberately does not do
+
+No automatic conversion, no matching of any kind (no AI, no fuzzy, no suggested product), no
+merging, no publishing, no listing or public deal, no affiliate link, no product search or
+catalogue-wide picking (the pickers offer the published taxonomy and the most recent canonical
+products, and say so), no edits to a canonical record, no new table, no new policy, no new
+grant, no schema change, and no change to `0010`. Every other navigation section stays
+labelled *Planned*.
 
 ## Database Security Hardening (migration `0007`)
 
@@ -1908,14 +2038,16 @@ schedule, no monitoring and no automatic publishing — and no fake imports, cli
 conversions, commissions or revenue anywhere.
 
 Since Step 15 the canonical catalogue **records** exist — Product, Variant and Merchant
-Offer, with their media references and the provenance link back to the imported record — but
-the layer that would fill them does not: there is no automatic conversion of an imported
-deal into a product, no AI or fuzzy product matching, no automatic merging, no automatic
-publishing, and no page of the public catalogue reads any of it yet.
+Offer, with their media references and the provenance link back to the imported record — and
+since Steps 16 and 17A one reviewed conversion fills them: a database function an
+administrator calls from the Review Queue, one record at a time. There is still no automatic
+conversion of an imported deal into a product, no AI or fuzzy product matching, no automatic
+merging, no automatic publishing, and no page of the public catalogue reads any of it yet.
 
 What is still not built around the panel, the application and those records is the
 marketplace itself: no seller dashboard, no listing tools, no product editor, no affiliate
 links, no commissions, no payments and no subscriptions. Step 11 built the participation
 foundation, Step 12 the first review surface over it, Step 13 the engine room underneath it,
-Step 14 its first operational controls, and Step 15 the canonical records that engine room
-was always going to produce; none of them is the marketplace.
+Step 14 its first operational controls, Step 15 the canonical records that engine room was
+always going to produce, and Steps 16–17A the reviewed conversion that turns one imported
+record into those records; none of them is the marketplace.

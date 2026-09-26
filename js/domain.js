@@ -314,6 +314,16 @@ window.PV.domain = (function () {
    * The note limit is the database's limit: 0003 rejects anything longer.
    */
   const REVIEW_NOTE_MAX = 500;
+
+  /**
+   * The conversion's own note limit, and a different number for a different
+   * column: the review note is bounded at 500 characters by the imported
+   * record's own column (0005), and this one at 1000 by the conversion's note
+   * column (0008). 0010, the conversion function, refuses anything longer with
+   * SQLSTATE 22001 before it writes. Two notes, two columns, two limits, and
+   * they are never interchangeable.
+   */
+  const NORMALIZATION_NOTE_MAX = 1000;
   const REVIEW_ACTIONS = [
     {
       status: 'active',
@@ -712,6 +722,29 @@ window.PV.domain = (function () {
       config: config && typeof config === 'object' && !Array.isArray(config) ? config : {},
       createdAt: trim(pick('created_at', 'createdAt')),
       updatedAt: trim(pick('updated_at', 'updatedAt'))
+    };
+  }
+
+  /**
+   * A row from public.deal_engine_events — what happened to an imported record.
+   * Append-only history: this reads it and shapes it for display, and nothing in
+   * this project writes one. `data` is an object or it is nothing (0005's own
+   * check says so), and a page must not invent a shape the database would not
+   * hold.
+   */
+  function normalizeDealEngineEvent(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const pick = (snake, camel) => (r[snake] !== undefined ? r[snake] : r[camel]);
+    const data = pick('data', 'data');
+    return {
+      id: trim(r.id),
+      importedDealId: trim(pick('imported_deal_id', 'importedDealId')),
+      stage: trim(pick('stage', 'stage')),
+      outcome: trim(pick('outcome', 'outcome')),
+      detail: trim(pick('detail', 'detail')),
+      data: data && typeof data === 'object' && !Array.isArray(data) ? data : {},
+      actorId: trim(pick('actor_id', 'actorId')),
+      createdAt: trim(pick('created_at', 'createdAt'))
     };
   }
 
@@ -1622,7 +1655,8 @@ window.PV.domain = (function () {
     LISTING_TYPES, LISTING_STATUS, AVAILABILITY, PRICE_TYPES, OFFER_KINDS, OFFER_STATUS,
     SELLER_TYPES, SELLER_STATUS, VERIFICATION_STATUS, LOCATION_FORMATS, GUIDE_STATUS,
     SELLER_ACCOUNT_TYPES, SELLER_ACCOUNT_STATUS, SELLER_ACCOUNT_COPY, SELLER_ACCOUNT_STATUS_COPY,
-    ADMIN_STATUS_COPY, ADMIN_ACCOUNT_TYPE_COPY, REVIEW_ACTIONS, REVIEW_NOTE_MAX, ADMIN_ACTION_TARGETS,
+    ADMIN_STATUS_COPY, ADMIN_ACCOUNT_TYPE_COPY, REVIEW_ACTIONS, REVIEW_NOTE_MAX,
+    NORMALIZATION_NOTE_MAX, ADMIN_ACTION_TARGETS,
     DEAL_SOURCE_TYPES, DEAL_SOURCE_STATUS, DEAL_SOURCE_TYPE_COPY, DEAL_SOURCE_STATUS_COPY,
     DEAL_PIPELINE_STAGES, DEAL_PIPELINE_TERMINAL, dealSourceTypeCopy, dealSourceStatusCopy,
     DEAL_JOB_TYPES, DEAL_JOB_STATUS, DEAL_JOB_TYPE_COPY, DEAL_JOB_STATUS_COPY,
@@ -1646,7 +1680,7 @@ window.PV.domain = (function () {
 
     /* normalisers */
     normalizeListing, normalizeOffer, normalizeGuide, normalizeSeller, normalizeSellerAccount, normalizeCategory,
-    normalizeDealSource, normalizeDealJob, normalizeImportedDeal, normalizeExternalMerchant,
+    normalizeDealSource, normalizeDealJob, normalizeDealEngineEvent, normalizeImportedDeal, normalizeExternalMerchant,
     normalizeProduct, normalizeProductVariant, normalizeMerchantOffer,
     normalizePrice, normalizeLocation, normalizeImages, normalizeSpecifications,
     findSubcategory, statusForOffer,

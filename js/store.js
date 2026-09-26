@@ -94,6 +94,28 @@ window.PV.store = (function () {
   }
   const FRIENDLY = 'The catalogue could not be loaded just now. Please try again in a moment.';
 
+  /**
+   * A refused write comes back as JSON naming the database's own SQLSTATE and
+   * the message the function raised. This reads that, and nothing else — it
+   * decides nothing, translates nothing, and is asked for by exactly one caller
+   * (the reviewed conversion, whose refusals 0010 writes as sentences for the
+   * person doing the review). Returns null when the body is not that shape.
+   */
+  function postgrestRefusal(body) {
+    if (typeof body !== 'string' || body.indexOf('{') === -1) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch (err) {
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const code = typeof parsed.code === 'string' ? parsed.code.trim() : '';
+    const message = typeof parsed.message === 'string' ? parsed.message.trim() : '';
+    if (!code) return null;
+    return { code: code, message: message.slice(0, 500) };
+  }
+
   /* ======================================================================
      Reading and normalising records — one place decides what a record means
      ====================================================================== */
@@ -321,6 +343,19 @@ window.PV.store = (function () {
       dealEngineSources: noAdmin,
       dealEngineJobs: noAdmin,
       dealEngineImportedDeals: noAdmin,
+      dealEngineReviewQueue: noAdmin,
+      dealEngineImportedDeal: noAdmin,
+      dealEngineImportedDealEvents: noAdmin,
+      importedDealConvert: noAdmin,
+      /* The taxonomy is public catalogue data, and the demonstration bundle has
+         its own — the same list PV.store.categories() already serves. */
+      referenceCategoryOptions: () => Promise.resolve(SCAFFOLD.taxonomy.map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        label: c.label,
+        subcategories: Dm.asArray(c.subcategories)
+          .map((sub) => ({ id: sub.id, slug: sub.slug, label: sub.label, categoryId: sub.category }))
+      }))),
       dealSourceSave: noAdmin,
       canonicalProducts: noAdmin,
       canonicalVariants: noAdmin,
@@ -427,6 +462,12 @@ window.PV.store = (function () {
       'published_deal_id', 'imported_at', 'created_at', 'updated_at'
     ].join(',');
     const IMPORTED_DEAL_PAGE = 50;
+
+    /* Only the columns the review queue's history panel renders. An event is a
+       fact about the past: this reads it, and no part of this file writes one. */
+    const EVENT_FIELDS = [
+      'id', 'imported_deal_id', 'stage', 'outcome', 'detail', 'data', 'actor_id', 'created_at'
+    ].join(',');
 
     /* The canonical layer (Step 15). Three projections, each with only the
        columns something reads:
@@ -575,8 +616,16 @@ window.PV.store = (function () {
           return response.text().then((body) => {
             /* The database's own refusal is the real reason; the interface
                turns this into a sentence. Nothing raw is shown to a person. */
-            throw StoreError(FRIENDLY, 'api-' + response.status,
+            const error = StoreError(FRIENDLY, 'api-' + response.status,
               path + ' → HTTP ' + response.status + ' ' + String(body || '').slice(0, 300));
+            /* One caller opts in to the database's own SQLSTATE and message as
+               well as the HTTP status. Everything else behaves exactly as it
+               did: without the flag, no field is added and no wording changes. */
+            if (o.refusal) {
+              const refusal = postgrestRefusal(body);
+              if (refusal) { error.dbCode = refusal.code; error.dbMessage = refusal.message; }
+            }
+            throw error;
           }, () => {
             throw StoreError(FRIENDLY, 'api-' + response.status, path + ' → HTTP ' + response.status);
           });
@@ -791,6 +840,228 @@ window.PV.store = (function () {
         records: result.rows.map(Dm.normalizeImportedDeal),
         total: typeof result.total === 'number' ? result.total : null
       }));
+    }
+
+    /* --------------------------------- the reviewed conversion (17A) -----
+       The administrator's decision, and nothing else. One database function
+       performs the whole conversion: public.imported_deal_convert() checks
+       is_admin() for itself, validates everything against the canonical
+       tables, writes the records and returns what the database now holds. This
+       layer carries the decision there and the answer back. It never decides
+       that a slug is free, that a GTIN may be placed where it was put, that a
+       product is the right one, or that a record is convertible.
+
+       The payload is built mode by mode, from the keys the chosen mode allows
+       and no others: 0010 refuses a field sent in the wrong mode, so a value
+       left over from another mode would fail the whole conversion. Nothing is
+       copied from the imported record — the reviewer's own values are what is
+       sent, and the imported evidence stays evidence.
+     */
+
+    /**
+     * Imported records waiting for an administrator: the only state 0010 will
+     * convert. Both conditions are applied by the database, in the query, and
+     * are never filtered again here.
+     */
+    function dealEngineReviewQueue(session, options) {
+      const o = options || {};
+      const wanted = Dm.num(o.limit);
+      const page = Math.max(1, Math.min(wanted === null ? IMPORTED_DEAL_PAGE : wanted, IMPORTED_DEAL_PAGE));
+      /* One row more than the page is asked for, and only the page is kept. The
+         extra row is the database saying "there is more"; it is never shown,
+         never counted and never mistaken for a record the page may act on. */
+      return write('imported_deals',
+        ['select=' + IMPORTED_DEAL_FIELDS,
+         'pipeline_status=eq.pending-review',
+         'review_status=eq.pending',
+         'order=created_at.desc',
+         'limit=' + (page + 1)],
+        session, { method: 'GET', prefer: 'count=exact' }
+      ).then((result) => {
+        const rows = Dm.asArray(result.rows);
+        const records = rows.slice(0, page).map((row) => Dm.normalizeImportedDeal(row));
+        const total = typeof result.total === 'number' ? result.total : null;
+        return {
+          records: records,
+          /* The database's own exact count, or null when it did not give one:
+             a count this layer did not receive is never invented. */
+          total: total,
+          /* True only because the database sent more rows than the page holds. */
+          more: rows.length > page
+        };
+      });
+    }
+
+    /** One imported record by its id, for a view linked directly to it. */
+    function dealEngineImportedDeal(session, id) {
+      return write('imported_deals',
+        ['select=' + IMPORTED_DEAL_FIELDS, 'id=eq.' + encodeURIComponent(id), 'limit=1'],
+        session, { method: 'GET' }
+      ).then((result) => (result.rows.length ? Dm.normalizeImportedDeal(result.rows[0]) : null));
+    }
+
+    /** One record's history, oldest first. Read-only in every direction. */
+    function dealEngineImportedDealEvents(session, id) {
+      return write('deal_engine_events',
+        ['select=' + EVENT_FIELDS, 'imported_deal_id=eq.' + encodeURIComponent(id), 'order=created_at.asc'],
+        session, { method: 'GET' }
+      ).then((result) => result.rows.map(Dm.normalizeDealEngineEvent));
+    }
+
+    /* ---- the conversion payload: exactly what the chosen mode allows ---- */
+
+    function conversionText(value) {
+      return Dm.trim(value);
+    }
+
+    function conversionProductPayload(input) {
+      const i = input || {};
+      if (i.productMode === 'existing') {
+        /* The administrator's explicit choice of an existing row. Sent on its
+           own: 0010 refuses any other product field in this mode. */
+        return { mode: 'existing', product_id: conversionText(i.productId) };
+      }
+      const product = { mode: 'create', name: conversionText(i.name), slug: conversionText(i.slug) };
+      if (conversionText(i.brand)) product.brand = conversionText(i.brand);
+      if (conversionText(i.modelNumber)) product.model_number = conversionText(i.modelNumber);
+      if (conversionText(i.mpn)) product.mpn = conversionText(i.mpn);
+      /* A GTIN belongs to the product only while the offer is product-level:
+         0010 refuses a product GTIN on a conversion that names a variant. */
+      if (i.variantMode === 'none' && conversionText(i.gtin)) product.gtin = conversionText(i.gtin);
+      if (conversionText(i.categoryId)) product.category_id = conversionText(i.categoryId);
+      if (conversionText(i.subcategoryId)) product.subcategory_id = conversionText(i.subcategoryId);
+      return product;
+    }
+
+    function conversionVariantPayload(input) {
+      const i = input || {};
+      if (i.variantMode === 'none') return { mode: 'none' };
+      if (i.variantMode === 'existing') {
+        return { mode: 'existing', variant_id: conversionText(i.variantId) };
+      }
+      const variant = {
+        mode: 'create',
+        name: conversionText(i.variantName),
+        slug: conversionText(i.variantSlug)
+      };
+      if (conversionText(i.variantSku)) variant.sku = conversionText(i.variantSku);
+      if (conversionText(i.variantGtin)) variant.gtin = conversionText(i.variantGtin);
+      const options = i.optionValues;
+      if (options && typeof options === 'object' && !Array.isArray(options) && Object.keys(options).length) {
+        variant.option_values = options;
+      }
+      return variant;
+    }
+
+    function conversionPayload(id, input) {
+      const i = input || {};
+      return {
+        p_imported_deal_id: id,
+        p_product: conversionProductPayload(i),
+        p_variant: conversionVariantPayload(i),
+        p_review_note: typeof i.reviewNote === 'string' ? i.reviewNote : '',
+        p_normalization_note: typeof i.normalizationNote === 'string' ? i.normalizationNote : ''
+      };
+    }
+
+    /**
+     * What counts as a conversion: 0010's whole answer, or nothing.
+     *
+     * An HTTP 200 is not a conversion. If the body is not the shape 0010
+     * documents (section 2j) — a conversion id, the product it created or
+     * chose, the variant when there is one, the merchant offer, and the state
+     * the record is now in — then this layer cannot say what happened, and it
+     * returns null rather than reporting a success it cannot describe. The
+     * caller treats null as "nothing is confirmed", never as success.
+     */
+    function readConversionResult(body) {
+      const b = body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+      if (!b) return null;
+      const product = b.product && typeof b.product === 'object' ? b.product : null;
+      const offer = b.merchant_offer && typeof b.merchant_offer === 'object' ? b.merchant_offer : null;
+      const variant = b.variant && typeof b.variant === 'object' ? b.variant : null;
+      const conversionId = Dm.trim(b.conversion_id);
+      /* No variant is answered as `variant: null` (0010, section 2j), not as an
+         object saying "none": the database states the absence rather than
+         naming a mode, so that is what is reported back. */
+      const variantMode = variant ? Dm.trim(variant.mode) : 'none';
+      const variantId = variant ? Dm.trim(variant.id) : '';
+      if (!conversionId) return null;
+      if (!product || !Dm.trim(product.id) || !Dm.trim(product.mode)) return null;
+      if (!offer || !Dm.trim(offer.id)) return null;
+      if (!Dm.trim(b.pipeline_status) || !Dm.trim(b.review_status)) return null;
+      /* A variant that is present has to say which mode it is, and a mode
+         other than "none" has to name the variant it used. */
+      if (variant && !variantMode) return null;
+      if (variantMode !== 'none' && !variantId) return null;
+      return {
+        conversionId: conversionId,
+        importedDealId: Dm.trim(b.imported_deal_id),
+        productId: Dm.trim(product.id),
+        productMode: Dm.trim(product.mode),
+        productSlug: Dm.trim(product.slug),
+        productName: Dm.trim(product.name),
+        productStatus: Dm.trim(product.status),
+        variantId: variantId,
+        variantMode: variantMode,
+        offerId: Dm.trim(offer.id),
+        offerStatus: Dm.trim(offer.status),
+        offerTitle: Dm.trim(offer.title),
+        pipelineStatus: Dm.trim(b.pipeline_status),
+        reviewStatus: Dm.trim(b.review_status),
+        convertedAt: Dm.trim(b.converted_at)
+      };
+    }
+
+    /**
+     * The conversion itself. One call, one function, no table write.
+     *
+     * A refusal from 0010 is carried back with the database's own SQLSTATE and
+     * message, because those messages were written for the person doing the
+     * review; everything else — no live project, no session, an unreachable
+     * database — passes through untouched, exactly as it does for every other
+     * write in this file.
+     */
+    function importedDealConvert(session, id, input) {
+      return write('rpc/imported_deal_convert', [], session, {
+        method: 'POST',
+        refusal: true,
+        body: conversionPayload(id, input)
+      }).then((result) => readConversionResult(result.body), (err) => {
+        if (err && err.dbCode) {
+          const mapped = StoreError(err.dbMessage || 'The database refused this conversion.',
+            'conversion-refused', err.technical || '');
+          mapped.dbCode = err.dbCode;
+          mapped.dbMessage = err.dbMessage || '';
+          throw mapped;
+        }
+        throw err;
+      });
+    }
+
+    /**
+     * The taxonomy an administrator picks from.
+     *
+     * Public catalogue data, read with the public key exactly as the catalogue
+     * pages read it, and therefore published rows only — the same list a
+     * visitor's taxonomy comes from. There is no administrator view of a draft
+     * or archived category anywhere in this project, and this step adds none:
+     * 0010 accepts any existing category id, so the picker offers what it can
+     * honestly show and says so.
+     */
+    function referenceCategoryOptions(session) {
+      return request('categories', [
+        'select=id,slug,name,description,icon,position,subcategories(id,category_id,slug,name,position)',
+        'status=eq.published',
+        'order=position.asc'
+      ]).then((result) => result.rows.map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        label: row.name,
+        subcategories: Dm.asArray(row.subcategories)
+          .filter((sub) => sub && sub.id)
+          .map((sub) => ({ id: sub.id, slug: sub.slug, label: sub.name, categoryId: sub.category_id }))
+      })));
     }
 
     /* ------------------------------------- canonical catalogue (Step 15) --
@@ -1067,7 +1338,12 @@ window.PV.store = (function () {
       dealEngineSources: dealEngineSources,
       dealEngineJobs: dealEngineJobs,
       dealEngineImportedDeals: dealEngineImportedDeals,
+      dealEngineReviewQueue: dealEngineReviewQueue,
+      dealEngineImportedDeal: dealEngineImportedDeal,
+      dealEngineImportedDealEvents: dealEngineImportedDealEvents,
+      importedDealConvert: importedDealConvert,
       dealSourceSave: dealSourceSave,
+      referenceCategoryOptions: referenceCategoryOptions,
       canonicalProducts: canonicalProducts,
       canonicalVariants: canonicalVariants,
       canonicalOffers: canonicalOffers,
@@ -1999,18 +2275,33 @@ window.PV.store = (function () {
       review: (session, id, status, note) => Promise.resolve(activeAdapter.adminReview(session, id, status, note))
     },
 
-    /* ---- Deal Engine (Step 13) -------------------------------------------
-       Imported records and the pipeline around them. Read-only, admin-only,
-       and separate from the catalogue above. Public discovery never calls
-       anything here: a visitor's page cannot reach an imported record, and no
-       part of this falls back to the demonstration data. */
+    /* ---- Deal Engine (Step 13; the reviewed conversion from Step 17A) -----
+       Imported records and the pipeline around them, admin-only, and separate
+       from the catalogue above. Public discovery never calls anything here: a
+       visitor's page cannot reach an imported record, and no part of this
+       falls back to the demonstration data.
+
+       Three of these methods write, and every one of them writes through a
+       database function that checks is_admin() for itself and validates what
+       it is given — createSource/updateSource through
+       public.deal_source_save(), and convert through
+       public.imported_deal_convert(). The rest read. */
     dealEngine: {
       sources: (session) => Promise.resolve(activeAdapter.dealEngineSources(session)),
       jobs: (session) => Promise.resolve(activeAdapter.dealEngineJobs(session)),
       importedDeals: (session, options) => Promise.resolve(activeAdapter.dealEngineImportedDeals(session, options)),
       merchants: (session) => Promise.resolve(activeAdapter.dealEngineMerchants(session)),
+      /* The review queue: records at pending-review + pending, decided by the
+         query, not by the page. */
+      reviewQueue: (session, options) => Promise.resolve(activeAdapter.dealEngineReviewQueue(session, options)),
+      importedDeal: (session, id) => Promise.resolve(activeAdapter.dealEngineImportedDeal(session, id)),
+      importedDealEvents: (session, id) => Promise.resolve(activeAdapter.dealEngineImportedDealEvents(session, id)),
       createSource: (session, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, null)),
-      updateSource: (session, id, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, id))
+      updateSource: (session, id, input) => Promise.resolve(activeAdapter.dealSourceSave(session, input, id)),
+      /* The conversion. Its rules live in the database; this carries the
+         decision there and returns what came back, or null when the database
+         did not return a complete answer. */
+      convert: (session, id, input) => Promise.resolve(activeAdapter.importedDealConvert(session, id, input))
     },
 
     /* ---- canonical catalogue (Step 15) -----------------------------------
@@ -2058,6 +2349,16 @@ window.PV.store = (function () {
         variants: results[1] ? results[1].total : null,
         offers: results[2] ? results[2].total : null
       }))
+    },
+
+    /* ---- reference data (Step 17A) ---------------------------------------
+       Read-only lists an administrator chooses from. Not catalogue records and
+       not private records: categories and subcategories are public data, and
+       this reads the published taxonomy a visitor's page reads. There is no
+       administrator view of a draft category in this project, and this
+       namespace does not add one. */
+    reference: {
+      categoryOptions: (session) => Promise.resolve(activeAdapter.referenceCategoryOptions(session))
     },
 
     /* ---- reporting / metadata ------------------------------------------- */

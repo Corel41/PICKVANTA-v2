@@ -37,7 +37,7 @@ PV.admin = (function () {
      how many more there are instead of implying it is all of them. */
   const CATALOGUE_PREVIEW = 25;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const SECTIONS = ['dashboard', 'sellers', 'products', 'sources', 'jobs'];
+  const SECTIONS = ['dashboard', 'sellers', 'products', 'sources', 'jobs', 'review'];
 
   /* The panel's structure. `active` items work today; `planned` items are the
      intended architecture and are deliberately not clickable — a dead control
@@ -65,7 +65,7 @@ PV.admin = (function () {
         { id: 'sources', label: 'Sources', active: true },
         { id: 'jobs', label: 'Jobs', active: true },
         { id: 'imports', label: 'Import Deals' },
-        { id: 'review', label: 'Review Queue' },
+        { id: 'review', label: 'Review Queue', active: true },
         { id: 'history', label: 'Import History' },
         { id: 'affiliates', label: 'Affiliate Links' },
         { id: 'scans', label: 'Scheduled Scans' }
@@ -114,6 +114,33 @@ PV.admin = (function () {
     jobsLoaded: false,
     jobsError: '',
     importedTotal: null,
+    /* The review queue (Step 17A): the records waiting for a decision, the one
+       being read, its history, the reference lists the decision form chooses
+       from, and the decision itself. Nothing here is derived, matched or
+       inferred — every value is a column the database returned. */
+    reviewQueue: [],
+    reviewQueueTotal: null,
+    reviewQueueMore: false,
+    reviewQueueLoaded: false,
+    reviewQueueError: '',
+    reviewRecord: null,
+    reviewRecordLoaded: false,
+    reviewRecordError: '',
+    reviewEvents: [],
+    reviewEventsLoaded: false,
+    reviewRefsError: '',
+    reviewTaxonomyLoaded: false,
+    reviewTaxonomy: [],
+    reviewProducts: [],
+    reviewProductsTotal: null,
+    reviewVariants: [],
+    reviewVariantsFor: '',
+    reviewVariantsLoaded: false,
+    reviewSources: [],
+    conversion: null,
+    conversionErrors: {},
+    conversionConfirm: false,
+    conversionResult: null,
     /* The canonical layer (Step 15). Raw, ordered reads — nothing is derived,
        ranked or summarised into a new number. */
     catalogueCounts: null,
@@ -158,6 +185,9 @@ PV.admin = (function () {
     if (state.section === 'sellers') {
       parts.push('status=' + encodeURIComponent(state.filter));
       if (state.selectedId) parts.push('id=' + encodeURIComponent(state.selectedId));
+    }
+    if (state.section === 'review' && state.selectedId) {
+      parts.push('id=' + encodeURIComponent(state.selectedId));
     }
     try {
       window.history.replaceState({}, '', 'admin.html?' + parts.join('&'));
@@ -239,8 +269,10 @@ PV.admin = (function () {
       '<p class="admin-nav-note">Planned sections are the intended architecture. ' +
       'None of them is built yet, and none of them is clickable. Products is an ' +
       'operational view, not an editor: it counts the canonical records and shows ' +
-      'the most recent, and nothing there can be changed. The Deal Engine is its ' +
-      'foundation only: sources can be listed, and no connector reads one.</p>' +
+      'the most recent, and nothing there can be changed. The Deal Engine has its ' +
+      'foundation and one deliberate action: an administrator can convert a single ' +
+      'imported record in the Review Queue. No connector reads a source, no worker ' +
+      'runs a job, and nothing converts anything by itself.</p>' +
       '</nav>'
     );
   }
@@ -250,6 +282,7 @@ PV.admin = (function () {
     if (state.section === 'products') return 'Products';
     if (state.section === 'sources') return 'Sources';
     if (state.section === 'jobs') return 'Jobs';
+    if (state.section === 'review') return state.selectedId ? 'Imported record' : 'Review queue';
     return 'Dashboard';
   }
 
@@ -704,7 +737,8 @@ PV.admin = (function () {
      merchant and source an offer came from. There is no create, no edit, no
      approve, no publish, no import and no connector on this page — and no
      button that suggests one. A canonical record is made by a reviewed
-     conversion in a later step, not here, and the page says so.
+     conversion, which an administrator performs in the Review Queue; this page
+     only reads what that decision produced.
      ------------------------------------------------------------------------ */
 
   const merchantById = (id) => state.catalogueMerchants.filter((m) => m.id === id)[0] || null;
@@ -821,9 +855,9 @@ PV.admin = (function () {
       'through one source, with the merchant’s own title, price, links and observed time. An offer is never ' +
       'the canonical product, and a merchant’s title never replaces a canonical name.</p>' +
       '<p class="panel-note">Nothing on this page can be changed. There is no editor, no approval and no ' +
-      'publish control, because a canonical record is produced by a reviewed conversion — a later step — and ' +
-      'not by a button here. Nothing in this build turns an imported record into a product, and no connector ' +
-      'reads a source. The public catalogue does not read these tables yet.</p>' +
+      'publish control here: a canonical record is produced by a reviewed conversion, which an administrator ' +
+      'performs deliberately in the Review Queue — never automatically, and never from this list. No connector ' +
+      'reads a source, and the public catalogue does not read these tables.</p>' +
       '</div>' +
 
       '<h3 class="admin-subhead">Records</h3>' +
@@ -844,10 +878,10 @@ PV.admin = (function () {
         listFoot(state.catalogueProducts.length, c.products, 'product')
       : '<div class="admin-panel panel">' +
         '<h3>No products have been recorded</h3>' +
-        '<p class="panel-text">That is what this build expects: the canonical layer exists and is empty ' +
-        'because nothing converts an imported record into a product yet. When the review step that does so ' +
-        'exists, the products it creates will be listed here — with the merchant title they came from kept ' +
-        'beside the canonical name, not instead of it.</p>' +
+        '<p class="panel-text">The canonical layer exists and is empty. That is the honest state while no ' +
+        'record has been reviewed: a product is created only by an administrator converting an imported record ' +
+        'in the Review Queue — never automatically. Once one is converted it is listed here, with the merchant ' +
+        'title it came from kept beside the canonical name, not instead of it.</p>' +
         '</div>';
 
     const offersHead = '<h3 class="admin-subhead">Recent merchant offers</h3>' +
@@ -864,9 +898,9 @@ PV.admin = (function () {
         listFoot(state.catalogueOffers.length, c.offers, 'offer')
       : '<div class="admin-panel panel">' +
         '<h3>No merchant offers have been recorded</h3>' +
-        '<p class="panel-text">An offer arrives only from a source, through the pipeline, after a review. ' +
-        'This build has no connector and no automatic conversion, so an empty list is the honest state of it ' +
-        'rather than a failure.</p>' +
+        '<p class="panel-text">An offer is written by the reviewed conversion of an imported record, and by ' +
+        'nothing else: there is no connector feeding this layer and no automatic conversion. An empty list is ' +
+        'the honest state of it rather than a failure.</p>' +
         '</div>';
 
     return head + products + offersHead + offers +
@@ -1096,6 +1130,8 @@ PV.admin = (function () {
       main = sourcesView();
     } else if (state.section === 'jobs') {
       main = jobsView();
+    } else if (state.section === 'review') {
+      main = state.selectedId ? reviewRecordView() : reviewQueueView();
     } else {
       main = dashboardView();
     }
@@ -1262,6 +1298,9 @@ PV.admin = (function () {
     if (state.section === 'products') return loadCatalogue();
     if (state.section === 'sources') return loadSources();
     if (state.section === 'jobs') return loadJobs();
+    if (state.section === 'review') {
+      return Promise.all([loadCounts(), state.selectedId ? loadReviewRecord() : loadReviewQueue()]);
+    }
     return loadCounts();
   }
 
@@ -1275,6 +1314,10 @@ PV.admin = (function () {
     state.action = null;
     state.note = '';
     state.noteError = '';
+    state.conversion = null;
+    state.conversionErrors = {};
+    state.conversionConfirm = false;
+    state.conversionResult = null;
     if (o.filter) state.filter = o.filter;
     if (!o.keepSelection) state.selectedId = '';
     writeAddress();
@@ -1571,6 +1614,911 @@ PV.admin = (function () {
     });
   }
 
+  /* ------------------------------------------------ review queue (17A) ----
+     Imported records waiting for an administrator, and the conversion of one of
+     them into canonical records.
+
+     Everything here is a decision carried to the database and an answer carried
+     back. The page never decides that a record may be converted, never matches a
+     product or a variant, never fills a canonical field from what the source
+     said, and never reports a conversion the database did not confirm. The
+     conversion itself is public.imported_deal_convert() — it checks is_admin()
+     for itself, validates every value, writes every record and returns what the
+     database now holds.
+     ------------------------------------------------------------------------ */
+
+  const REVIEW_QUEUE_PAGE = 50;
+  const CONVERSION_PRODUCT_PAGE = 50;
+
+  function reviewSourceName(id) {
+    const found = state.reviewSources.filter(function (source) { return source.id === id; })[0];
+    return found ? found.name : '';
+  }
+
+  /** The recorded amount and the recorded currency, exactly as stored. */
+  function importedRecordPriceText(record) {
+    return D.merchantOfferPriceText({ priceAmount: record.imported.price, currency: record.imported.currency });
+  }
+
+  function importedCell(value, whenEmpty) {
+    return value ? esc(value) : '<span class="admin-muted">' + esc(whenEmpty) + '</span>';
+  }
+
+  /** A URL becomes a link only when the validator accepts it. */
+  function safeUrlCell(url) {
+    const value = String(url || '').trim();
+    if (!value) return '<span class="admin-muted">Not recorded</span>';
+    if (!D.isSafeHttpUrl(value)) {
+      return '<span class="admin-muted">' + esc(value) + ' — shown as text: it is not an http/https address.</span>';
+    }
+    return '<a class="admin-source-link" href="' + esc(value) + '" target="_blank" ' +
+      'rel="noopener noreferrer">' + esc(value) + '</a>';
+  }
+
+  /**
+   * The only state this page can convert, and the only state it offers a form
+   * for. 0010 refuses everything else; this is the same rule, read from the
+   * record the database returned.
+   */
+  function recordEligibleForReview(record) {
+    return !!record && record.pipelineStatus === 'pending-review' && record.reviewStatus === 'pending';
+  }
+
+  /**
+   * A blank decision. Nothing is carried over from the evidence, from the
+   * previous record, or from a previous attempt: every canonical value is the
+   * reviewer's own, typed here.
+   */
+  function blankConversion() {
+    return {
+      productMode: 'create',
+      name: '', slug: '', brand: '', modelNumber: '', mpn: '', gtin: '',
+      categoryId: '', subcategoryId: '',
+      productId: '',
+      variantMode: 'none',
+      variantName: '', variantSlug: '', variantSku: '', variantGtin: '', optionValuesText: '',
+      variantId: '',
+      reviewNote: '', normalizationNote: ''
+    };
+  }
+
+  /* ------------------------------------------------------------- loading -- */
+
+  function loadReviewQueue() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.reviewQueueError = '';
+    state.reviewQueueLoaded = false;
+    return PV.store.dealEngine.reviewQueue(s, { limit: REVIEW_QUEUE_PAGE }).then(function (result) {
+      state.reviewQueue = (result && result.records) || [];
+      state.reviewQueueTotal = result && typeof result.total === 'number' ? result.total : null;
+      state.reviewQueueMore = !!(result && result.more);
+      state.reviewQueueLoaded = true;
+      render();
+    }).catch(function (err) {
+      state.reviewQueue = [];
+      state.reviewQueueTotal = null;
+      state.reviewQueueMore = false;
+      state.reviewQueueLoaded = true;
+      state.reviewQueueError = messageFor(err);
+      render();
+    });
+  }
+
+  /**
+   * The reference lists the decision form chooses from: the published taxonomy,
+   * the newest canonical products, and the sources (so a record's provenance can
+   * name where it came from). Read separately from the record itself, so a
+   * failure here cannot hide the evidence being reviewed.
+   */
+  function loadReviewReferences() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.reviewRefsError = '';
+    return Promise.all([
+      PV.store.reference.categoryOptions(s),
+      PV.store.canonical.products(s, { limit: CONVERSION_PRODUCT_PAGE }),
+      PV.store.dealEngine.sources(s)
+    ]).then(function (results) {
+      state.reviewTaxonomy = results[0] || [];
+      state.reviewTaxonomyLoaded = true;
+      state.reviewProducts = (results[1] && results[1].products) || [];
+      state.reviewProductsTotal = results[1] && typeof results[1].total === 'number' ? results[1].total : null;
+      state.reviewSources = (results[2] && results[2].sources) || [];
+      render();
+    }).catch(function (err) {
+      state.reviewTaxonomy = [];
+      state.reviewTaxonomyLoaded = false;
+      state.reviewProducts = [];
+      state.reviewProductsTotal = null;
+      state.reviewRefsError = messageFor(err);
+      render();
+    });
+  }
+
+  /**
+   * Read the record and its history back from the database.
+   *
+   * `keepDecision` is for the read that follows a conversion: what the
+   * administrator just did is shown until they leave the record, so the result
+   * of the decision is not erased by the act of confirming it in the database.
+   * Opening a record afresh starts from a blank decision, as it should.
+   */
+  function loadReviewRecord(keepDecision) {
+    const s = session();
+    if (!s || !state.selectedId) return Promise.resolve();
+    state.reviewRecordError = '';
+    state.reviewRecordLoaded = false;
+    state.reviewEventsLoaded = false;
+    state.reviewRecord = null;
+    state.reviewEvents = [];
+    if (!state.reviewTaxonomyLoaded) loadReviewReferences();
+    return Promise.all([
+      PV.store.dealEngine.importedDeal(s, state.selectedId),
+      PV.store.dealEngine.importedDealEvents(s, state.selectedId)
+    ]).then(function (results) {
+      state.reviewRecord = results[0] || null;
+      state.reviewEvents = results[1] || [];
+      state.reviewEventsLoaded = true;
+      state.reviewRecordLoaded = true;
+      if (!keepDecision) {
+        state.conversion = blankConversion();
+        state.conversionErrors = {};
+        state.conversionConfirm = false;
+        state.conversionResult = null;
+      }
+      render();
+    }).catch(function (err) {
+      state.reviewRecord = null;
+      state.reviewEvents = [];
+      state.reviewEventsLoaded = true;
+      state.reviewRecordLoaded = true;
+      state.reviewRecordError = messageFor(err);
+      render();
+    });
+  }
+
+  /** The variants of one existing product, and only after it was chosen. */
+  function loadReviewVariants(productId) {
+    const s = session();
+    if (!s || !productId) return Promise.resolve();
+    state.reviewVariantsFor = productId;
+    state.reviewVariantsLoaded = false;
+    state.reviewVariants = [];
+    return PV.store.canonical.variants(s, productId)
+      .then(function (result) {
+        state.reviewVariants = (result && result.variants) || [];
+        state.reviewVariantsLoaded = true;
+        render();
+      }).catch(function (err) {
+        state.reviewVariants = [];
+        state.reviewVariantsLoaded = true;
+        state.reviewRefsError = messageFor(err);
+        render();
+      });
+  }
+
+  /* ------------------------------------------------------- the queue view -- */
+
+  function reviewQueueView() {
+    if (state.reviewQueueError) {
+      return '<div class="admin-panel panel">' +
+        '<h3 id="reviewQueueTitle">The review queue could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.reviewQueueError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-review-queue="1">Try again</button></div></div>';
+    }
+    if (!state.reviewQueueLoaded) {
+      return PV.card.loading({
+        title: 'Reading the review queue…',
+        text: 'Asking the database for the imported records that are at pending review.'
+      });
+    }
+    if (!state.reviewQueue.length) {
+      return '<div class="admin-panel panel">' +
+        '<h3 id="reviewQueueTitle">Nothing is waiting for review</h3>' +
+        '<p class="panel-text">No imported record is at pipeline status <code>pending-review</code> with review ' +
+        'status <code>pending</code> — the only state this page can convert. Nothing in this build advances a ' +
+        'record into that state by itself: there is no connector, no processor, no schedule and no automatic ' +
+        'conversion, so the queue is set deliberately, and an empty queue is the honest state of the pipeline ' +
+        'rather than a failure.</p>' +
+        '<p class="panel-text">Records that are not waiting for review are not shown here at all: the database ' +
+        'returns only the ones this page may act on.</p></div>';
+    }
+    const total = state.reviewQueueTotal;
+    const foot = typeof total === 'number'
+      ? 'The database counts ' + total + ' record' + (total === 1 ? '' : 's') + ' waiting for review. ' +
+        (state.reviewQueueMore
+          ? 'Showing the ' + state.reviewQueue.length + ' most recent, so this is not all of them.'
+          : 'All of them are shown.')
+      : 'The database did not return a total, so none is shown.';
+    return '<div class="admin-panel panel">' +
+      '<h3 id="reviewQueueTitle">Waiting for an administrator</h3>' +
+      '<p class="panel-text">Each of these records is in the only state a conversion accepts. Opening one shows ' +
+      'what the source recorded, and lets you record what it becomes: a canonical product, optionally a variant, ' +
+      'and one merchant offer. The conversion is performed by the database\'s own function, which confirms that ' +
+      'you are an administrator and validates everything before it writes.</p>' +
+      '<table class="admin-table">' +
+      '<caption class="visually-hidden">Imported records waiting for review</caption>' +
+      '<thead><tr><th scope="col">Imported title</th><th scope="col">Merchant</th><th scope="col">Source</th>' +
+      '<th scope="col">Recorded price</th><th scope="col">Recorded availability</th><th scope="col">Imported</th>' +
+      '<th scope="col">Action</th></tr></thead><tbody>' +
+      state.reviewQueue.map(function (record) {
+        const price = importedRecordPriceText(record);
+        return '<tr>' +
+          '<td data-label="Imported title"><strong>' + importedCell(record.imported.title, 'No title recorded') + '</strong></td>' +
+          '<td data-label="Merchant">' + importedCell(record.merchantName, 'Not named') + '</td>' +
+          '<td data-label="Source">' + importedCell(reviewSourceName(record.sourceId), 'Not in the loaded list') + '</td>' +
+          '<td data-label="Recorded price">' + (price
+            ? esc(price) + (record.imported.currency ? '' : ' <span class="admin-muted">(currency not recorded)</span>')
+            : '<span class="admin-muted">No price recorded</span>') + '</td>' +
+          '<td data-label="Recorded availability">' + importedCell(record.imported.availability, 'Not recorded') + '</td>' +
+          '<td data-label="Imported">' + esc(formatDateTime(record.importedAt)) + '</td>' +
+          '<td data-label="Action"><button type="button" class="btn-secondary" data-admin-open-review="' +
+            esc(record.id) + '">Review</button></td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<p class="admin-table-foot">' + esc(foot) + '</p>' +
+      '<p class="admin-table-foot">Availability above is the text the source recorded. It is not a PickVanta ' +
+      'availability state, and the conversion does not turn it into one.</p></div>';
+  }
+
+  /* ----------------------------------------------- the record's evidence -- */
+
+  function reviewEvidencePanel(record) {
+    const normalized = record.normalized || {};
+    const proposed = [
+      normalized.name ? row('Normalized name (proposed)', esc(normalized.name)) : '',
+      normalized.brand ? row('Normalized brand (proposed)', esc(normalized.brand)) : '',
+      normalized.categoryId ? row('Normalized category (proposed)', esc(normalized.categoryId)) : '',
+      normalized.availability ? row('Normalized availability (proposed)', esc(normalized.availability)) : '',
+      normalized.modelNumber ? row('Normalized model number (proposed)', esc(normalized.modelNumber)) : '',
+      normalized.gtin ? row('Normalized GTIN (proposed)', esc(normalized.gtin)) : ''
+    ].join('');
+    const metadata = Object.keys(record.imported.metadata || {}).length
+      ? '<pre class="admin-metadata">' + esc(JSON.stringify(record.imported.metadata, null, 2)) + '</pre>'
+      : '<span class="admin-muted">Nothing recorded</span>';
+    const price = importedRecordPriceText(record);
+    return '<section class="admin-panel panel" aria-labelledby="reviewEvidenceTitle">' +
+      '<h4 class="admin-subhead" id="reviewEvidenceTitle">Source evidence</h4>' +
+      '<p class="panel-note">What the source recorded, kept exactly as it arrived. None of it becomes canonical ' +
+      'data on its own: the conversion writes only what you enter below, and nothing on this page copies these ' +
+      'values into it.</p>' +
+      '<dl class="admin-fields">' +
+      row('Imported title', importedCell(record.imported.title, 'Not recorded')) +
+      row('Imported description', importedCell(record.imported.description, 'Not recorded')) +
+      row('Merchant', importedCell(record.merchantName, 'Not named')) +
+      row('Merchant reference', importedCell(record.merchantRef, 'Not recorded')) +
+      row('External product id', importedCell(record.externalProductId, 'Not recorded')) +
+      row('Source', importedCell(reviewSourceName(record.sourceId), 'Not in the loaded list')) +
+      row('Source URL', safeUrlCell(record.sourceUrl)) +
+      '<div class="admin-field"><dt>Affiliate URL</dt><dd>' +
+        (record.affiliateUrl
+          ? '<span class="admin-muted">' + esc(record.affiliateUrl) + ' — recorded by the source. The conversion ' +
+            'does not copy it: the merchant offer it creates has an empty affiliate URL.</span>'
+          : '<span class="admin-muted">Not set</span>') + '</dd></div>' +
+      row('Recorded price', price
+        ? esc(price) + (record.imported.currency ? '' : ' <span class="admin-muted">(currency not recorded)</span>')
+        : '<span class="admin-muted">No price recorded</span>') +
+      row('Recorded currency', importedCell(record.imported.currency, 'Not recorded')) +
+      row('Recorded availability', importedCell(record.imported.availability, 'Not recorded')) +
+      row('Imported category text', importedCell(record.imported.category, 'Not recorded')) +
+      row('Imported at', importedCell(record.importedAt, 'Not recorded')) +
+      row('Pipeline status', esc(record.pipelineStatus || 'Not recorded')) +
+      row('Review status', esc(record.reviewStatus || 'Not recorded')) +
+      '</dl>' +
+      (proposed
+        ? '<dl class="admin-fields">' +
+          '<div class="admin-field"><dt>Recorded by the pipeline as proposals</dt><dd>' +
+          '<span class="admin-muted">These are what an earlier stage recorded. They are evidence too: none of ' +
+          'them is written to the canonical record unless you type it yourself.</span></dd></div>' + proposed + '</dl>'
+        : '') +
+      '<dl class="admin-fields"><div class="admin-field"><dt>Imported metadata</dt><dd>' + metadata + '</dd></div></dl>' +
+      '</section>';
+  }
+
+  function reviewEventsPanel() {
+    let body;
+    if (!state.reviewEventsLoaded) {
+      body = '<p class="panel-text">Reading this record\'s history…</p>';
+    } else if (!state.reviewEvents.length) {
+      body = '<p class="panel-text">No events recorded. Nothing has happened to this record since it was imported.</p>';
+    } else {
+      body = '<ol class="admin-events">' + state.reviewEvents.map(function (event) {
+        const data = event.data || {};
+        return '<li class="admin-event">' +
+          '<p class="admin-event-head"><strong>' + esc(event.stage || 'Event') + '</strong>' +
+          (event.outcome ? ' · ' + esc(event.outcome) : '') +
+          '<span class="admin-muted"> · ' + esc(formatDateTime(event.createdAt)) + '</span></p>' +
+          (event.detail ? '<p class="admin-event-detail">' + esc(event.detail) + '</p>' : '') +
+          (Object.keys(data).length
+            ? '<p class="admin-event-data"><code>' + esc(JSON.stringify(data)) + '</code></p>' : '') +
+          '</li>';
+      }).join('') + '</ol>';
+    }
+    return '<section class="admin-panel panel" aria-labelledby="reviewEventsTitle">' +
+      '<h4 class="admin-subhead" id="reviewEventsTitle">Event history</h4>' +
+      '<p class="panel-note">Append-only, oldest first. An event records what happened; nothing on this page ' +
+      'writes one.</p>' + body + '</section>';
+  }
+
+  /* --------------------------------------------------- the decision form -- */
+
+  /** The ids a control is described by — its help, its error, or both. */
+  function describedBy(name, hasHelp) {
+    const ids = [];
+    if (hasHelp) ids.push('conv' + name + 'Help');
+    if (state.conversionErrors[name]) ids.push('conv' + name + 'Error');
+    return ids.length ? ' aria-describedby="' + ids.join(' ') + '"' : '';
+  }
+
+  function convField(name, label, value, options) {
+    const o = options || {};
+    const help = o.help ? describedBy(name, true) : describedBy(name, false);
+    return '<div class="field">' +
+      '<label for="conv' + name + '">' + esc(label) + (o.required ? ' (required)' : '') + '</label>' +
+      '<input type="text" id="conv' + name + '" data-conversion-field="' + name + '"' +
+      ' value="' + esc(value) + '"' +
+      (state.conversionErrors[name] ? ' aria-invalid="true"' : '') + help + ' />' +
+      (o.help ? '<p class="field-help" id="conv' + name + 'Help">' + esc(o.help) + '</p>' : '') +
+      (state.conversionErrors[name]
+        ? '<p class="form-error" id="conv' + name + 'Error" role="alert">' + esc(state.conversionErrors[name]) + '</p>'
+        : '') +
+      '</div>';
+  }
+
+  /* `max` is the column's own limit, and is only set where a column has one:
+     a field with no recorded limit is not given an invented one. */
+  function convTextarea(name, label, value, max, help) {
+    return '<div class="field">' +
+      '<label for="conv' + name + '">' + esc(label) + ' (optional)</label>' +
+      '<textarea id="conv' + name + '" data-conversion-field="' + name + '" rows="3"' +
+      (max ? ' maxlength="' + max + '"' : '') +
+      ' aria-describedby="conv' + name + 'Help"' +
+      (state.conversionErrors[name] ? ' aria-invalid="true"' : '') + '>' + esc(value) + '</textarea>' +
+      '<p class="field-help" id="conv' + name + 'Help">' + esc(help) + '</p>' +
+      (state.conversionErrors[name]
+        ? '<p class="form-error" id="conv' + name + 'Error" role="alert">' + esc(state.conversionErrors[name]) + '</p>'
+        : '') +
+      '</div>';
+  }
+
+  function convSelect(name, label, value, options, help, required) {
+    return '<div class="field">' +
+      '<label for="conv' + name + '">' + esc(label) + (required ? ' (required)' : '') + '</label>' +
+      '<select id="conv' + name + '" data-conversion-field="' + name + '"' +
+      (state.conversionErrors[name] ? ' aria-invalid="true"' : '') + describedBy(name, !!help) + '>' +
+      options.map(function (option) {
+        return '<option value="' + esc(option.id) + '"' + (option.id === value ? ' selected' : '') + '>' +
+          esc(option.label) + '</option>';
+      }).join('') + '</select>' +
+      (help ? '<p class="field-help" id="conv' + name + 'Help">' + esc(help) + '</p>' : '') +
+      (state.conversionErrors[name]
+        ? '<p class="form-error" id="conv' + name + 'Error" role="alert">' + esc(state.conversionErrors[name]) + '</p>'
+        : '') +
+      '</div>';
+  }
+
+  function selectedProduct() {
+    const wanted = state.conversion ? D.trim(state.conversion.productId) : '';
+    if (!wanted) return null;
+    return state.reviewProducts.filter(function (product) { return product.id === wanted; })[0] || null;
+  }
+
+  function selectedVariant() {
+    const wanted = state.conversion ? D.trim(state.conversion.variantId) : '';
+    if (!wanted) return null;
+    return state.reviewVariants.filter(function (variant) { return variant.id === wanted })[0] || null;
+  }
+
+  function productPicker() {
+    if (state.reviewRefsError) {
+      return '<p class="panel-text">The canonical products could not be read: ' + esc(state.reviewRefsError) +
+        ' <button type="button" class="link-btn" data-retry-review-references="1">Try again</button></p>';
+    }
+    const total = state.reviewProductsTotal;
+    const options = [{ id: '', label: 'Choose a product…' }].concat(state.reviewProducts.map(function (product) {
+      return { id: product.id, label: product.name + (product.brand ? ' · ' + product.brand : '') +
+        (product.slug ? ' (' + product.slug + ')' : '') };
+    }));
+    const chosen = selectedProduct();
+    const details = chosen
+      ? '<dl class="admin-fields">' +
+        row('Id', '<code class="admin-code">' + esc(chosen.id) + '</code>') +
+        row('Slug', esc(chosen.slug)) +
+        row('Name', esc(chosen.name)) +
+        row('Brand', chosen.brand ? esc(chosen.brand) : '<span class="admin-muted">Not recorded</span>') +
+        row('Model number', chosen.modelNumber ? esc(chosen.modelNumber) : '<span class="admin-muted">Not recorded</span>') +
+        row('GTIN', chosen.gtin ? esc(chosen.gtin) : '<span class="admin-muted">None</span>') +
+        row('Status', esc(chosen.statusCopy ? chosen.statusCopy.label : chosen.status)) +
+        row('Recorded', esc(formatDateTime(chosen.createdAt))) +
+        '</dl>' +
+        (chosen.gtin
+          ? '<p class="panel-note">This product already carries a GTIN, so it is a single-configuration product: ' +
+            'the database refuses a variant for it. Convert it with no variant.</p>'
+          : '')
+      : '';
+    return convSelect('productId', 'Existing product', state.conversion.productId, options,
+      'The newest ' + CONVERSION_PRODUCT_PAGE + ' canonical products are listed. The database decides what exists; ' +
+      'nothing here searches, suggests or matches.', true) + details +
+      '<p class="field-help">' + esc(typeof total === 'number'
+        ? 'The database counts ' + total + ' product' + (total === 1 ? '' : 's') + ' in total' +
+          (total > state.reviewProducts.length ? ', so this list shows the most recent only.' : '.')
+        : 'The database did not return a total, so none is shown.') + '</p>';
+  }
+
+  function variantPicker() {
+    if (!state.conversion.productId) {
+      return '<p class="panel-text">Choose the existing product first: a variant belongs to one product, and only ' +
+        'that product\'s variants can be chosen.</p>';
+    }
+    if (!state.reviewVariantsLoaded && state.reviewVariantsFor !== state.conversion.productId) {
+      return '<p class="panel-text">Reading this product\'s variants…</p>';
+    }
+    if (!state.reviewVariants.length) {
+      return '<p class="panel-text">This product has no variants recorded, so there is nothing to choose. Create a ' +
+        'variant, or convert the record without one.</p>';
+    }
+    const options = [{ id: '', label: 'Choose a variant…' }].concat(state.reviewVariants.map(function (variant) {
+      return { id: variant.id, label: variant.name + (variant.slug ? ' (' + variant.slug + ')' : '') };
+    }));
+    const chosen = selectedVariant();
+    const details = chosen
+      ? '<dl class="admin-fields">' +
+        row('Id', '<code class="admin-code">' + esc(chosen.id) + '</code>') +
+        row('Slug', esc(chosen.slug)) +
+        row('Name', esc(chosen.name)) +
+        row('Options', Object.keys(chosen.optionValues || {}).length
+          ? '<code class="admin-code">' + esc(JSON.stringify(chosen.optionValues)) + '</code>'
+          : '<span class="admin-muted">None recorded</span>') +
+        row('SKU', chosen.sku ? esc(chosen.sku) : '<span class="admin-muted">Not recorded</span>') +
+        row('GTIN', chosen.gtin ? esc(chosen.gtin) : '<span class="admin-muted">None</span>') +
+        row('Status', esc(chosen.statusCopy ? chosen.statusCopy.label : chosen.status)) +
+        '</dl>' +
+        '<p class="panel-note">Choosing an existing variant never edits it: the conversion adds an offer that ' +
+        'names it, and nothing else.</p>'
+      : '';
+    return convSelect('variantId', 'Existing variant', state.conversion.variantId, options,
+      'Only the variants of the product you chose are offered.', true) + details;
+  }
+
+  function decisionPanel() {
+    const c = state.conversion || blankConversion();
+    const categories = state.reviewTaxonomy.map(function (category) {
+      return { id: category.id, label: category.label };
+    });
+    const chosenCategory = state.reviewTaxonomy.filter(function (category) {
+      return category.id === c.categoryId;
+    })[0] || null;
+    const subcategories = chosenCategory ? chosenCategory.subcategories.map(function (sub) {
+      return { id: sub.id, label: sub.label };
+    }) : [];
+    const productBlock = c.productMode === 'create'
+      ? convField('name', 'Canonical name', c.name, { required: true,
+          help: 'The name PickVanta will use. It is never taken from the merchant\'s title automatically.' }) +
+        convField('slug', 'Slug', c.slug, { required: true,
+          help: 'Lower-case words separated by single hyphens (for example demo-phone-8-128).' }) +
+        convField('brand', 'Brand', c.brand, {}) +
+        convField('modelNumber', 'Model number', c.modelNumber, {}) +
+        convField('mpn', 'MPN', c.mpn, {}) +
+        (c.variantMode === 'none'
+          ? convField('gtin', 'GTIN', c.gtin, { help: '8 to 14 digits, or empty. One product may carry a GTIN, and a product with variants may not.' })
+          : '<p class="panel-note">No product GTIN is offered here: this conversion names a variant, and a GTIN ' +
+            'belongs on the variant. The database refuses both at once.</p>') +
+        convSelect('categoryId', 'Category', c.categoryId,
+          [{ id: '', label: 'Not chosen yet' }].concat(categories),
+          'Published categories only — the same list a visitor\'s page reads. The database checks that the category exists.') +
+        (chosenCategory
+          ? convSelect('subcategoryId', 'Subcategory', c.subcategoryId,
+              [{ id: '', label: 'Not chosen yet' }].concat(subcategories),
+              'Only this category\'s subcategories are offered. The database checks the pair.')
+          : '')
+      : productPicker();
+
+    const variantBlock = c.variantMode === 'none'
+      ? '<p class="panel-text">No variant: the offer is about the product as a whole.</p>'
+      : (c.variantMode === 'create'
+        ? convField('variantName', 'Variant name', c.variantName, { required: true }) +
+          convField('variantSlug', 'Variant slug', c.variantSlug, { required: true,
+            help: 'Unique inside this product.' }) +
+          convField('variantSku', 'Variant SKU', c.variantSku, {}) +
+          convField('variantGtin', 'Variant GTIN', c.variantGtin, { help: '8 to 14 digits, or empty. It must not already exist.' }) +
+          convTextarea('optionValuesText', 'Options (JSON object)',
+            c.optionValuesText, '',
+            'Optional. A JSON object of option names and values, such as {"storage": "128GB"}. ' +
+            'The database records them as the offer\'s variant options.')
+        : variantPicker());
+
+    return '<section class="admin-panel panel" aria-labelledby="reviewDecisionTitle">' +
+      '<h4 class="admin-subhead" id="reviewDecisionTitle">Reviewer decision</h4>' +
+      '<p class="panel-note">Nothing here is filled in from the evidence above. The database validates every value ' +
+      'again — a slug that is taken, a GTIN that is already recorded, a category that does not exist — and its ' +
+      'refusal is what this page reports.</p>' +
+      (state.reviewRefsError
+        ? '<p class="form-error" role="alert">Some reference lists could not be read: ' + esc(state.reviewRefsError) +
+          ' <button type="button" class="link-btn" data-retry-review-references="1">Try again</button></p>'
+        : '') +
+      '<div class="field">' +
+      '<label for="convProductMode">Product</label>' +
+      '<select id="convProductMode" data-conversion-field="productMode">' +
+      '<option value="create"' + (c.productMode === 'create' ? ' selected' : '') + '>Create a new canonical product</option>' +
+      '<option value="existing"' + (c.productMode === 'existing' ? ' selected' : '') + '>Use an existing product</option>' +
+      '</select></div>' +
+      productBlock +
+      '<div class="field">' +
+      '<label for="convVariantMode">Variant</label>' +
+      '<select id="convVariantMode" data-conversion-field="variantMode">' +
+      '<option value="none"' + (c.variantMode === 'none' ? ' selected' : '') + '>No variant — the offer is about the product</option>' +
+      '<option value="create"' + (c.variantMode === 'create' ? ' selected' : '') + '>Create a variant</option>' +
+      '<option value="existing"' + (c.variantMode === 'existing' ? ' selected' : '') + '>Use an existing variant</option>' +
+      '</select></div>' +
+      variantBlock +
+      convTextarea('reviewNote', 'Review note', c.reviewNote, D.REVIEW_NOTE_MAX,
+        'Up to ' + D.REVIEW_NOTE_MAX + ' characters. Stored with the imported record as the reviewer\'s note.') +
+      convTextarea('normalizationNote', 'Normalization note', c.normalizationNote, D.NORMALIZATION_NOTE_MAX,
+        'Up to ' + D.NORMALIZATION_NOTE_MAX + ' characters. Stored with the conversion: what changed between what ' +
+        'the source said and what the canonical record says.') +
+      '<div class="admin-actions">' +
+      '<button type="button" class="btn-primary" data-conversion-review="1"' + (state.busy ? ' disabled' : '') +
+      '>Review this conversion</button></div>' +
+      '</section>';
+  }
+
+  function conversionConfirmPanel(record) {
+    const c = state.conversion || blankConversion();
+    const product = c.productMode === 'existing'
+      ? 'Use the existing product ' + (D.trim(c.productId) || '(not chosen)')
+      : 'Create a product named "' + (D.trim(c.name) || '(no name)') + '" with the slug ' +
+        (D.trim(c.slug) || '(no slug)');
+    const variant = c.variantMode === 'none'
+      ? 'No variant: the offer is about the product'
+      : (c.variantMode === 'existing'
+        ? 'Use the existing variant ' + (D.trim(c.variantId) || '(not chosen)')
+        : 'Create a variant named "' + (D.trim(c.variantName) || '(no name)') + '" with the slug ' +
+          (D.trim(c.variantSlug) || '(no slug)'));
+    return '<div class="admin-confirm" role="group" aria-labelledby="conversion-confirm-title">' +
+      '<h4 id="conversion-confirm-title">Convert this imported record?</h4>' +
+      '<p class="admin-confirm-text">The database will write the canonical records below — creating the product ' +
+      'and the variant when that is what was chosen — record this decision, move the imported record to approved, ' +
+      'and append one event. Nothing is published, no listing and no public deal is created, and no affiliate link ' +
+      'is generated.</p>' +
+      '<p class="admin-confirm-target">Record: <strong>' +
+        esc(record.imported.title || record.id) + '</strong></p>' +
+      '<ul class="admin-confirm-list">' +
+      '<li>Product: ' + esc(product) + '</li>' +
+      '<li>Variant: ' + esc(variant) + '</li>' +
+      '<li>Review note: ' + (D.trim(c.reviewNote) ? 'included' : 'none') + '</li>' +
+      '<li>Normalization note: ' + (D.trim(c.normalizationNote) ? 'included' : 'none') + '</li>' +
+      '</ul>' +
+      '<div class="admin-actions">' +
+      '<button type="button" class="btn-primary" data-conversion-confirm="1"' + (state.busy ? ' disabled' : '') +
+      '>Convert this record</button>' +
+      '<button type="button" class="btn-secondary" data-conversion-cancel="1"' + (state.busy ? ' disabled' : '') +
+      '>Cancel</button></div></div>';
+  }
+
+  function conversionResultPanel() {
+    const r = state.conversionResult;
+    if (!r) return '';
+    return '<section class="admin-panel panel" aria-labelledby="reviewResultTitle">' +
+      '<h4 class="admin-subhead" id="reviewResultTitle">This record was converted</h4>' +
+      '<dl class="admin-fields">' +
+      row('Conversion id', '<code class="admin-code">' + esc(r.conversionId) + '</code>') +
+      row('Product', '<code class="admin-code">' + esc(r.productId) + '</code> · ' + esc(r.productMode)) +
+      row('Variant', r.variantMode === 'none'
+        ? '<span class="admin-muted">None</span>'
+        : '<code class="admin-code">' + esc(r.variantId) + '</code> · ' + esc(r.variantMode)) +
+      row('Merchant offer', '<code class="admin-code">' + esc(r.offerId) + '</code>') +
+      row('Record state now', esc(r.pipelineStatus + ' / ' + r.reviewStatus)) +
+      '</dl></section>';
+  }
+
+  function reviewRecordView() {
+    const back = '<div class="admin-actions admin-detail-top">' +
+      '<button type="button" class="link-btn" data-back-to-review-queue="1">← Back to the review queue</button></div>';
+    if (state.reviewRecordError) {
+      return back + '<div class="admin-panel panel">' +
+        '<h3 id="reviewRecordTitle">That record could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.reviewRecordError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-review-record="1">Try again</button></div></div>';
+    }
+    if (!state.reviewRecordLoaded) {
+      return back + PV.card.loading({
+        title: 'Reading the imported record…',
+        text: 'Asking the database for what the source recorded, and for this record\'s history.'
+      });
+    }
+    const record = state.reviewRecord;
+    if (!record) {
+      return back + '<div class="admin-panel panel">' +
+        '<h3 id="reviewRecordTitle">No such imported record</h3>' +
+        '<p class="panel-text">The database returned no record with that id. It may have been removed, or the ' +
+        'address may name something else.</p></div>';
+    }
+    const eligible = recordEligibleForReview(record);
+    return back +
+      '<article class="admin-detail panel">' +
+      '<header class="admin-detail-head">' +
+      '<h3 id="reviewRecordTitle">' + esc(record.imported.title || 'Imported record') + '</h3>' +
+      '<span class="admin-detail-type">' + esc(record.id) + '</span>' +
+      '</header>' +
+      '<p class="panel-text">At pipeline status <code>' + esc(record.pipelineStatus) + '</code> and review status ' +
+      '<code>' + esc(record.reviewStatus) + '</code>.</p>' +
+      '</article>' +
+      reviewEvidencePanel(record) +
+      reviewEventsPanel() +
+      conversionResultPanel() +
+      (eligible
+        ? (state.busy ? '<p class="admin-working" role="status">Converting…</p>' : '') +
+          decisionPanel() +
+          (state.conversionConfirm ? conversionConfirmPanel(record) : '')
+        : '<section class="admin-panel panel"><h4 class="admin-subhead">No conversion is offered</h4>' +
+          '<p class="panel-text">This record is no longer at <code>pending-review</code> with review status ' +
+          '<code>pending</code>, so the database would refuse a conversion and this page does not offer one. ' +
+          'The record above is shown read-only, exactly as the database holds it.</p></section>');
+  }
+
+  /* -------------------------------------------------- the conversion --- */
+
+  /** Options have to be a JSON object, or they are not sent at all. */
+  function parseOptionValues(text) {
+    const raw = String(text === undefined || text === null ? '' : text).trim();
+    if (!raw) return { ok: true, value: {} };
+    let value;
+    try {
+      value = JSON.parse(raw);
+    } catch (err) {
+      return { ok: false, error: 'That is not valid JSON. Use an object such as {"storage": "128GB"}, or leave it empty.' };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { ok: false, error: 'Options have to be a JSON object, such as {"storage": "128GB"}.' };
+    }
+    return { ok: true, value: value };
+  }
+
+  /**
+   * What the form itself must have before it is worth sending: the fields the
+   * chosen mode needs, notes within their recorded limits, and options that
+   * parse. Everything else — whether a slug is free, whether a GTIN is already
+   * recorded, whether a category exists — is the database's, and its answer is
+   * what is reported.
+   */
+  function validateConversion() {
+    const c = state.conversion || blankConversion();
+    const errors = {};
+    if (c.productMode === 'create') {
+      if (!D.trim(c.name)) errors.name = 'A new canonical product needs a name.';
+      if (!D.trim(c.slug)) errors.slug = 'A new canonical product needs a slug.';
+    } else if (!D.trim(c.productId)) {
+      errors.productId = 'Choose the existing product this record is about.';
+    }
+    if (c.variantMode === 'create') {
+      if (!D.trim(c.variantName)) errors.variantName = 'A new variant needs a name.';
+      if (!D.trim(c.variantSlug)) errors.variantSlug = 'A new variant needs a slug.';
+    } else if (c.variantMode === 'existing' && !D.trim(c.variantId)) {
+      errors.variantId = 'Choose the existing variant this offer is for.';
+    }
+    if (String(c.reviewNote).length > D.REVIEW_NOTE_MAX) {
+      errors.reviewNote = 'That note is longer than ' + D.REVIEW_NOTE_MAX + ' characters.';
+    }
+    if (String(c.normalizationNote).length > D.NORMALIZATION_NOTE_MAX) {
+      errors.normalizationNote = 'That note is longer than ' + D.NORMALIZATION_NOTE_MAX + ' characters.';
+    }
+    const options = parseOptionValues(c.optionValuesText);
+    if (c.variantMode === 'create' && !options.ok) errors.optionValuesText = options.error;
+    return { errors: errors, optionValues: options.ok ? options.value : {} };
+  }
+
+  function openConversionConfirm() {
+    if (state.busy) return;
+    const checked = validateConversion();
+    state.conversionErrors = checked.errors;
+    if (Object.keys(checked.errors).length) {
+      const first = Object.keys(checked.errors)[0];
+      state.message = 'Some fields need attention before this can be sent.';
+      state.messageTone = 'warning';
+      focusAfterRender = '[data-conversion-field="' + first + '"]';
+      render();
+      return;
+    }
+    state.message = '';
+    state.conversionConfirm = true;
+    focusAfterRender = '[data-conversion-confirm]';
+    render();
+  }
+
+  function cancelConversionConfirm() {
+    state.conversionConfirm = false;
+    focusAfterRender = '[data-conversion-review]';
+    render();
+  }
+
+  /**
+   * The database's own refusal, in the database's own words.
+   *
+   * 0010's messages were written for the person doing the review — a slug
+   * another product already uses, a GTIN that belongs on the variant, a record
+   * that is not at pending review — so they are exactly what belongs here. They
+   * are escaped before they are rendered, never treated as markup, and the
+   * seller flow's wording ("someone else changed it", "that application is no
+   * longer in the database") is never used for this call.
+   */
+  function conversionMessageFor(err) {
+    const dbCode = err && err.dbCode ? String(err.dbCode) : '';
+    const dbMessage = err && typeof err.dbMessage === 'string' ? err.dbMessage : '';
+    if (dbCode === '42501') {
+      return dbMessage || 'The database refused this: only an administrator can convert an imported record.';
+    }
+    if (dbCode === '22023' || dbCode === '23505' || dbCode === 'P0002' || dbCode === '22001') {
+      if (dbMessage) return dbMessage;
+    }
+    const code = err && err.code ? err.code : '';
+    if (code === 'api-not-configured') {
+      return 'The admin panel needs the live database connection. This build is running on the bundled demonstration catalogue.';
+    }
+    if (code === 'not-signed-in') return 'Sign in again to continue.';
+    if (code === 'api-401' || code === 'api-403') {
+      return dbMessage || 'The database refused this: only an administrator can convert an imported record.';
+    }
+    if (code === 'api-unreachable') return 'We could not reach the database. Check your connection and try again.';
+    if (dbMessage) return dbMessage;
+    return 'The conversion did not go through and nothing was changed. Try again in a moment.';
+  }
+
+  function submitConversion() {
+    /* One conversion per record: a second click carries no second decision, so
+       it is dropped before a request is built, whatever a browser does with a
+       disabled button. */
+    if (state.busy) return;
+    const s = session();
+    const record = state.reviewRecord;
+    if (!s || !record) return;
+    const checked = validateConversion();
+    state.conversionErrors = checked.errors;
+    if (Object.keys(checked.errors).length) {
+      const first = Object.keys(checked.errors)[0];
+      state.conversionConfirm = false;
+      state.message = 'Some fields need attention before this can be sent.';
+      state.messageTone = 'warning';
+      focusAfterRender = '[data-conversion-field="' + first + '"]';
+      render();
+      return;
+    }
+    const input = Object.assign({}, state.conversion, { optionValues: checked.optionValues });
+    state.busy = true;
+    state.message = '';
+    render();
+    PV.store.dealEngine.convert(s, record.id, input).then(function (result) {
+      state.busy = false;
+      state.conversionConfirm = false;
+      if (!result) {
+        /* The request came back without 0010's whole answer. Nothing is
+           reported as done, and the typed values stay exactly where they are. */
+        state.message = 'The database did not return a complete conversion result, so nothing is reported as ' +
+          'done. Reload this record before deciding anything again.';
+        state.messageTone = 'warning';
+        announceFailure();
+        return null;
+      }
+      state.conversionResult = result;
+      state.message = 'Converted. Product ' + result.productId + ' (' + result.productMode + ')' +
+        (result.variantMode === 'none'
+          ? ', no variant'
+          : ', variant ' + result.variantId + ' (' + result.variantMode + ')') +
+        ', merchant offer ' + result.offerId + '. The database reports this record as ' +
+        result.pipelineStatus + ' / ' + result.reviewStatus + '.';
+      state.messageTone = 'good';
+      PV.ui.announce(state.message);
+      PV.ui.toast(state.message);
+      /* Read it all back: what the database holds is what is shown. The
+         decision stays on screen while that happens — it is what was just
+         recorded, not a stale copy of it. */
+      return Promise.all([loadReviewRecord(true), loadReviewQueue(), loadCounts()]).then(function () {
+        const fresh = state.reviewRecord;
+        if (recordEligibleForReview(fresh)) {
+          state.message = state.message + ' The database still reports this record as pending review, so it ' +
+            'remains in the queue.';
+          state.messageTone = 'warning';
+        }
+        render();
+      });
+    }).catch(function (err) {
+      state.busy = false;
+      state.conversionConfirm = false;
+      state.message = conversionMessageFor(err);
+      state.messageTone = 'warning';
+      announceFailure();
+    });
+  }
+
+  function openReviewRecord(id) {
+    /* The id comes from a record the database returned, and it is still checked
+       against the same shape the address is: what cannot be an id is not sent
+       as one. */
+    if (!UUID.test(String(id || ''))) return;
+    state.selectedId = id;
+    state.message = '';
+    state.messageTone = 'neutral';
+    state.reviewRecord = null;
+    state.reviewRecordLoaded = false;
+    state.reviewRecordError = '';
+    state.reviewEvents = [];
+    state.reviewEventsLoaded = false;
+    state.reviewVariants = [];
+    state.reviewVariantsFor = '';
+    state.reviewVariantsLoaded = false;
+    state.conversion = null;
+    state.conversionErrors = {};
+    state.conversionConfirm = false;
+    state.conversionResult = null;
+    writeAddress();
+    focusAfterRender = '#reviewRecordTitle';
+    render();
+    loadReviewRecord();
+  }
+
+  function backToReviewQueue() {
+    state.selectedId = '';
+    state.reviewRecord = null;
+    state.reviewRecordLoaded = false;
+    state.reviewRecordError = '';
+    state.reviewEvents = [];
+    state.reviewEventsLoaded = false;
+    state.reviewVariants = [];
+    state.reviewVariantsFor = '';
+    state.reviewVariantsLoaded = false;
+    state.conversion = null;
+    state.conversionErrors = {};
+    state.conversionConfirm = false;
+    state.conversionResult = null;
+    writeAddress();
+    focusAfterRender = '#reviewQueueTitle';
+    render();
+    loadReviewQueue();
+  }
+
+  /**
+   * Keystrokes are kept, and the form is redrawn only when the choice changes
+   * which fields exist at all — a redraw takes the cursor with it, so the field
+   * that caused it is focused again.
+   */
+  function onConversionField(e) {
+    const field = e.target.closest('[data-conversion-field]');
+    if (!field || !state.conversion) return;
+    const name = field.getAttribute('data-conversion-field');
+    const hadError = !!state.conversionErrors[name];
+    state.conversion[name] = field.value;
+    if (hadError) {
+      delete state.conversionErrors[name];
+      render();
+      return;
+    }
+    if (name !== 'productMode' && name !== 'variantMode' && name !== 'categoryId' && name !== 'productId') return;
+    if (name === 'productMode' || name === 'variantMode' || name === 'categoryId') {
+      if (name === 'categoryId') state.conversion.subcategoryId = '';
+      focusAfterRender = '[data-conversion-field="' + name + '"]';
+      render();
+      /* Choosing "existing" after the product is already chosen still needs
+         that product's variants, and there is no reason to make the reviewer
+         reselect the same product to get them. */
+      if (name === 'variantMode' && state.conversion.variantMode === 'existing' &&
+          D.trim(state.conversion.productId) &&
+          (!state.reviewVariantsLoaded || state.reviewVariantsFor !== D.trim(state.conversion.productId))) {
+        loadReviewVariants(D.trim(state.conversion.productId));
+      }
+      return;
+    }
+    /* A different product means a different set of variants, and the variant
+       that was chosen belonged to the previous one. */
+    state.conversion.variantId = '';
+    state.reviewVariants = [];
+    state.reviewVariantsLoaded = false;
+    state.reviewVariantsFor = '';
+    focusAfterRender = '[data-conversion-field="productId"]';
+    render();
+    if (state.conversion.variantMode === 'existing' && D.trim(state.conversion.productId)) {
+      loadReviewVariants(D.trim(state.conversion.productId));
+    }
+  }
+
   /* ------------------------------------------------------------- wiring -- */
   root.addEventListener('click', function (e) {
     const target = e.target;
@@ -1614,6 +2562,17 @@ PV.admin = (function () {
     if (target.closest('[data-retry-queue]')) { loadQueue(); return; }
     if (target.closest('[data-retry-detail]')) { loadDetail(); return; }
     if (target.closest('[data-retry-access]')) { render(); return; }
+
+    /* The review queue (Step 17A). */
+    const openReview = target.closest('[data-admin-open-review]');
+    if (openReview) { openReviewRecord(openReview.getAttribute('data-admin-open-review')); return; }
+    if (target.closest('[data-back-to-review-queue]')) { backToReviewQueue(); return; }
+    if (target.closest('[data-retry-review-queue]')) { loadReviewQueue(); return; }
+    if (target.closest('[data-retry-review-record]')) { loadReviewRecord(); return; }
+    if (target.closest('[data-retry-review-references]')) { loadReviewReferences(); return; }
+    if (target.closest('[data-conversion-review]')) { openConversionConfirm(); return; }
+    if (target.closest('[data-conversion-cancel]')) { cancelConversionConfirm(); return; }
+    if (target.closest('[data-conversion-confirm]')) { submitConversion(); return; }
   });
 
   /* Keystrokes in the note field are kept, so a re-render never loses them. */
@@ -1651,6 +2610,8 @@ PV.admin = (function () {
   }
   root.addEventListener('input', onSourceField);
   root.addEventListener('change', onSourceField);
+  root.addEventListener('input', onConversionField);
+  root.addEventListener('change', onConversionField);
 
   root.addEventListener('submit', function (e) {
     if (e.target && e.target.classList && e.target.classList.contains('admin-source-form')) {
@@ -1691,6 +2652,27 @@ PV.admin = (function () {
     state.action = null;
     state.note = '';
     state.noteError = '';
+    state.reviewQueue = [];
+    state.reviewQueueTotal = null;
+    state.reviewQueueMore = false;
+    state.reviewQueueLoaded = false;
+    state.reviewQueueError = '';
+    state.reviewRecord = null;
+    state.reviewRecordLoaded = false;
+    state.reviewRecordError = '';
+    state.reviewEvents = [];
+    state.reviewEventsLoaded = false;
+    state.reviewTaxonomyLoaded = false;
+    state.reviewTaxonomy = [];
+    state.reviewProducts = [];
+    state.reviewProductsTotal = null;
+    state.reviewVariants = [];
+    state.reviewVariantsFor = '';
+    state.reviewVariantsLoaded = false;
+    state.conversion = null;
+    state.conversionErrors = {};
+    state.conversionConfirm = false;
+    state.conversionResult = null;
     state.message = '';
   }
 
