@@ -898,7 +898,8 @@ The sidebar states the intended architecture and marks what does not exist yet:
 | Deal Engine — Jobs | **Built** (Step 14: read-only; nothing in this build runs a job) |
 | Marketplace — Products | **Built** (Step 15: read-only operational visibility of the canonical catalogue — counts and the most recent records, no editing) |
 | Deal Engine — Review Queue | **Built** (Step 17A: the records waiting for review, the evidence and history they arrived with, and the reviewed conversion that turns one into canonical records through the database's own function) |
-| Deal Engine — Import Deals, Import History, Affiliate Links, Scheduled Scans | Planned |
+| Deal Engine — Import Deals | **Built** (Step 17B: a read-only inspection screen — the imported records the database returns, newest first, with nothing there that can be changed) |
+| Deal Engine — Import History, Affiliate Links, Scheduled Scans | Planned |
 | Marketplace — Listings, Categories, Deals | Planned |
 | Insights — Analytics | Planned |
 | System — Settings | Planned |
@@ -1125,7 +1126,8 @@ them.
 | Connectors (feeds, merchant APIs, affiliate networks), scraping, discovery | Not built |
 | Workers, schedulers, cron, scans, monitoring | Not built |
 | Validation, normalization, deduplication processors | Not built (the states and columns exist) |
-| Import Deals, Scheduled Scans, Affiliate Links, Import History screens | Not built (nav entries are labelled *Planned* and are not clickable) |
+| Import Deals screen | **Built** — read-only (Step 17B): the imported records the database holds, one bounded page, newest first, and nothing there can be changed |
+| Scheduled Scans, Affiliate Links, Import History screens | Not built (nav entries are labelled *Planned* and are not clickable) |
 | Affiliate network, affiliate accounts, link generation, clicks, conversions, commissions, revenue | Not built — and no fake accounts, clicks, conversions or figures exist anywhere |
 | Product / Variant / Merchant Offer tables | Not built |
 | Seller or provider dashboards, listing creation or editing | Not built |
@@ -1213,7 +1215,9 @@ imported records: it returns the complete provenance shape (what the source said
 and `affiliate_url` kept apart, the four step statuses, the dedup class, both timestamps) and,
 separately, the database's own count. The Jobs page uses the count only — "Imported records
 recorded so far: 0" — which is a fact from the database, not an estimate; from Step 17A the
-Review Queue reads the records themselves, filtered by the database.
+Review Queue reads the records themselves, filtered by the database, and from Step 17B the
+Import Deals section reads one bounded page of them — the most recent 50, newest first — with
+the database's own count beside the page, as a read-only inspection screen that changes nothing.
 
 ### Events, unchanged
 
