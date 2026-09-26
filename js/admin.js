@@ -32,12 +32,16 @@ PV.admin = (function () {
   if (!root) return {};
 
   const QUEUE_PAGE = 50;
+  /* How many imported records the Import Deals section reads (Step 17B). The
+     store clamps any request to the same 50, so this is the largest single read
+     the database will answer for them — the section never asks for the table. */
+  const IMPORTS_PAGE = 50;
   /* How many canonical records the Products section shows. The counts above the
      tables are the database's totals, so a list cut short by this number says
      how many more there are instead of implying it is all of them. */
   const CATALOGUE_PREVIEW = 25;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const SECTIONS = ['dashboard', 'sellers', 'products', 'sources', 'jobs', 'review'];
+  const SECTIONS = ['dashboard', 'sellers', 'products', 'sources', 'jobs', 'imports', 'review'];
 
   /* The panel's structure. `active` items work today; `planned` items are the
      intended architecture and are deliberately not clickable — a dead control
@@ -64,7 +68,7 @@ PV.admin = (function () {
       items: [
         { id: 'sources', label: 'Sources', active: true },
         { id: 'jobs', label: 'Jobs', active: true },
-        { id: 'imports', label: 'Import Deals' },
+        { id: 'imports', label: 'Import Deals', active: true },
         { id: 'review', label: 'Review Queue', active: true },
         { id: 'history', label: 'Import History' },
         { id: 'affiliates', label: 'Affiliate Links' },
@@ -114,6 +118,15 @@ PV.admin = (function () {
     jobsLoaded: false,
     jobsError: '',
     importedTotal: null,
+    /* Import Deals (Step 17B): one bounded page of the imported records, the
+       database's own count of the whole table, and whether more exist than the
+       page shows. Kept apart from the review queue's state — this section only
+       inspects records, so a failure here can never empty the queue's list. */
+    imports: [],
+    importsTotal: null,
+    importsMore: false,
+    importsLoaded: false,
+    importsError: '',
     /* The review queue (Step 17A): the records waiting for a decision, the one
        being read, its history, the reference lists the decision form chooses
        from, and the decision itself. Nothing here is derived, matched or
@@ -271,7 +284,8 @@ PV.admin = (function () {
       'operational view, not an editor: it counts the canonical records and shows ' +
       'the most recent, and nothing there can be changed. The Deal Engine has its ' +
       'foundation and one deliberate action: an administrator can convert a single ' +
-      'imported record in the Review Queue. No connector reads a source, no worker ' +
+      'imported record in the Review Queue; Import Deals reads the imported records ' +
+      'themselves, and can change nothing. No connector reads a source, no worker ' +
       'runs a job, and nothing converts anything by itself.</p>' +
       '</nav>'
     );
@@ -282,6 +296,7 @@ PV.admin = (function () {
     if (state.section === 'products') return 'Products';
     if (state.section === 'sources') return 'Sources';
     if (state.section === 'jobs') return 'Jobs';
+    if (state.section === 'imports') return 'Import Deals';
     if (state.section === 'review') return state.selectedId ? 'Imported record' : 'Review queue';
     return 'Dashboard';
   }
@@ -1130,6 +1145,8 @@ PV.admin = (function () {
       main = sourcesView();
     } else if (state.section === 'jobs') {
       main = jobsView();
+    } else if (state.section === 'imports') {
+      main = importsView();
     } else if (state.section === 'review') {
       main = state.selectedId ? reviewRecordView() : reviewQueueView();
     } else {
@@ -1298,6 +1315,7 @@ PV.admin = (function () {
     if (state.section === 'products') return loadCatalogue();
     if (state.section === 'sources') return loadSources();
     if (state.section === 'jobs') return loadJobs();
+    if (state.section === 'imports') return loadImports();
     if (state.section === 'review') {
       return Promise.all([loadCounts(), state.selectedId ? loadReviewRecord() : loadReviewQueue()]);
     }
@@ -1612,6 +1630,187 @@ PV.admin = (function () {
       state.form.message = sourceFormMessage(err);
       render();
     });
+  }
+
+  /* ------------------------------------------------- import deals (17B) ----
+     The imported records themselves, and nothing else.
+
+     This section answers one question — what has been imported, and where is
+     each record now? — by reading one bounded page of them, newest first, and
+     drawing the columns the database returned. It is read-only in the strict
+     sense: no form, no button that writes, no decision offered. The Deal
+     Engine's one deliberate action — converting a single record into canonical
+     records — stays in the Review Queue, which shows only the records that are
+     waiting for that decision.
+
+     The read is the store's own Import Deals boundary
+     (`PV.store.dealEngine.importedDeals`): it asks the database for a bounded
+     number of rows with `count=exact`, and returns the database's own count of
+     the whole table alongside them. A count that did not arrive is shown as
+     unavailable — it is never replaced by the size of the page that did.
+     ------------------------------------------------------------------------ */
+
+  /** What the processing steps recorded, one labelled line each. A step that
+      recorded nothing is not shown as a status, and a recorded error is shown
+      as what it is — the text the database holds, escaped like everything
+      else that arrived from a source. */
+  function importsProcessingCell(record) {
+    const lines = [
+      record.validationStatus ? 'Validation: ' + record.validationStatus : '',
+      record.normalizationStatus ? 'Normalization: ' + record.normalizationStatus : '',
+      record.deduplicationStatus ? 'Deduplication: ' + record.deduplicationStatus : '',
+      record.dedupMatchClass ? 'Dedup match class: ' + record.dedupMatchClass : ''
+    ].filter(Boolean);
+    let cell = lines.length
+      ? lines.map(function (line) { return '<div class="admin-muted">' + esc(line) + '</div>'; }).join('')
+      : '<span class="admin-muted">Not recorded</span>';
+    if (record.error) {
+      cell += '<div><strong>Error</strong> <span class="admin-muted">' + esc(record.error) + '</span></div>';
+    }
+    return cell;
+  }
+
+  /** What a reviewer recorded, when one did. Who reviewed is a person's
+      identifier and is deliberately not shown: this table reports the record's
+      state, not people. */
+  function importsReviewCell(record) {
+    const lines = [];
+    if (record.reviewedAt) lines.push('Reviewed ' + formatDateTime(record.reviewedAt));
+    if (record.reviewNote) lines.push(record.reviewNote);
+    if (!lines.length) return '<span class="admin-muted">Not recorded</span>';
+    return lines.map(function (line) { return '<div class="admin-muted">' + esc(line) + '</div>'; }).join('');
+  }
+
+  /** The recorded amount alone — the recorded currency has its own column, and
+      nothing is converted, symbolised or guessed here. */
+  function importsPriceText(value) {
+    return typeof value === 'number' && isFinite(value)
+      ? value.toLocaleString('en-US', { maximumFractionDigits: value % 1 ? 2 : 0 })
+      : '';
+  }
+
+  /** Where a record came from: the source's own id and the address it recorded.
+      No source name is joined in — this read does not fetch the sources list,
+      and a name taken from another screen's list would not be a value this page
+      holds. The id is labelled as the technical reference it is. */
+  function importsSourceCell(record) {
+    const reference = record.sourceId
+      ? '<code class="admin-code">' + esc(record.sourceId) + '</code>'
+      : '<span class="admin-muted">Not recorded</span>';
+    return '<div><span class="admin-muted">Source ID </span>' + reference + '</div>' +
+      '<div><span class="admin-muted">Source URL </span>' + safeUrlCell(record.sourceUrl) + '</div>';
+  }
+
+  /** The count sentence. The database's own number decides which one is true; a
+      count that did not arrive says so instead of borrowing the page's size. */
+  function importsFoot() {
+    const total = state.importsTotal;
+    if (total === null) {
+      return 'The database did not return a count of the imported deal records, so only the ' +
+        state.imports.length + ' returned here are shown, and no total is claimed.';
+    }
+    if (total === 0) return 'No imported deal records to display.';
+    if (total <= IMPORTS_PAGE) return 'Showing all ' + total + ' imported deal records.';
+    return 'Showing the ' + IMPORTS_PAGE + ' most recent of ' + total + ' imported deal records.';
+  }
+
+  /**
+   * One bounded read of the imported records, through the store's own Import
+   * Deals boundary — the same method the Jobs section uses for its count and
+   * the Review Queue uses for its filtered list. Nothing here asks for the
+   * whole table: the store clamps the limit, and the database's own count comes
+   * back with the rows.
+   */
+  function loadImports() {
+    const s = session();
+    if (!s) return Promise.resolve();
+    state.importsError = '';
+    state.importsLoaded = false;
+    return PV.store.dealEngine.importedDeals(s, { limit: IMPORTS_PAGE }).then(function (result) {
+      state.imports = (result && result.records) || [];
+      const total = result && typeof result.total === 'number' && isFinite(result.total) ? result.total : null;
+      state.importsTotal = total;
+      /* Recorded for the paging a later step may add; nothing in this build
+         draws a page control from it. */
+      state.importsMore = total !== null && total > state.imports.length;
+      state.importsLoaded = true;
+      render();
+    }).catch(function (err) {
+      state.imports = [];
+      state.importsTotal = null;
+      state.importsMore = false;
+      state.importsLoaded = true;
+      state.importsError = messageFor(err);
+      render();
+    });
+  }
+
+  function importsView() {
+    if (state.importsError) {
+      return '<div class="admin-panel panel">' +
+        '<h3 id="importsTitle">The imported records could not be read</h3>' +
+        '<p class="panel-text">' + esc(state.importsError) + '</p>' +
+        '<div class="admin-actions"><button type="button" class="btn-primary" data-retry-imports="1">Try again</button></div></div>';
+    }
+    if (!state.importsLoaded) {
+      return PV.card.loading({
+        title: 'Reading the imported records…',
+        text: 'Asking the database for the most recent imported deal records.'
+      });
+    }
+    if (!state.imports.length) {
+      return '<div class="admin-panel panel">' +
+        '<h3 id="importsTitle">No imported records to show</h3>' +
+        '<p class="panel-text">There are no imported deal records to display. This page shows what the ' +
+        'database returns from the Deal Engine’s imported deals table; it is a read-only view and imports ' +
+        'nothing itself. So an empty list means the database returned no imported deal records — it is not ' +
+        'a queue waiting to fill, and nothing here is scheduled to arrive later.</p></div>';
+    }
+    const rows = state.imports.map(function (record) {
+      const price = importsPriceText(record.imported.price);
+      return '<tr>' +
+        '<td data-label="Imported title"><strong>' + importedCell(record.imported.title, 'No title recorded') + '</strong>' +
+          (record.imported.category
+            ? '<div class="admin-muted">Source category: ' + esc(record.imported.category) + '</div>'
+            : '') + '</td>' +
+        '<td data-label="Merchant">' + importedCell(record.merchantName, 'Not named') + '</td>' +
+        '<td data-label="Source">' + importsSourceCell(record) + '</td>' +
+        '<td data-label="External product ID">' + importedCell(record.externalProductId, 'Not recorded') + '</td>' +
+        '<td data-label="Merchant reference">' + importedCell(record.merchantRef, 'Not recorded') + '</td>' +
+        '<td data-label="Recorded price">' + (price
+          ? esc(price)
+          : '<span class="admin-muted">No price recorded</span>') + '</td>' +
+        '<td data-label="Currency">' + importedCell(record.imported.currency, 'Not recorded') + '</td>' +
+        '<td data-label="Recorded availability">' + importedCell(record.imported.availability, 'Not recorded') + '</td>' +
+        '<td data-label="Processing">' + importsProcessingCell(record) + '</td>' +
+        '<td data-label="Pipeline status">' + importedCell(record.pipelineStatus, 'Not recorded') + '</td>' +
+        '<td data-label="Review status">' + importedCell(record.reviewStatus, 'Not recorded') + '</td>' +
+        '<td data-label="Review record">' + importsReviewCell(record) + '</td>' +
+        '<td data-label="Imported">' + importedCell(formatDateTime(record.importedAt), 'Not recorded') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div class="admin-panel panel">' +
+      '<h3 id="importsTitle">Imported records</h3>' +
+      '<p class="panel-text">Every row is one imported deal record, exactly as the database returned it. ' +
+      'This view is read-only: nothing here changes a record, and nothing changes one by itself. Turning a ' +
+      'record into canonical records is the Deal Engine’s one deliberate action, offered in the Review ' +
+      'Queue to the records waiting for that decision.</p>' +
+      '<p class="panel-note">One bounded page is read — the most recent records, newest first, up to ' +
+      IMPORTS_PAGE + '. There is no paging in this build; the count below is the database’s own count of ' +
+      'the whole table, so it says how many more exist beyond this page.</p>' +
+      '<table class="admin-table">' +
+      '<caption class="visually-hidden">Imported deal records</caption>' +
+      '<thead><tr>' +
+      '<th scope="col">Imported title</th><th scope="col">Merchant</th><th scope="col">Source</th>' +
+      '<th scope="col">External product ID</th><th scope="col">Merchant reference</th>' +
+      '<th scope="col">Recorded price</th><th scope="col">Currency</th>' +
+      '<th scope="col">Recorded availability</th><th scope="col">Processing</th>' +
+      '<th scope="col">Pipeline status</th><th scope="col">Review status</th>' +
+      '<th scope="col">Review record</th><th scope="col">Imported</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<p class="admin-table-foot">' + esc(importsFoot()) + '</p>' +
+      '<p class="admin-table-foot">Pipeline and review status are the values the database recorded, shown ' +
+      'as text — this page cannot change them.</p></div>';
   }
 
   /* ------------------------------------------------ review queue (17A) ----
@@ -2563,6 +2762,8 @@ PV.admin = (function () {
     if (target.closest('[data-retry-detail]')) { loadDetail(); return; }
     if (target.closest('[data-retry-access]')) { render(); return; }
 
+    /* Import Deals (Step 17B). */
+    if (target.closest('[data-retry-imports]')) { loadImports(); return; }
     /* The review queue (Step 17A). */
     const openReview = target.closest('[data-admin-open-review]');
     if (openReview) { openReviewRecord(openReview.getAttribute('data-admin-open-review')); return; }
@@ -2642,6 +2843,11 @@ PV.admin = (function () {
     state.jobsLoaded = false;
     state.jobsError = '';
     state.importedTotal = null;
+    state.imports = [];
+    state.importsTotal = null;
+    state.importsMore = false;
+    state.importsLoaded = false;
+    state.importsError = '';
     state.queue = [];
     state.queueLoaded = false;
     state.queueMore = false;
