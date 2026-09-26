@@ -4080,6 +4080,22 @@ footer{background:var(--dark);margin-top:clamp(56px,6vw,120px);padding-top:clamp
 .admin-confirm .field{margin-top:0}
 .admin-confirm .admin-actions{margin-top:16px}
 
+/* Review Queue — the imported record's history, and the JSON it arrived with
+   (Step 17A). An append-only list, so the oldest entry is first; the recorded
+   stage and outcome lead, and the detail the source supplied follows. */
+.admin-events{margin:0;padding:0;list-style:none}
+.admin-event{padding:12px 0;border-top:1px solid var(--line)}
+.admin-event:first-child{border-top:0}
+.admin-event-head{margin:0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:13.5px;color:var(--text)}
+.admin-event-detail{margin:6px 0 0;max-width:70ch;font-size:13.5px;line-height:1.6;color:var(--text-2)}
+.admin-event-data{margin:6px 0 0;font-size:12.5px;overflow-wrap:anywhere}
+.admin-metadata{
+  margin:0;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;
+  border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;
+}
+.admin-confirm-list{margin:0 0 16px;padding-left:20px;font-size:13.5px;line-height:1.7;color:var(--text-2)}
+
 @media(max-width:980px){
   .admin-shell{grid-template-columns:1fr}
   .admin-side{padding:14px}
