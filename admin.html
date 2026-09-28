@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="PickVanta administration: the seller and provider review queue." />
+  <meta name="color-scheme" content="light dark" />
+  <!-- An operational area, not a public page: keep it out of search results. -->
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Admin | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s views are rendered in your browser with JavaScript. Please enable JavaScript to use the admin panel.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head page-head-admin">
+      <div class="shell">
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> PickVanta operations</div>
+        <h1>Admin</h1>
+        <p class="page-lead">
+          Where PickVanta reviews what people apply for and keeps an eye on the catalogue.
+          Everything on these pages is read from the live database, and every action is
+          decided by the database — not by this page.
+        </p>
+      </div>
+    </section>
+
+    <!-- The whole workspace is rendered from the account and the database -->
+    <section class="section section-tight" aria-labelledby="admin-title">
+      <div class="shell">
+        <h2 id="admin-title" class="visually-hidden">Administration workspace</h2>
+        <div id="adminRoot"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own public values; it must load immediately before
+       js/config.js, which merges them. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/domain.js"></script>
+  <!-- Data-access layer: the only module that talks to the catalogue source -->
+  <script src="js/store.js"></script>
+  <!-- Authentication layer: the only module that talks to Supabase Auth -->
+  <script src="js/auth.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

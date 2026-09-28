@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="Sign in to PickVanta or create an account. Browsing the catalogue never needs one." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Account | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to sign in, or browse the catalogue without an account.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head">
+      <div class="shell">
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Find · Account</div>
+        <h1>Account</h1>
+        <p class="page-lead">
+          An account is only needed for the parts of PickVanta that belong to you. Browsing, searching,
+          comparing and reading guides never require one.
+        </p>
+      </div>
+    </section>
+
+    <!-- The whole view is rendered from the current authentication state -->
+    <section class="section section-tight" aria-labelledby="account-title">
+      <div class="shell">
+        <h2 id="account-title" class="visually-hidden">Sign in or manage your account</h2>
+        <div id="accountRoot"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own public values; it must load immediately before
+       js/config.js, which merges them. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/domain.js"></script>
+  <!-- Data-access layer: the only module that talks to the catalogue source -->
+  <script src="js/store.js"></script>
+  <!-- Authentication layer: the only module that talks to Supabase Auth -->
+  <script src="js/auth.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/account.js"></script>
+</body>
+</html>

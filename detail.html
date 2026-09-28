@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="PickVanta detail view: main information, key specifications, seller, availability and actions for a product, service or deal." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Item detail | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- Breadcrumb is filled by js/detail.js and also used by the not-found state -->
+    <div class="shell">
+      <nav class="crumbs" id="crumb" aria-label="Breadcrumb"></nav>
+    </div>
+
+    <!-- The whole detail view is rendered from one record in the catalogue -->
+    <div id="detail"></div>
+
+    <!-- "Good to know" general context, filled by js/detail.js when the
+         category has notes configured -->
+    <div id="detailKnow"></div>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own values (it is absent from the repository: if it is not
+       there, the browser logs one 404 and js/config.js defaults to the bundled
+       demonstration catalogue). It must load immediately before js/config.js,
+       which merges its public values. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/domain.js"></script>
+  <!-- Data-access layer: the only module that talks to the catalogue source
+       (the bundled demonstration data, or the read-only Supabase API) -->
+  <script src="js/store.js"></script>
+  <!-- Authentication layer: the only module that talks to Supabase Auth -->
+  <script src="js/auth.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/detail.js"></script>
+</body>
+</html>

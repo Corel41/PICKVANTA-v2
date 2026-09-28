@@ -1,0 +1,5 @@
+item_id,item_name,item_description,item_url,price,currency,stock,category,image_url,merchant_name,merchant_ref,merchant_website,merchant_country
+,Fixture Missing Id 3001,The item id is blank.,https://fixture-beta.example/p/fb-3001,5.00,GBP,In stock,Stationery,,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB
+FB-3002,,The title is blank.,https://fixture-beta.example/p/fb-3002,5.00,GBP,In stock,Stationery,,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB
+FB-3003,Fixture Comma Price 3003,"A price quoted with a thousands separator, which the contract refuses.","https://fixture-beta.example/p/fb-3003","1,299.00",GBP,In stock,Stationery,,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB
+FB-3004,Fixture Three Decimals 3004,A price with three decimal places.,https://fixture-beta.example/p/fb-3004,19.999,GBP,In stock,Stationery,,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB

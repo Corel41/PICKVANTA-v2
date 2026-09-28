@@ -1,0 +1,4 @@
+{
+  "simulate": { "failure": "timeout", "hang_ms": 400 },
+  "config": { "timeout_ms": 150 }
+}

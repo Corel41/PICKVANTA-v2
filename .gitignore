@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Secrets — never commit these
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+.pgpass
+db/.pgpass
+supabase/.temp/
+supabase/.branches/
+
+# Local overrides of the public configuration (mode + public anon key only).
+# js/config.js itself is committed with the demo defaults.
+js/config.local.js
+
+# ---------------------------------------------------------------------------
+# Tooling / OS noise
+# ---------------------------------------------------------------------------
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+*.sql.gz
+*.dump
+db/backups/

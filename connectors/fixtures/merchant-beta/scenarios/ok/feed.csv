@@ -1,0 +1,4 @@
+item_id,item_name,item_description,item_url,price,currency,stock,category,image_url,merchant_name,merchant_ref,merchant_website,merchant_country
+FB-2001,Fixture Cotton Tote 2001,"A fixture product, quoted because the description contains a comma.",https://fixture-beta.example/p/fb-2001,19.99,GBP,In stock,Bags > Totes,https://fixture-beta.example/media/fb-2001.jpg,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB
+FB-2002,Fixture Ceramic Mug 2002,Plain fixture description.,https://fixture-beta.example/p/fb-2002,7.50,GBP,Out of stock,Kitchen,https://fixture-beta.example/media/fb-2002.jpg,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB
+FB-2003,Fixture Notebook 2003,"A quoted description with ""escaped quotes"" inside it.",https://fixture-beta.example/p/fb-2003,,GBP,In stock,Stationery,,Fixture Merchant Beta,fixture-beta,https://fixture-beta.example,GB

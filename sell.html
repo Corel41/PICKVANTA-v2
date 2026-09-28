@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="description" content="Apply to sell products or provide services on PickVanta. Applications are reviewed before anything is published." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Sell or provide on PickVanta | PickVanta</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s views are rendered in your browser with JavaScript. Please enable JavaScript to apply, or browse the catalogue without an account.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <!-- PAGE HEAD -->
+    <section class="page-head">
+      <div class="shell">
+        <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Sell · Provide</div>
+        <h1>Sell or provide on PickVanta</h1>
+        <p class="page-lead">
+          Tell us about your business and we will review it. Nothing is published from this page:
+          every application is checked by a person first, and listing tools arrive in a later stage.
+        </p>
+      </div>
+    </section>
+
+    <!-- The whole view is rendered from the current account and application state -->
+    <section class="section section-tight" aria-labelledby="sell-title">
+      <div class="shell">
+        <h2 id="sell-title" class="visually-hidden">Your seller or provider application</h2>
+        <div id="sellRoot"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own public values; it must load immediately before
+       js/config.js, which merges them. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/domain.js"></script>
+  <!-- Data-access layer: the only module that talks to the catalogue source -->
+  <script src="js/store.js"></script>
+  <!-- Authentication layer: the only module that talks to Supabase Auth -->
+  <script src="js/auth.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/sell.js"></script>
+</body>
+</html>

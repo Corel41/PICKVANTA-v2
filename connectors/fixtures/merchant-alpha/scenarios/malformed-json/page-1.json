@@ -1,0 +1,6 @@
+{
+  "store": { "name": "Fixture Merchant Alpha", "ref": "fixture-alpha" },
+  "page": 1,
+  "per_page": 2,
+  "products": [
+    { "id": 5001, "sku": "FX-E-5001", "name": "A page that was cut off mid-response",

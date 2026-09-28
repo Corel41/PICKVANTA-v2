@@ -1,0 +1,35 @@
+{
+  "store": {
+    "name": "Fixture Merchant Alpha",
+    "ref": "fixture-alpha",
+    "website_url": "https://fixture-alpha.example",
+    "country": "KE"
+  },
+  "page": 1,
+  "per_page": 2,
+  "total_pages": 1,
+  "products": [
+    {
+      "id": 1001,
+      "sku": "FX-A-1001",
+      "name": "Fixture Wireless Headphones 1001",
+      "permalink": "https://fixture-alpha.example/p/fx-a-1001",
+      "description": "The same product the first page of the ok scenario carries.",
+      "prices": { "price": "12950", "currency_code": "USD", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": []
+    },
+    {
+      "id": 1001,
+      "sku": "FX-A-1001",
+      "name": "Fixture Wireless Headphones 1001 (listed twice)",
+      "permalink": "https://fixture-alpha.example/p/fx-a-1001",
+      "description": "A feed that lists one product twice. The unique index on (source_id, external_product_id) will not allow two rows; a dry run reports it.",
+      "prices": { "price": "12950", "currency_code": "USD", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": []
+    }
+  ]
+}

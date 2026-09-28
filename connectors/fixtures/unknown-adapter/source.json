@@ -1,0 +1,14 @@
+{
+  "id": "44444444-4444-4444-8444-444444444444",
+  "name": "Fixture Source With An Unknown Adapter",
+  "provider_name": "fixture-unknown",
+  "source_type": "merchant-product-feed",
+  "market_country": "KE",
+  "endpoint_url": "https://fixture-unknown.example/api/products",
+  "status": "active",
+  "config": {
+    "adapter": "store-json-v2",
+    "timeout_ms": 5000
+  },
+  "requires_credential": false
+}

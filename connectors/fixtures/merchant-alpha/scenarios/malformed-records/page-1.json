@@ -1,0 +1,59 @@
+{
+  "store": {
+    "name": "Fixture Merchant Alpha",
+    "ref": "fixture-alpha",
+    "website_url": "https://fixture-alpha.example",
+    "country": "KE"
+  },
+  "page": 1,
+  "per_page": 2,
+  "total_pages": 1,
+  "products": [
+    {
+      "name": "",
+      "permalink": "https://fixture-alpha.example/p/fx-b-2001",
+      "description": "No sku, no id and no title: a record with no identity and nothing to review.",
+      "prices": { "price": "1000", "currency_code": "KES", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": []
+    },
+    {
+      "id": 2002,
+      "sku": "FX-B-2002",
+      "name": "Fixture Broken Link 2002",
+      "permalink": "not-a-url",
+      "description": "A permalink that is not an http(s) address.",
+      "prices": { "price": "2000", "currency_code": "KES", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": []
+    },
+    {
+      "id": 2003,
+      "sku": "FX-B-2003",
+      "name": "Fixture Lowercase Currency 2003",
+      "permalink": "https://fixture-alpha.example/p/fx-b-2003",
+      "description": "A currency code the contract refuses rather than uppercasing silently.",
+      "prices": { "price": "1999", "currency_code": "usd", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": []
+    },
+    {
+      "id": 2004,
+      "sku": "FX-B-2004",
+      "name": "Fixture Record With Hostile Field 2004",
+      "permalink": "https://fixture-alpha.example/p/fx-b-2004",
+      "description": "A source that hopes its own status and a javascript: image would leak into PickVanta columns.",
+      "pipeline_status": "approved",
+      "affiliate_url": "https://tracking.example/aff?id=2004",
+      "prices": { "price": "3000", "currency_code": "KES", "currency_minor_unit": 2 },
+      "stock_availability": { "text": "In stock" },
+      "categories": [{ "name": "Audio" }],
+      "images": [
+        { "src": "javascript:alert(1)", "alt": "not an image" }
+      ]
+    }
+  ]
+}
