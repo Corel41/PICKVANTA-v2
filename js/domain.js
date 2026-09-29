@@ -187,6 +187,22 @@ window.PV.domain = (function () {
 
   const CURRENCY_SYMBOL = { KES: 'KSh ', USD: '$', EUR: '€', GBP: '£' };
   const DEFAULT_CURRENCY = 'KES';
+  /* A signed-in visitor's preferred display currency (0014's
+     profiles.currency), held here so every presentation helper answers the
+     same question. It is a FALLBACK and nothing else: an amount is never
+     converted, and a price that states its own currency always keeps it —
+     the preference answers only "which currency does the interface show when
+     a price states none". Data normalization keeps DEFAULT_CURRENCY: a
+     stored record must not depend on who happens to be viewing it. */
+  let preferredCurrency = '';
+  function setPreferredCurrency(code) {
+    const c = trim(code).toUpperCase();
+    preferredCurrency = /^[A-Z]{3}$/.test(c) ? c : '';
+  }
+  /** The currency a presented price falls back to when it states none. */
+  function displayCurrency() {
+    return preferredCurrency || DEFAULT_CURRENCY;
+  }
 
   /* ======================================================================
      2. Value helpers
@@ -211,7 +227,7 @@ window.PV.domain = (function () {
   function money(amount, currency) {
     const n = Number(amount);
     if (!isFinite(n)) return '';
-    const code = trim(currency) || DEFAULT_CURRENCY;
+    const code = trim(currency) || displayCurrency();
     return (CURRENCY_SYMBOL[code] || code + ' ') + n.toLocaleString('en-US', { maximumFractionDigits: n % 1 ? 2 : 0 });
   }
 
@@ -240,7 +256,7 @@ window.PV.domain = (function () {
   function priceText(record) {
     const price = record && record.price;
     if (!price) return 'Price on request';
-    const currency = (record && record.currency) || price.currency || DEFAULT_CURRENCY;
+    const currency = (record && record.currency) || price.currency || displayCurrency();
     const type = inferPriceType(price);
     if (type === 'quote' || (price.amount == null && (price.min == null || price.max == null))) return 'Price on request';
     const suffix = priceUnitSuffix(type);
@@ -1668,7 +1684,7 @@ window.PV.domain = (function () {
     normalizeIdentityText, normalizeBrand, normalizeModelNumber, normalizeGtin,
     productIdentityKey, variantOptionKey,
     merchantOfferPriceText, merchantOfferComparisonSupported,
-    DEFAULT_CURRENCY, DEFAULT_COUNTRY,
+    DEFAULT_CURRENCY, DEFAULT_COUNTRY, setPreferredCurrency, displayCurrency,
 
     /* value helpers */
     str, trim, asArray, num, slugify, titleCase, money, priceUnitSuffix, priceTypeFromUnit,

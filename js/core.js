@@ -34,6 +34,12 @@ window.PV = Object.assign(window.PV || {}, (function () {
      js/store.js — and surfaced here as PV.util.* so view code has one import
      surface. */
   const S = window.PV.store;
+
+  /* The one mode signal, and the only one this file uses: what the data layer
+     says it is serving. Templates read it at render time (they only run once
+     records exist, so the layer has already answered); the chrome's static
+     copy is corrected once init resolves, in fillChrome(). */
+  const isLive = () => !!(S && typeof S.catalogue === 'function' && S.catalogue().live);
   if (!S) throw new Error('PickVanta: js/store.js must load before js/core.js');
 
   const money = S.money;
@@ -41,6 +47,8 @@ window.PV = Object.assign(window.PV || {}, (function () {
   const priceText = S.priceText;
   const priceValue = S.priceValue;
   const priceUnitSuffix = S.priceUnitSuffix;
+  const merchantOfferPriceText = S.merchantOfferPriceText;
+  const merchantOfferComparisonSupported = S.merchantOfferComparisonSupported;
   const categoryLabel = S.categoryLabel;
   const subcategoryLabel = S.subcategoryLabel;
   const availabilityInfo = S.availabilityInfo;
@@ -59,9 +67,9 @@ window.PV = Object.assign(window.PV || {}, (function () {
   function offerState(record) {
     const state = S.offerState(record);
     if (!state || state.code === 'none') return null;
-    if (state.code === 'ended') return { code: 'ended', tone: 'muted', label: 'Demo offer ended ' + formatDate(state.endsAt) };
+    if (state.code === 'ended') return { code: 'ended', tone: 'muted', label: (isLive() ? 'Offer ended ' : 'Demo offer ended ') + formatDate(state.endsAt) };
     if (state.code === 'scheduled') return { code: 'scheduled', tone: 'info', label: 'Starts ' + formatDate(state.startsAt) };
-    if (state.code === 'withdrawn') return { code: 'withdrawn', tone: 'muted', label: 'Demo offer withdrawn' };
+    if (state.code === 'withdrawn') return { code: 'withdrawn', tone: 'muted', label: isLive() ? 'Offer withdrawn' : 'Demo offer withdrawn' };
     if (state.daysLeft != null && state.daysLeft <= 14) return { code: 'ending', tone: 'warn', label: 'Ends ' + formatDate(state.endsAt) };
     return { code: 'active', tone: 'ok', label: 'Ends ' + formatDate(state.endsAt) };
   }
@@ -105,7 +113,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
     const flags =
       '<span class="type-flag">' + esc(typeLabel(rec.type)) + '</span>' +
       (o.offer && rec.offer
-        ? '<span class="discount">-' + rec.offer.discountPercent + '% · Demo</span>'
+        ? '<span class="discount">-' + rec.offer.discountPercent + '%' + (isLive() ? '' : ' · Demo') + '</span>'
         : rec.badge
         ? '<span class="badge-pill ' + esc(rec.badge.tone || 'neutral') + ' flag-right">' + esc(rec.badge.label) + '</span>'
         : '');
@@ -145,10 +153,10 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
       priceRow(record) +
       '<div class="card-meta">' +
-      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '<span class="meta-demo">demo</span></span>' +
+      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + (isLive() ? '' : '<span class="meta-demo">demo</span>') + '</span>' +
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
       '<span class="status-pill ' + esc(status.tone) + '">' + esc(status.label) + '</span>' +
-      (offer ? '<span class="status-pill offers">Demo offer · ' + esc(offer.label.toLowerCase()) + '</span>' : '') +
+      (offer ? '<span class="status-pill offers">' + (isLive() ? 'Offer · ' : 'Demo offer · ') + esc(offer.label.toLowerCase()) + '</span>' : '') +
       '</div>' +
       (o.reasons && o.reasons.length
         ? '<p class="card-reason"><span aria-hidden="true">↳</span> <strong>' + esc(o.reasonLabel || 'Matched on') + '</strong> ' +
@@ -172,7 +180,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
    */
   function cardOffer(record) {
     const offer = record.offer;
-    const state = offerState(record) || { tone: 'info', label: 'Demo offer' };
+    const state = offerState(record) || { tone: 'info', label: isLive() ? 'Offer' : 'Demo offer' };
     const saved = savings(record);
     const currency = record.currency || S.defaultCurrency();
     const unit = priceUnitSuffix(record.price && record.price.priceType);
@@ -189,7 +197,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '<h3><a href="' + hrefDetail(record.id) + '">' + esc(record.name) + '</a></h3>' +
       '<p class="card-desc">' + esc(record.shortDescription) + '</p>' +
       '<div class="offer-block">' +
-      '<span class="offer-flag">Special offer · demo</span>' +
+      '<span class="offer-flag">Special offer' + (isLive() ? '' : ' · demo') + '</span>' +
       (offer.title ? '<p class="offer-headline">' + esc(offer.title) + '</p>' : '') +
       '<div class="offer-prices">' +
       '<span class="offer-was">Was <s>' + esc(money(offer.originalPrice, currency)) + unit + '</s></span>' +
@@ -198,12 +206,12 @@ window.PV = Object.assign(window.PV || {}, (function () {
       '</div>' +
       '</div>' +
       '<div class="card-meta">' +
-      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + '<span class="meta-demo">demo</span></span>' +
+      '<span class="meta-item">' + ICON_STORE + esc(sellerLabel(record)) + (isLive() ? '' : '<span class="meta-demo">demo</span>') + '</span>' +
       '<span class="meta-item">' + ICON_PIN + esc(locationLabel(record)) + '</span>' +
       '<span class="meta-item">' + ICON_CAL + (offer.endsAt ? 'Offer ends ' + esc(formatDate(offer.endsAt)) : 'No end date given') + '</span>' +
       '<span class="status-pill ' + esc(state.tone) + '">' + esc(state.label) + '</span>' +
       (offer.conditions.length
-        ? '<span class="meta-item">' + offer.conditions.length + ' condition' + (offer.conditions.length === 1 ? '' : 's') + ' (demo)</span>'
+        ? '<span class="meta-item">' + offer.conditions.length + ' condition' + (offer.conditions.length === 1 ? '' : 's') + (isLive() ? '' : ' (demo)') + '</span>'
         : '<span class="meta-item">No conditions listed</span>') +
       '</div>' +
       '<div class="card-actions">' +
@@ -792,7 +800,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       ]) +
       '</div>' +
       '<div class="footer-bottom">' +
-      '<p>© 2026 PickVanta. <span id="footerBuild">Demo build</span> — no payments or live pricing.</p>' +
+      '<p>© 2026 PickVanta. <span id="footerBuild">Demo build</span><span id="footerTail"> — no payments or live pricing.</span></p>' +
       '<div class="footer-bottom-links">' +
       '<button type="button" class="link-btn" data-later="Privacy">Privacy</button>' +
       '<button type="button" class="link-btn" data-later="Terms">Terms</button>' +
@@ -1507,10 +1515,26 @@ window.PV = Object.assign(window.PV || {}, (function () {
     const noticeHost = $('#footerNotice');
     if (noticeHost) noticeHost.textContent = S.notice();
 
+    const live = S.source() === 'api' && !S.fallbackActive();
     const buildHost = $('#footerBuild');
     if (buildHost) {
-      const live = S.source() === 'api' && !S.fallbackActive();
       buildHost.textContent = (live ? 'Live catalogue build ' : 'Demo build ') + S.version();
+    }
+
+    /* The pricing claim is mode-dependent for the same reason the build label
+       is: a live page serves live prices, so it may not say otherwise. */
+    const tailHost = $('#footerTail');
+    if (tailHost) {
+      tailHost.textContent = live ? ' — no payments or checkout.' : ' — no payments or live pricing.';
+    }
+
+    /* Static page copy that describes the bundled demonstration catalogue is
+       marked data-demo-only in the markup. A live page must never describe
+       real records as demo, so once the data layer has answered, those
+       elements leave the page. (An inline display beats the hidden attribute:
+       some of these classes set their own display.) */
+    if (live) {
+      document.querySelectorAll('[data-demo-only]').forEach((el) => { el.style.display = 'none'; });
     }
 
     const browseHost = $('#footerBrowse');
@@ -1532,6 +1556,18 @@ window.PV = Object.assign(window.PV || {}, (function () {
        which is the one place that knows whether a session was confirmed. If
        that layer is not on the page, the static "Sign In" link stays. */
     if (window.PV && PV.auth && typeof PV.auth.mount === 'function') PV.auth.mount();
+
+    /* A signed-in visitor's saved country & currency preference rides along
+       on every page: one small read of their own profile row through the data
+       layer. Until it arrives — and for anybody signed out — every fallback
+       behaves exactly as it always has, so a preference can never break a
+       page: it only fills in what a price leaves unstated, and nothing is
+       converted. */
+    if (window.PV && PV.store && PV.store.preferences &&
+        typeof PV.store.preferences.load === 'function') {
+      PV.store.preferences.load(window.PV.auth && typeof PV.auth.session === 'function' ? PV.auth.session() : null)
+        .catch(function () { /* a preference is a preference, not a prerequisite */ });
+    }
 
     /* mobile menu */
     const hamburger = $('#hamburger');
@@ -1665,7 +1701,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
       if (later) {
         e.preventDefault();
         const name = later.getAttribute('data-later');
-        toast(name + ' is not part of this stage. Demo interface only.');
+        toast(name + ' is not part of this stage' + (isLive() ? '.' : '. Demo interface only.'));
       }
     });
 
@@ -1722,6 +1758,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
        data layer's model helpers — there is one implementation of each. */
     util: {
       $, $$, esc, money, defaultCurrency, priceText, priceValue, priceUnitSuffix, formatDate,
+      merchantOfferPriceText, merchantOfferComparisonSupported,
       categoryLabel, subcategoryLabel, typeLabel, locationLabel, serviceAreaText, sellerLabel,
       availabilityInfo, listingStatusLabel, offerState, savings, offerKindLabel, primaryImage,
       params, updateUrl, ready

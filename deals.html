@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0F172A" />
-  <meta name="description" content="Active demo offers on PickVanta: deal price, reference price, discount, seller, location and conditions." />
+  <meta name="description" content="Active offers on PickVanta: deal price, reference price, discount, seller, location and conditions." />
   <meta name="color-scheme" content="light dark" />
   <title>Deals | PickVanta</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
@@ -26,7 +26,7 @@
       <div class="shell">
         <div class="page-head-grid">
           <div>
-            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Offers · Demo</div>
+            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Offers<span data-demo-only> · Demo</span></div>
             <h1>Deals</h1>
             <p class="page-lead">
               A place to see offers attached to products and services. Every deal shows what is being offered, the deal price,
@@ -35,13 +35,13 @@
           </div>
           <div class="page-side">
             <div class="dataset-stat" id="datasetStat" aria-live="polite"></div>
-            <p class="notice warning">Every offer on this page is invented for demonstration. Nothing is available, claimable or checked against live pricing.</p>
+            <p class="notice warning" data-demo-only>Every offer on this page is invented for demonstration. Nothing is available, claimable or checked against live pricing.</p>
           </div>
         </div>
 
         <div class="search-wrap wide" id="searchWrap">
-          <form id="searchForm" role="search" aria-label="Search demo offers">
-            <label for="pageSearch" class="visually-hidden">Search demo offers</label>
+          <form id="searchForm" role="search" aria-label="Search offers">
+            <label for="pageSearch" class="visually-hidden">Search offers</label>
             <div class="search-row">
               <div class="search-input-wrap">
                 <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
@@ -99,7 +99,7 @@
     <!-- RESULTS + FILTERS -->
     <section class="section section-tight" aria-labelledby="results-title">
       <div class="shell">
-        <h2 id="results-title" class="visually-hidden">Demo offers</h2>
+        <h2 id="results-title" class="visually-hidden">Offers</h2>
         <div class="listing-layout">
           <aside class="filters" id="filtersPanel" aria-label="Filters">
             <div class="filters-head">
@@ -107,7 +107,7 @@
               <button type="button" class="filters-close" id="filtersClose">Done</button>
             </div>
             <div id="filterPanel"></div>
-            <p class="filters-note">Filters run on the demo offer set inside this page. No live data is requested.</p>
+            <p class="filters-note" data-demo-only>Filters run on the demo offer set inside this page. No live data is requested.</p>
           </aside>
 
           <div class="results-col">
@@ -121,7 +121,7 @@
               </div>
               <div class="toolbar-right">
                 <label class="sort-label" for="sortSelect">Sort by</label>
-                <select class="select" id="sortSelect" aria-label="Sort demo offers"></select>
+                <select class="select" id="sortSelect" aria-label="Sort offers"></select>
               </div>
             </div>
 

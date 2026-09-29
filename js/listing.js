@@ -8,12 +8,14 @@
 
    Records come from the data-access layer only: one PV.store.query(state) call
    returns { ok, items, total, page, pageSize, hasNext, hasPrev, error }, which
-   this file renders — including its loading, empty and error states. Paging
-   fields are carried through untouched so a future API can page without a
-   change here.
+   this file renders — including its loading, empty and error states. The
+   requested window travels in the state (?page=), the data layer pages
+   server-side in live mode and locally in demo mode, and the pager below the
+   grid moves between windows. Any change to search, filters or sort restarts
+   at page 1.
 
    Interface state is held in the URL (?q=&category=&sub=&tag=&type=&band=
-   &location=&availability=&sort=) so a filtered view can be linked and
+   &location=&availability=&sort=&page=) so a filtered view can be linked and
    reloaded. No requests leave the page.
    ========================================================================== */
 window.PV = window.PV || {};
@@ -42,6 +44,7 @@ PV.listing = (function () {
     if (!grid) return;
 
     const p = U.params();
+    const pageParam = parseInt(p.get('page'), 10);
     const state = {
       q: p.get('q') || '',
       category: p.get('category') || 'all',
@@ -51,7 +54,12 @@ PV.listing = (function () {
       band: p.get('band') || 'any',
       location: p.get('location') || 'any',
       availability: p.get('availability') || 'all',
-      sort: p.get('sort') || 'relevance'
+      sort: p.get('sort') || 'relevance',
+      /* The result window itself: one page of the catalogue per view. A page
+         from the URL is honoured only when it is a real page number; the size
+         is the data layer's default, bounded there. */
+      page: Number.isFinite(pageParam) && pageParam > 1 ? pageParam : 1,
+      pageSize: PV.store.defaultPageSize()
     };
 
     /* ------------------------------------------------------------ start-up */
@@ -69,6 +77,8 @@ PV.listing = (function () {
         text: 'Fetching the catalogue from the data layer.'
       });
       if (resultsMeta) resultsMeta.textContent = 'Loading…';
+      const oldPager = U.$('#pager');
+      if (oldPager && oldPager.parentNode) oldPager.parentNode.removeChild(oldPager);
     }
 
     function showStartupFailure(err) {
@@ -126,13 +136,6 @@ PV.listing = (function () {
       return PV.store.facets();
     }
 
-    /** How many records this page could list in total (unfiltered). */
-    function baseTotal(fallback) {
-      const stats = PV.store.stats();
-      const value = cfg.dataset === 'deals' ? stats.offers : stats.listings;
-      return Number.isFinite(Number(value)) ? Number(value) : (fallback || 0);
-    }
-
     /** One call to the data layer; it returns the envelope the UI renders. */
     function queryData() {
       return PV.store.query(state, { dataset: cfg.dataset });
@@ -172,14 +175,8 @@ PV.listing = (function () {
 
     function render() {
       const token = ++renderToken;
-      let loadingTimer = null;
-      if (PV.store.isAsync()) {
-        loadingTimer = setTimeout(function () {
-          if (token === renderToken) renderLoading();
-        }, 200);
-      }
+      if (PV.store.isAsync()) renderLoading();
       queryData().then(function (envelope) {
-        if (loadingTimer) clearTimeout(loadingTimer);
         if (token !== renderToken) return;
         if (!envelope.ok) {
           renderFailure(envelope);
@@ -191,15 +188,22 @@ PV.listing = (function () {
 
     function paint(envelope) {
       const list = envelope.items;
-      /* The meta line reports the size of the whole dataset, not the number of
-         matches — `envelope.total` is the filtered count a paged API would use. */
-      const total = baseTotal(envelope.total);
+      /* The meta line reports the filtered total the data layer counted, and
+         where in it this page sits — never the size of the whole dataset. */
+      const total = Number(envelope.total) || 0;
+      const size = envelope.pageSize > 0 ? envelope.pageSize : list.length;
+      const pageNum = envelope.page || 1;
+      const first = list.length ? (pageNum - 1) * size + 1 : 0;
+      const last = (pageNum - 1) * size + list.length;
       const plural = countLabel.slice(-1) === 's' ? '' : 's';
       const isSearch = !!state.q;
       const isNarrowed = isSearch || PV.store.activeFilterCount(state) > 0;
 
       if (resultsMeta) {
-        resultsMeta.textContent = list.length + ' of ' + total + ' ' + countLabel + plural +
+        const span = first === 1 && last >= total
+          ? list.length + ' of ' + total
+          : first + '–' + last + ' of ' + total;
+        resultsMeta.textContent = span + ' ' + countLabel + plural +
           (isSearch ? ' match “' + state.q + '”' : ' shown') +
           (isNarrowed && !isSearch ? ' (filtered)' : '') +
           /* Say so when a request was capped rather than pretending the list is
@@ -242,7 +246,7 @@ PV.listing = (function () {
           buttons: isNarrowed ? [{ label: isSearch ? 'Clear search & filters' : 'Clear all filters', action: 'reset' }] : [],
           actions: [
             { label: 'Search all categories', href: cfg.url },
-            { label: cfg.page === 'deals' ? 'Start discovering products' : 'See demo deals', href: cfg.page === 'deals' ? 'discover.html' : 'deals.html' },
+            { label: cfg.page === 'deals' ? 'Start discovering products' : (PV.store.catalogue().live ? 'See offers' : 'See demo deals'), href: cfg.page === 'deals' ? 'discover.html' : 'deals.html' },
             { label: 'Browse guides', href: 'guides.html' }
           ],
           footnote: cat.live
@@ -264,7 +268,43 @@ PV.listing = (function () {
       if (clearButton) clearButton.hidden = !isNarrowed;
 
       renderActiveChips();
+      renderPager(envelope);
       PV.ui.syncCompareButtons();
+    }
+
+    /* ------------------------------------------------------------ pager */
+    /* Only the necessary controls: previous / next around an honest "Page X
+       of Y". Built with the interface's existing chip styling; the bounds are
+       disabled, not hidden, so the position is always visible. */
+    function renderPager(envelope) {
+      const old = U.$('#pager');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      const size = envelope.pageSize > 0 ? envelope.pageSize : (envelope.items.length || 1);
+      const pageCount = Math.max(1, Math.ceil((Number(envelope.total) || 0) / size));
+      const current = envelope.page || 1;
+      if (!envelope.items.length || pageCount <= 1) return;
+
+      const nav = document.createElement('nav');
+      nav.id = 'pager';
+      nav.className = 'pager';
+      nav.setAttribute('aria-label', countLabel + ' pages');
+      const pageBtn = function (label, target, disabled) {
+        return '<button type="button" class="chip pager-btn" data-page-action="go"' +
+          ' data-page="' + target + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+      };
+      nav.innerHTML =
+        pageBtn('← Previous', current - 1, !envelope.hasPrev) +
+        '<span class="pager-status" aria-current="page">Page ' + current + ' of ' + pageCount + '</span>' +
+        pageBtn('Next →', current + 1, !envelope.hasNext);
+      nav.addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-page-action]');
+        if (!btn || btn.disabled) return;
+        const target = parseInt(btn.getAttribute('data-page'), 10);
+        if (!Number.isFinite(target) || target < 1 || target === current) return;
+        PV.ui.announce('Page ' + target + ' of ' + pageCount);
+        setState('page', target);
+      });
+      if (grid.parentNode) grid.parentNode.insertBefore(nav, grid.nextSibling);
     }
 
     function chip(label, key) {
@@ -337,6 +377,8 @@ PV.listing = (function () {
     }
 
     /* -------------------------------------------------------------- state */
+    /* Any change to search, filters or sort restarts the list at page 1 —
+       only an explicit page change keeps the window where it is. */
     function setState(key, value) {
       if (key === 'reset') {
         state.q = '';
@@ -347,6 +389,7 @@ PV.listing = (function () {
         state.band = 'any';
         state.location = 'any';
         state.availability = 'all';
+        state.page = 1;
         if (searchInput) searchInput.value = '';
       } else {
         state[key] = value;
@@ -354,6 +397,7 @@ PV.listing = (function () {
            clearing it) drops any subcategory selection with it. */
         if (key === 'category') state.subcategory = 'all';
       }
+      if (key !== 'page') state.page = 1;
       U.updateUrl({
         q: state.q,
         category: state.category,
@@ -363,7 +407,8 @@ PV.listing = (function () {
         band: state.band,
         location: state.location,
         availability: state.availability,
-        sort: state.sort
+        sort: state.sort,
+        page: state.page > 1 ? String(state.page) : ''
       });
       if (key === 'reset' || key === 'category' || key === 'subcategory' || key === 'tag' || key === 'type' || key === 'band' || key === 'location' || key === 'availability') {
         PV.ui.renderFilters(filtersHost, state, cfg.filters, setState, filterCounts());
@@ -428,7 +473,8 @@ PV.listing = (function () {
     /* --------------------------------------------------------------- sort */
     PV.ui.renderSort(sortSelect, state.sort, function (value) {
       state.sort = value;
-      U.updateUrl({ sort: value });
+      state.page = 1;
+      U.updateUrl({ sort: value, page: '' });
       render();
     });
 

@@ -7311,6 +7311,121 @@ window.PICKVANTA_DATA = (function () {
     }
   ];
 
+  /* ==========================================================================
+     Canonical demonstration layer (0008's model): Product → Variant → Merchant
+     Offer. Invented for the demo build like everything else in this file, and
+     read only through the store's canonical surface — never by a page directly.
+     Statuses mirror the database's own vocabulary (0008/0010): a product or
+     variant is 'draft' until deliberately activated, and an offer a conversion
+     writes starts 'pending'. The demo catalogue therefore also carries one
+     'draft' product and one 'pending' offer that must never be served — they
+     exist to prove the boundary, not to be shown.
+     ========================================================================== */
+  const canonicalMerchants = [
+    { "id": "cmer-circuitbazaar", "name": "CircuitBazaar", "merchantRef": "circuitbazaar",
+      "websiteUrl": "https://circuitbazaar.example", "country": "KE" },
+    { "id": "cmer-techpath", "name": "TechPath KE", "merchantRef": "techpath",
+      "websiteUrl": "https://techpath.example", "country": "KE" },
+    { "id": "cmer-voltedge", "name": "VoltEdge", "merchantRef": "voltedge",
+      "websiteUrl": "https://voltedge.example", "country": "GB" }
+  ];
+  const canonicalProducts = [
+    { "id": "cprod-nimbus-book-14", "slug": "nimbus-book-14", "name": "Nimbus Book 14",
+      "brand": "Nimbus", "description": "A 14-inch aluminium laptop with a full-size keyboard, sold in two configurations.",
+      "categoryId": "technology", "subcategoryId": "laptops",
+      "modelNumber": "NB14-2024", "gtin": "", "status": "active" },
+    { "id": "cprod-pulsebuds-mini", "slug": "pulsebuds-mini", "name": "PulseBuds Mini",
+      "brand": "Pulse", "description": "Compact wireless earbuds with a pocket case, sold in one colour.",
+      "categoryId": "technology", "subcategoryId": "audio",
+      "modelNumber": "PB-MINI", "gtin": "", "status": "active" },
+    { "id": "cprod-terra-daypack-24", "slug": "terra-daypack-24", "name": "Terra Daypack 24",
+      "brand": "Terra", "description": "A 24-litre day pack with a padded laptop sleeve, sold in one configuration.",
+      "categoryId": "travel", "subcategoryId": "",
+      "modelNumber": "TD24", "gtin": "", "status": "active" },
+    { "id": "cprod-aurora-tablet-11", "slug": "aurora-tablet-11", "name": "Aurora Tablet 11",
+      "brand": "Aurora", "description": "An 11-inch tablet still in review — converted but never activated.",
+      "categoryId": "technology", "subcategoryId": "accessories",
+      "modelNumber": "AT11", "gtin": "", "status": "draft" }
+  ];
+  const canonicalVariants = [
+    { "id": "cvar-nimbus-graphite", "productId": "cprod-nimbus-book-14", "slug": "graphite",
+      "name": "Nimbus Book 14 — 16GB / 512GB, Graphite",
+      "optionValues": { "memory": "16GB", "storage": "512GB", "colour": "Graphite" },
+      "sku": "NB14-G-512", "gtin": "", "status": "active" },
+    { "id": "cvar-nimbus-silver", "productId": "cprod-nimbus-book-14", "slug": "silver",
+      "name": "Nimbus Book 14 — 8GB / 256GB, Silver",
+      "optionValues": { "memory": "8GB", "storage": "256GB", "colour": "Silver" },
+      "sku": "NB14-S-256", "gtin": "", "status": "active" },
+    { "id": "cvar-nimbus-scratch", "productId": "cprod-nimbus-book-14", "slug": "scratch",
+      "name": "Nimbus Book 14 — Scratch & Dent",
+      "optionValues": { "condition": "Scratch & Dent" },
+      "sku": "NB14-SD", "gtin": "", "status": "draft" },
+    { "id": "cvar-pulsebuds-black", "productId": "cprod-pulsebuds-mini", "slug": "black",
+      "name": "PulseBuds Mini — Black",
+      "optionValues": { "colour": "Black" },
+      "sku": "PBM-B", "gtin": "", "status": "active" }
+  ];
+  const canonicalOffers = [
+    { "id": "coff-nimbus-graphite-techpath", "productId": "cprod-nimbus-book-14",
+      "variantId": "cvar-nimbus-graphite", "merchantId": "cmer-techpath",
+      "title": "Nimbus Book 14 16/512 Graphite",
+      "priceAmount": "8999.00", "originalPrice": "9999.00", "currency": "KES",
+      "status": "active", "sourceUrl": "https://techpath.example/nimbus-14-graphite",
+      "affiliateUrl": "https://track.pickvanta.example/go/techpath-nimbus-graphite",
+      "priceObservedAt": "2026-09-20T09:00:00Z",
+      "media": [
+        { "sourceMediaUrl": "https://techpath.example/img/nimbus-graphite-1.jpg", "mediaType": "image",
+          "attribution": "TechPath KE", "sortOrder": 0 }
+      ] },
+    { "id": "coff-nimbus-graphite-voltedge", "productId": "cprod-nimbus-book-14",
+      "variantId": "cvar-nimbus-graphite", "merchantId": "cmer-voltedge",
+      "title": "Nimbus Book 14 (16/512) Graphite — UK stock",
+      "priceAmount": "69.00", "originalPrice": "", "currency": "USD",
+      "status": "active", "sourceUrl": "https://voltedge.example/p/nimbus-14-graphite",
+      "affiliateUrl": "",
+      "priceObservedAt": "2026-09-18T15:30:00Z",
+      "media": [] },
+    { "id": "coff-nimbus-silver-techpath", "productId": "cprod-nimbus-book-14",
+      "variantId": "cvar-nimbus-silver", "merchantId": "cmer-techpath",
+      "title": "Nimbus Book 14 8/256 Silver",
+      "priceAmount": "7499.00", "originalPrice": "", "currency": "KES",
+      "status": "active", "sourceUrl": "https://techpath.example/nimbus-14-silver",
+      "affiliateUrl": "",
+      "priceObservedAt": "2026-09-21T08:10:00Z",
+      "media": [] },
+    { "id": "coff-pulsebuds-circuit", "productId": "cprod-pulsebuds-mini",
+      "variantId": "cvar-pulsebuds-black", "merchantId": "cmer-circuitbazaar",
+      "title": "PulseBuds Mini Black",
+      "priceAmount": "2450.00", "originalPrice": "", "currency": "KES",
+      "status": "active", "sourceUrl": "https://circuitbazaar.example/pulsebuds-mini",
+      "affiliateUrl": "https://track.pickvanta.example/go/circuit-pulsebuds",
+      "priceObservedAt": "2026-09-22T12:00:00Z",
+      "media": [] },
+    { "id": "coff-terra-circuit", "productId": "cprod-terra-daypack-24",
+      "variantId": "", "merchantId": "cmer-circuitbazaar",
+      "title": "Terra Daypack 24L",
+      "priceAmount": "3900.00", "originalPrice": "", "currency": "KES",
+      "status": "active", "sourceUrl": "https://circuitbazaar.example/terra-daypack",
+      "affiliateUrl": "", "priceObservedAt": "", "media": [] },
+    { "id": "coff-terra-techpath-nolabel", "productId": "cprod-terra-daypack-24",
+      "variantId": "", "merchantId": "cmer-techpath",
+      "title": "Terra Daypack 24 (bundle price)",
+      "priceAmount": "4100.00", "originalPrice": "", "currency": "",
+      "status": "active", "sourceUrl": "", "affiliateUrl": "", "priceObservedAt": "", "media": [] },
+    { "id": "coff-nimbus-silver-circuit-gone", "productId": "cprod-nimbus-book-14",
+      "variantId": "cvar-nimbus-silver", "merchantId": "cmer-circuitbazaar",
+      "title": "Nimbus Book 14 8/256 Silver (was in stock)",
+      "priceAmount": "7900.00", "originalPrice": "", "currency": "KES",
+      "status": "unavailable", "sourceUrl": "https://circuitbazaar.example/nimbus-silver",
+      "affiliateUrl": "", "priceObservedAt": "2026-08-30T10:00:00Z", "media": [] },
+    { "id": "coff-nimbus-graphite-pending", "productId": "cprod-nimbus-book-14",
+      "variantId": "cvar-nimbus-graphite", "merchantId": "cmer-circuitbazaar",
+      "title": "Nimbus Book 14 Graphite (awaiting review)",
+      "priceAmount": "8700.00", "originalPrice": "", "currency": "KES",
+      "status": "pending", "sourceUrl": "https://circuitbazaar.example/nimbus-graphite-new",
+      "affiliateUrl": "", "priceObservedAt": "", "media": [] }
+  ];
+
   /* Price bands are structured; the UI derives their labels. */
   const priceBands = [
     {
@@ -8636,6 +8751,10 @@ window.PICKVANTA_DATA = (function () {
     listings: listings,
     offers: offers,
     guides: guides,
+    canonicalMerchants: canonicalMerchants,
+    canonicalProducts: canonicalProducts,
+    canonicalVariants: canonicalVariants,
+    canonicalOffers: canonicalOffers,
     priceBands: priceBands,
     sortOptions: sortOptions,
     compareFocus: compareFocus,

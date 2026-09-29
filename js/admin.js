@@ -488,8 +488,9 @@ PV.admin = (function () {
       '</ol>' +
       '<p class="admin-note-line">Ends as ' +
       D.DEAL_PIPELINE_TERMINAL.map(function (stage) { return esc(stage.label.toLowerCase()); }).join(', ') +
-      '. No stage of this runs yet: there is no connector, no worker and no schedule, and nothing ' +
-      'publishes itself — an imported record waits for a person.</p>';
+      '. The stages through pending-review are implemented: a deliberate run of the processing stages ' +
+      'carries a record from imported to the review queue. No worker and no schedule run anything by ' +
+      'themselves, nothing publishes itself — an imported record waits for a person.</p>';
   }
 
   /* --------------------------------------------------------- source form -- */
@@ -587,9 +588,9 @@ PV.admin = (function () {
       '<p class="panel-text">A source is an agreement and a place to read from — a marketplace feed, ' +
       'an affiliate network feed, a merchant API, a merchant product feed, or a source PickVanta is ' +
       'permitted to read. This page lists them; it does not contact them.</p>' +
-      '<p class="panel-note">Nothing is imported yet. There is no connector, no scraper and no schedule ' +
-      'in this build, and an imported record could never be published automatically: it would wait in a ' +
-      'review queue for an administrator.</p>' +
+      '<p class="panel-note">Nothing imports itself: records arrive through the connector’s import runs, ' +
+      'and there is no scraper and no schedule in this build. An imported record could never be published ' +
+      'automatically: it waits in the review queue for an administrator.</p>' +
       '<p class="panel-note">A source row never carries a credential: an agreement’s key or token belongs ' +
       'in the server environment. The configuration column holds non-secret settings only — a market, a ' +
       'page limit — and the database refuses a credential-shaped key or value in it, so there is nothing ' +
@@ -636,8 +637,8 @@ PV.admin = (function () {
       }).join('') +
       '</tbody></table>' +
       '<p class="admin-table-foot">' + state.sources.length + ' source' +
-      (state.sources.length === 1 ? '' : 's') + ' recorded. Imported deals are a later stage — the ' +
-      'records and their history are already modelled in the database, and no interface reads them yet.</p>' +
+      (state.sources.length === 1 ? '' : 's') + ' recorded. Imported deals are the pipeline’s first ' +
+      'stage — the records and their history are modelled in the database, and the Import Deals view reads them.</p>' +
       pipelineStrip();
   }
 
@@ -686,9 +687,9 @@ PV.admin = (function () {
       '<div class="admin-panel panel">' +
       '<h3>Runs the engine has recorded</h3>' +
       '<p class="panel-text">A job is one run of one task — reading a feed, checking a price, looking ' +
-      'at a link. <strong>Nothing in this build runs one.</strong> There is no worker, no scheduler and ' +
-      'no connector, so a job row can only appear when a later step creates it, and this page will ' +
-      'report exactly what that run recorded.</p>' +
+      'at a link. <strong>Nothing in this build runs one on its own.</strong> There is no worker and no ' +
+      'scheduler: a job row appears when a run is started through the connector’s import lifecycle, and ' +
+      'this page reports exactly what that run recorded.</p>' +
       '<p class="panel-note">Progress, statistics and errors below are the database’s own values. ' +
       'Nothing here advances a percentage, retries a job or reports a success that was not recorded.</p>' +
       '</div>';
@@ -697,9 +698,9 @@ PV.admin = (function () {
       return head +
         '<div class="admin-panel panel">' +
         '<h3>No jobs have been recorded</h3>' +
-        '<p class="panel-text">Nothing has ever run, which is what this build does. When a connector ' +
-        'and a worker exist, their runs will be listed here: what ran, against which source, how far it ' +
-        'got, and what it reported if it failed.</p>' +
+        '<p class="panel-text">No run has been recorded yet, and nothing here starts one. When the ' +
+        'connector’s import lifecycle runs against a source, its jobs are listed here: what ran, against ' +
+        'which source, how far it got, and what it reported if it failed.</p>' +
         '</div>' + jobSummary();
     }
 
@@ -740,8 +741,8 @@ PV.admin = (function () {
   function jobSummary() {
     return '<p class="admin-table-foot">' + state.jobs.length + ' job' +
       (state.jobs.length === 1 ? '' : 's') + ' recorded. Imported records recorded so far: ' +
-      esc(importedTotalText()) + '. The review queue for those records is a later step, so none of them ' +
-      'is shown yet.</p>';
+      esc(importedTotalText()) + '. A record whose validation, normalization and deduplication all pass ' +
+      'is promoted to the review queue, and the Review Queue section shows the records waiting there.</p>';
   }
 
   /* ------------------------------------------ catalogue: the canonical layer
@@ -834,8 +835,58 @@ PV.admin = (function () {
         '<td data-label="Status"><span class="status-pill status-' + esc(status.tone) + '">' +
           esc(status.label) + '</span></td>' +
         '<td data-label="Observed">' + offerObservedCell(offer) + '</td>' +
+        '<td data-label="Affiliate destination">' + offerDestinationCell(offer) + '</td>' +
         '</tr>';
     }).join('');
+  }
+
+  /* The tracked destination, and the one action that may set or revoke it.
+     An imported affiliate URL never becomes a pathway on its own: the reviewed
+     conversion writes an empty destination, and only an explicit approval
+     here — after the merchant, the offer and the URL have been read — attaches
+     one. Approval is a database function that checks the role for itself; this
+     is a doorway, not a permission. */
+  function offerDestinationCell(offer) {
+    if (offer.affiliateUrl) {
+      return '<code class="admin-destination">' + esc(offer.affiliateUrl) + '</code>' +
+        '<div class="admin-actions"><button type="button" class="small-btn"' +
+        ' data-affiliate-revoke="' + esc(offer.id) + '">Revoke destination</button></div>';
+    }
+    return '<span class="admin-muted">None approved</span>' +
+      '<div class="admin-actions"><button type="button" class="small-btn"' +
+      ' data-affiliate-approve="' + esc(offer.id) + '">Approve destination…</button></div>';
+  }
+
+  function approveAffiliateDestination(offerId, prefill) {
+    const typed = window.prompt(
+      'The tracked destination for this offer.\n' +
+      'It is never generated and is never the offer\'s source URL.\n' +
+      'Clear the field and confirm to revoke the pathway.\n' +
+      '(Cancel leaves the offer as it is.)',
+      prefill || ''
+    );
+    if (typed === null) return;
+    const s = session();
+    if (!s) {
+      state.message = 'Your session has expired. Sign in again to change an approved destination.';
+      state.messageTone = 'warning';
+      render();
+      return;
+    }
+    PV.store.affiliateApprove(s, offerId, typed).then(function () {
+      state.message = typed.trim()
+        ? 'Approved destination saved. Outbound clicks through it are recorded — a click is a click, ' +
+          'not a sale: no affiliate network reports conversions or commissions to PickVanta, so none is ' +
+          'shown anywhere.'
+        : 'The approved destination was revoked. The offer shows its ordinary source link only.';
+      state.messageTone = 'ok';
+      loadCatalogue();
+    }).catch(function (err) {
+      state.message = (err && err.dbMessage) ? err.dbMessage
+        : ((err && err.message) || 'The database refused the change.');
+      state.messageTone = 'warning';
+      render();
+    });
   }
 
   function listFoot(shown, total, noun) {
@@ -902,14 +953,19 @@ PV.admin = (function () {
     const offersHead = '<h3 class="admin-subhead">Recent merchant offers</h3>' +
       '<p class="admin-subhead-note">Each offer shows the merchant it is from, the source it was supplied ' +
       'through, and the merchant’s own title. Prices are shown exactly as recorded: no conversion, and no ' +
-      'currency supplied by this page.</p>';
+      'currency supplied by this page. The affiliate destination is empty until an administrator approves ' +
+      'one here, explicitly, per offer — an imported affiliate URL never becomes a buyer pathway on its own.</p>' +
+      '<p class="admin-subhead-note">Outbound affiliate clicks are recorded (the offer, its merchant, source ' +
+      'and the destination served — nothing about the visitor). <strong>A click is not a sale:</strong> no ' +
+      'affiliate network reports conversions or commissions to PickVanta, so no conversion or revenue figure ' +
+      'exists anywhere in this panel, and none is estimated.</p>';
 
     const offers = state.catalogueOffers.length
       ? '<table class="admin-table">' +
         '<caption class="visually-hidden">The most recently recorded merchant offers</caption>' +
         '<thead><tr><th scope="col">Merchant</th><th scope="col">Source</th>' +
         '<th scope="col">Merchant’s own title</th><th scope="col">Price</th><th scope="col">Status</th>' +
-        '<th scope="col">Observed</th></tr></thead><tbody>' + offerRows() + '</tbody></table>' +
+        '<th scope="col">Observed</th><th scope="col">Affiliate destination</th></tr></thead><tbody>' + offerRows() + '</tbody></table>' +
         listFoot(state.catalogueOffers.length, c.offers, 'offer')
       : '<div class="admin-panel panel">' +
         '<h3>No merchant offers have been recorded</h3>' +
@@ -2017,9 +2073,9 @@ PV.admin = (function () {
         '<h3 id="reviewQueueTitle">Nothing is waiting for review</h3>' +
         '<p class="panel-text">No imported record is at pipeline status <code>pending-review</code> with review ' +
         'status <code>pending</code> — the only state this page can convert. Nothing in this build advances a ' +
-        'record into that state by itself: there is no connector, no processor, no schedule and no automatic ' +
-        'conversion, so the queue is set deliberately, and an empty queue is the honest state of the pipeline ' +
-        'rather than a failure.</p>' +
+        'record into that state by itself: deliberate runs of the processing stages — import, validation, ' +
+        'normalization, deduplication and promotion — set the queue, with no schedule behind them and no ' +
+        'automatic conversion. An empty queue is the honest state of the pipeline rather than a failure.</p>' +
         '<p class="panel-text">Records that are not waiting for review are not shown here at all: the database ' +
         'returns only the ones this page may act on.</p></div>';
     }
@@ -2756,6 +2812,20 @@ PV.admin = (function () {
     if (target.closest('[data-cancel-source-form]')) { cancelSourceForm(); return; }
     if (target.closest('[data-retry-jobs]')) { loadJobs(); return; }
     if (target.closest('[data-retry-catalogue]')) { loadCatalogue(); return; }
+    const approveDestination = target.closest('[data-affiliate-approve]');
+    if (approveDestination) {
+      approveAffiliateDestination(approveDestination.getAttribute('data-affiliate-approve'), '');
+      return;
+    }
+    const revokeDestination = target.closest('[data-affiliate-revoke]');
+    if (revokeDestination) {
+      const current = state.catalogueOffers.filter(function (o) {
+        return o.id === revokeDestination.getAttribute('data-affiliate-revoke');
+      })[0];
+      approveAffiliateDestination(revokeDestination.getAttribute('data-affiliate-revoke'),
+        current ? current.affiliateUrl : '');
+      return;
+    }
     if (target.closest('[data-retry-counts]')) { loadCounts(); return; }
     if (target.closest('[data-retry-sources]')) { loadSources(); return; }
     if (target.closest('[data-retry-queue]')) { loadQueue(); return; }

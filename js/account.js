@@ -155,6 +155,13 @@ PV.util.ready(function () {
   let accounts = [];
   let accountsLoaded = false;
   let accountsError = '';
+  /* The country & currency preferences (0014). Same shape as the
+     applications above: loaded once per signed-in person, shown honestly
+     while they are being read or when they cannot be read. */
+  let prefs = { country: '', currency: '' };
+  let prefsLoaded = false;
+  let prefsError = '';
+  let prefsSavedMessage = '';
 
   function participationPanel() {
     if (!auth.isSignedIn()) return '';
@@ -251,6 +258,155 @@ PV.util.ready(function () {
     });
   }
 
+  /* -------------------------------------------------- preferences (0014) --
+     Country and preferred currency, saved to the user's own profile row and
+     read back through the data layer. The form is plain and obvious: two
+     fields, one save button, and a plain statement of what a preference does
+     and does not do — it never converts a price and never relabels one that
+     states its own currency. The datalists are suggestions, not a
+     restriction: the code shapes are decided by the database's own checks. */
+  const COUNTRY_SUGGESTIONS = [
+    ['KE', 'Kenya'], ['TZ', 'Tanzania'], ['UG', 'Uganda'], ['RW', 'Rwanda'],
+    ['ZA', 'South Africa'], ['NG', 'Nigeria'], ['GB', 'United Kingdom'],
+    ['DE', 'Germany'], ['US', 'United States'], ['CA', 'Canada'],
+    ['IN', 'India'], ['AE', 'United Arab Emirates']
+  ];
+  const CURRENCY_SUGGESTIONS = [
+    ['KES', 'Kenyan shilling'], ['TZS', 'Tanzanian shilling'], ['UGX', 'Ugandan shilling'],
+    ['RWF', 'Rwandan franc'], ['ZAR', 'South African rand'], ['NGN', 'Nigerian naira'],
+    ['USD', 'US dollar'], ['EUR', 'Euro'], ['GBP', 'Pound sterling'],
+    ['INR', 'Indian rupee'], ['AED', 'UAE dirham'], ['CAD', 'Canadian dollar']
+  ];
+  const suggestions = (id, pairs) =>
+    '<datalist id="' + id + '">' +
+    pairs.map((p) => '<option value="' + p[0] + '">' + p[1] + '</option>').join('') +
+    '</datalist>';
+
+  function preferencesPanel() {
+    if (!auth.isSignedIn()) return '';
+    const available = PV.store.preferences && PV.store.preferences.available();
+
+    if (!available) {
+      return (
+        '<section class="account-section" aria-labelledby="prefs-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="prefs-title">Country &amp; currency</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">Preferences are saved to your account, and accounts need the ' +
+        'live catalogue connection. This build is running on the bundled demonstration catalogue.</p>' +
+        '</section>'
+      );
+    }
+
+    if (prefsError) {
+      return (
+        '<section class="account-section" aria-labelledby="prefs-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="prefs-title">Country &amp; currency</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">' + esc(prefsError) + '</p>' +
+        '<div class="auth-actions">' +
+        '<button type="button" class="btn-secondary" data-reload-prefs="1">Try again</button>' +
+        '</div>' +
+        '</section>'
+      );
+    }
+
+    if (!prefsLoaded) {
+      return (
+        '<section class="account-section" aria-labelledby="prefs-title">' +
+        '<div class="account-section-head">' +
+        '<h2 id="prefs-title">Country &amp; currency</h2>' +
+        '</div>' +
+        '<p class="account-section-lead">Checking your preferences…</p>' +
+        '</section>'
+      );
+    }
+
+    return (
+      '<section class="account-section" aria-labelledby="prefs-title">' +
+      '<div class="account-section-head">' +
+      '<h2 id="prefs-title">Country &amp; currency</h2>' +
+      '</div>' +
+      '<p class="account-section-lead">Saved to your account, so they follow you between visits. They change how ' +
+      'the catalogue is presented to you — never what a record is.</p>' +
+      (prefsSavedMessage
+        ? '<p class="account-section-lead" role="status">' + esc(prefsSavedMessage) + '</p>'
+        : '') +
+      '<form id="prefsForm" novalidate>' +
+      field('prefCountry', 'Country', 'text', 'country-name',
+        ' list="prefCountryList" maxlength="2" placeholder="e.g. KE" value="' + esc(prefs.country) + '"',
+        'A two-letter country code (ISO 3166-1), or empty. Where you are: it never changes where a ' +
+        'product comes from or which currency its price was recorded in.') +
+      field('prefCurrency', 'Preferred currency', 'text', 'transaction-currency',
+        ' list="prefCurrencyList" maxlength="3" placeholder="e.g. KES" value="' + esc(prefs.currency) + '"',
+        'A three-letter currency code (ISO 4217), or empty. PickVanta does not convert: a price that ' +
+        'states its own currency keeps it. Your preference is used only when a price states none.') +
+      suggestions('prefCountryList', COUNTRY_SUGGESTIONS) +
+      suggestions('prefCurrencyList', CURRENCY_SUGGESTIONS) +
+      '<p class="form-error" id="prefsError" role="alert" hidden></p>' +
+      '<div class="auth-actions">' +
+      '<button type="submit" class="btn-primary" id="prefsSave">Save preferences</button>' +
+      '</div>' +
+      '</form>' +
+      '</section>'
+    );
+  }
+
+  function loadPreferences() {
+    const session = auth.session();
+    if (!session) return;
+    prefsError = '';
+    prefsSavedMessage = '';
+    prefsLoaded = false;
+    PV.store.preferences.load(session).then(function (saved) {
+      prefs = { country: saved.country, currency: saved.currency };
+      prefsLoaded = true;
+      render(auth.state());
+    }).catch(function (err) {
+      prefsLoaded = true;
+      prefsError = (err && err.message) ? err.message : 'We could not load your preferences. Check your connection and try again.';
+      render(auth.state());
+    });
+  }
+
+  async function submitPreferences(event) {
+    event.preventDefault();
+    const errorHost = PV.util.$('#prefsError');
+    clearError(errorHost);
+
+    const country = readField('prefCountry').trim().toUpperCase();
+    const currency = readField('prefCurrency').trim().toUpperCase();
+    if (country && !/^[A-Z]{2}$/.test(country)) {
+      showError(errorHost, 'Country is a two-letter code, like KE, GB or DE — or leave it empty.');
+      return;
+    }
+    if (currency && !/^[A-Z]{3}$/.test(currency)) {
+      showError(errorHost, 'Preferred currency is a three-letter code, like KES, USD or EUR — or leave it empty.');
+      return;
+    }
+
+    const session = auth.session();
+    if (!session) return;
+    setBusy(PV.util.$('#prefsSave'), true, 'Saving…');
+    try {
+      const saved = await PV.store.preferences.save(session, { country: country, currency: currency });
+      prefs = { country: saved.country, currency: saved.currency };
+      prefsSavedMessage = saved.currency
+        ? 'Saved. Prices that state no currency are shown in ' + saved.currency +
+          ' for you; prices that state their own currency keep it — nothing is converted.'
+        : 'Saved. Prices that state no currency fall back to the catalogue default until you choose one.';
+      render(auth.state());
+      PV.ui.announce('Preferences saved.');
+    } catch (err) {
+      showError(errorHost, (err && err.message)
+        ? err.message
+        : 'We could not save your preferences. Check your connection and try again.');
+      const button = PV.util.$('#prefsSave');
+      if (button) setBusy(button, false);
+    }
+  }
+
   function signedIn(snap) {
     const profile = snap.profile || null;
     const email = (profile && profile.email) || (snap.user && snap.user.email) || '';
@@ -291,6 +447,7 @@ PV.util.ready(function () {
         : '') +
       '</div>' +
       participationPanel() +
+      preferencesPanel() +
       '</div>'
     );
   }
@@ -493,6 +650,7 @@ PV.util.ready(function () {
   root.addEventListener('submit', (e) => {
     if (e.target.id === 'signInForm') submitSignIn(e);
     if (e.target.id === 'signUpForm') submitSignUp(e);
+    if (e.target.id === 'prefsForm') submitPreferences(e);
   });
 
   /* Switching between the two forms, and signing out, both work from anywhere
@@ -514,6 +672,10 @@ PV.util.ready(function () {
     }
     if (e.target.closest('[data-reload-accounts]')) {
       loadAccounts();
+      return;
+    }
+    if (e.target.closest('[data-reload-prefs]')) {
+      loadPreferences();
       return;
     }
     if (e.target.closest('[data-auth-action="sign-out"]')) {
@@ -552,6 +714,16 @@ PV.util.ready(function () {
       accounts = [];
       accountsLoaded = false;
       accountsError = '';
+      prefs = { country: '', currency: '' };
+      prefsLoaded = false;
+      prefsError = '';
+      prefsSavedMessage = '';
+      /* Preferences belong to the person too: read again whenever the person
+         changes, and dropped entirely on sign-out. */
+      if (userId && snap.checked && snap.available &&
+          PV.store.preferences && PV.store.preferences.available()) {
+        loadPreferences();
+      }
       /* Applications belong to the person, so they are read again whenever the
          person changes — and dropped entirely on sign-out. */
       if (userId && snap.checked && snap.available &&

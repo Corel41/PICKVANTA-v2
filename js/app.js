@@ -220,7 +220,7 @@ PV.util.ready(function () {
           '<div class="cat-icon" aria-hidden="true">' + U.esc(c.icon) + '</div>' +
           '<strong>' + U.esc(c.label) + '</strong>' +
           '<span>' + U.esc(c.blurb) + '</span>' +
-          '<span class="cat-count">' + count + ' demo record' + (count === 1 ? '' : 's') + '</span>' +
+          '<span class="cat-count">' + count + (PV.store.catalogue().live ? ' record' : ' demo record') + (count === 1 ? '' : 's') + '</span>' +
           '</a>';
       }).join('');
     }
@@ -291,8 +291,8 @@ PV.util.ready(function () {
       const stats = PV.store.stats();
       const cities = (stats.locationCities || []).filter(function (c) { return ['Online', 'Nationwide'].indexOf(c) === -1; });
       /* The count is about the catalogue; the wording says where it came from,
-         so a live page never describes the published catalogue as a demo. The
-         records themselves stay demonstration content in both modes. */
+         so a live page never describes the published catalogue as demo, and a
+         demo page never passes its records off as live. */
       const cat = PV.store.catalogue();
       countHost.textContent =
         stats.listings + ' records, ' + stats.offers + ' offers and ' +
@@ -300,8 +300,8 @@ PV.util.ready(function () {
         (cat.live ? 'are served from the published catalogue' : 'are included in the bundled demonstration catalogue') +
         ' — covering ' +
         stats.categories + ' categories, ' + stats.subcategories + ' subcategories and ' +
-        cities.length + ' locations. Every record is demonstration content: no real sellers, no real prices, ' +
-        'no live availability.';
+        cities.length + ' locations' +
+        (cat.live ? '.' : '. Every record is demonstration content: no real sellers, no real prices, no live availability.');
     }
   }
 

@@ -1,0 +1,17 @@
+{
+  "id": "55555555-5555-4555-8555-555555555555",
+  "name": "Fixture WooCommerce Store",
+  "provider_name": "fixture-store",
+  "source_type": "merchant-product-feed",
+  "market_country": "KE",
+  "endpoint_url": "https://store.example/wp-json/wc/store/v1/products",
+  "status": "active",
+  "transport": "file",
+  "config": {
+    "adapter": "woo-store-api",
+    "per_page": 2,
+    "max_pages": 5,
+    "timeout_ms": 5000
+  },
+  "requires_credential": false
+}

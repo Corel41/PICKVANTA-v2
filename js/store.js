@@ -54,9 +54,12 @@ window.PV.store = (function () {
      ====================================================================== */
   const CONFIG_DEFAULTS = { mode: 'demo', supabase: { url: '', anonKey: '' }, onFailure: 'error', poolLimit: 60 };
   const DEFAULT_PAGE_SIZE = 24;
-  /* Safety cap for a single request. Browsing pages ask for a page size; this
-     only bounds a request that asks for "everything matching". */
-  const MAX_ROWS = 200;
+  /* Upper bound for one page request. The live catalogue always pages
+     server-side: a view asks for a window (limit/offset), and this only
+     stops a single request from asking for an unreasonably large window.
+     It is not a row ceiling — nothing else limits how much of the catalogue
+     a visitor can reach, page by page. */
+  const MAX_PAGE_SIZE = 100;
 
   function readConfig() {
     const raw = window.PV_CONFIG || {};
@@ -73,6 +76,18 @@ window.PV.store = (function () {
   const CONFIG = readConfig();
   let activeAdapter = null;
   let fallbackActive = false;
+  /* The signed-in visitor's saved preferences, once loaded. Until then —
+     and for anybody signed out — loaded stays false and every presentation
+     fallback behaves exactly as it always has. */
+  let userPrefs = { country: '', currency: '', loaded: false };
+
+  function adoptPreferences(prefs) {
+    userPrefs = { country: prefs.country, currency: prefs.currency, loaded: true };
+    /* The one place a preference touches presentation: the fallback for a
+       price that states no currency. Amounts are never changed. */
+    Dm.setPreferredCurrency(userPrefs.currency);
+    return { country: userPrefs.country, currency: userPrefs.currency, loaded: true };
+  }
 
   /* ======================================================================
      Diagnostics
@@ -215,6 +230,9 @@ window.PV.store = (function () {
     let listings = [];
     let sellers = [];
     let guides = [];
+    let canonProducts = [];
+    let canonVariants = [];
+    let canonOffers = [];
     let tagList = [];
 
     function loadScript() {
@@ -269,6 +287,36 @@ window.PV.store = (function () {
       });
 
       guides = Dm.asArray(data.guides).map(readGuide).filter(Boolean);
+
+      /* The canonical demonstration layer (0008's model), filtered to what the
+         public page may see — the same statuses the database's own public read
+         policies admit: an 'active' product and variant, an 'active' or
+         'unavailable' offer. A 'draft' row and a 'pending' offer stay in the
+         dataset to prove they are never served. */
+      const canonMerchantsById = new Map(Dm.asArray(data.canonicalMerchants)
+        .map((m) => [m.id, Dm.normalizeExternalMerchant(m)]));
+      canonProducts = Dm.asArray(data.canonicalProducts)
+        .map((p) => Dm.normalizeProduct(p))
+        .filter((p) => p.status === 'active');
+      canonVariants = Dm.asArray(data.canonicalVariants)
+        .map((v) => Dm.normalizeProductVariant(v))
+        .filter((v) => v.status === 'active');
+      canonOffers = Dm.asArray(data.canonicalOffers)
+        .map((o) => {
+          const offer = Dm.normalizeMerchantOffer(o);
+          /* media references ride with the demo row; live reads them from
+             merchant_offer_media. References only — never a copy. */
+          offer.media = Dm.asArray(o.media)
+            .map((m) => ({
+              url: Dm.trim(m.sourceMediaUrl || m.source_media_url),
+              type: Dm.trim(m.mediaType || m.media_type) || 'image',
+              attribution: Dm.trim(m.attribution)
+            }))
+            .filter((m) => !!m.url);
+          offer.merchant = canonMerchantsById.get(offer.merchantId) || null;
+          return offer;
+        })
+        .filter((o) => o.status === 'active' || o.status === 'unavailable');
       tagList = tagCounts(listings);
 
       const hidden = Dm.asArray(data.listings).length - listings.length;
@@ -322,6 +370,11 @@ window.PV.store = (function () {
     const noAdmin = () => Promise.reject(StoreError(
       'The admin panel needs the live database connection. This build is running on the bundled demonstration catalogue.',
       'api-not-configured'));
+    /* Neither does a preference: it lives on the signed-in person's profile
+       row, and the demonstration catalogue has no database behind it. */
+    const noPreferences = () => Promise.reject(StoreError(
+      'Preferences need the live catalogue connection. This build is running on the bundled demonstration catalogue.',
+      'api-not-configured'));
 
     return {
       kind: 'demo',
@@ -330,6 +383,8 @@ window.PV.store = (function () {
       sellerAccountsMine: noAccounts,
       sellerAccountCreate: noAccounts,
       sellerAccountUpdate: noAccounts,
+      userPreferencesGet: noPreferences,
+      userPreferencesSet: noPreferences,
       adminCounts: noAdmin,
       adminAccounts: noAdmin,
       adminAccount: noAdmin,
@@ -337,7 +392,7 @@ window.PV.store = (function () {
       /* The same refusal as the rest of the panel: the Deal Engine reads real
          records, and there is no demonstration version of them. There is no
          demonstration source to configure either. The canonical layer is the
-         same — there is no demonstration product, variant or merchant offer,
+         same — this panel still has no demonstration product, variant or merchant offer,
          and inventing one would put a fabricated product in front of an
          operator. */
       dealEngineSources: noAdmin,
@@ -347,6 +402,12 @@ window.PV.store = (function () {
       dealEngineImportedDeal: noAdmin,
       dealEngineImportedDealEvents: noAdmin,
       importedDealConvert: noAdmin,
+      /* The demonstration bundle has no server to record a click with, and it
+         never pretends to: the visitor follows the fictional link directly and
+         tracked:false says exactly what happened. */
+      affiliateClick: (offerId, fallbackUrl) =>
+        Promise.resolve({ tracked: false, destination: fallbackUrl || '', reason: 'demo' }),
+      affiliateApprove: noAdmin,
       /* The taxonomy is public catalogue data, and the demonstration bundle has
          its own — the same list PV.store.categories() already serves. */
       referenceCategoryOptions: () => Promise.resolve(SCAFFOLD.taxonomy.map((c) => ({
@@ -365,6 +426,25 @@ window.PV.store = (function () {
         opts && opts.dataset === 'deals' ? listings.filter((l) => !!l.offer) : listings
       ))),
       get: (id) => Promise.resolve(listings.find((l) => l.id === id || l.slug === id) || null),
+
+      /* The public canonical presentation: one product, its active variants,
+         and the offers the demo dataset records for them — joined with the
+         merchant's public identity here, so the page never joins anything.
+         Deterministic order (variant slug, then offer id): no UI reliance on
+         array order. */
+      getProduct: (idOrSlug) => {
+        const key = Dm.trim(idOrSlug);
+        const product = canonProducts.find((p) => p.id === key || p.slug === key) || null;
+        if (!product) return Promise.resolve(null);
+        const variants = canonVariants
+          .filter((v) => v.productId === product.id)
+          .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : a.id < b.id ? -1 : 1));
+        const offers = canonOffers
+          .filter((o) => o.productId === product.id)
+          .sort((a, b) => ((a.variantId || '') < (b.variantId || '') ? -1
+            : (a.variantId || '') > (b.variantId || '') ? 1 : a.id < b.id ? -1 : 1));
+        return Promise.resolve({ product: product, variants: variants, offers: offers });
+      },
       getMany: (ids) => Promise.resolve(Dm.asArray(ids)
         .map((id) => listings.find((l) => l.id === id || l.slug === id) || null)
         .filter(Boolean)),
@@ -645,6 +725,78 @@ window.PV.store = (function () {
       });
     }
 
+    /* ------------------------------------------------------------ the
+       tracked affiliate pathway (#8). Two doors, both database functions:
+
+       affiliate_click_track — callable by any visitor, signed in or not. The
+       browser supplies only an offer id; the function resolves the approved
+       destination from the stored offer or records nothing. There is no
+       endpoint anywhere that accepts a destination from the browser, so
+       PickVanta cannot be made to redirect somewhere arbitrary.
+
+       affiliate_pathway_approve — an administrator's explicit approval (or
+       revocation) of an offer's tracked destination. The reviewed conversion
+       deliberately writes no affiliate URL; this is the one transition that
+       attaches one, after the offer and its evidence have been inspected. */
+    function postRpc(path, body) {
+      if (!configured()) {
+        return Promise.reject(StoreError(FRIENDLY, 'api-not-configured',
+          'mode is "api" but js/config.js has no Supabase url/anonKey.'));
+      }
+      if (typeof fetch !== 'function') {
+        return Promise.reject(StoreError(FRIENDLY, 'api-unsupported', 'This browser does not provide fetch().'));
+      }
+      return fetch(CONFIG.url + '/rest/v1/' + path, {
+        method: 'POST',
+        headers: {
+          apikey: CONFIG.anonKey,
+          Authorization: 'Bearer ' + CONFIG.anonKey,
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body || {}),
+        cache: 'no-store'
+      }).then((response) => {
+        if (!response.ok) {
+          return response.text().then((text) => {
+            throw StoreError(FRIENDLY, 'api-' + response.status,
+              path + ' → HTTP ' + response.status + ' ' + String(text || '').slice(0, 300));
+          }, () => {
+            throw StoreError(FRIENDLY, 'api-' + response.status, path + ' → HTTP ' + response.status);
+          });
+        }
+        return response.json().then((parsed) => ({ body: parsed }));
+      }, (err) => {
+        throw StoreError(FRIENDLY, 'api-unreachable', path + ' → ' + (err && err.message ? err.message : 'network error'));
+      });
+    }
+
+    /* A click the database recorded comes back as the destination it resolved;
+       anything else comes back as tracked:false with the offer's own public
+       link as the honest fallback — a click that was not recorded is never
+       claimed as tracked, and nothing in the interface says it was. */
+    function affiliateClick(offerId, fallbackUrl) {
+      return postRpc('rpc/affiliate_click_track', { p_offer_id: offerId }).then(
+        (result) => {
+          const destination = typeof result.body === 'string' ? Dm.trim(result.body) : '';
+          return destination
+            ? { tracked: true, destination: destination }
+            : { tracked: false, destination: fallbackUrl || '', reason: 'not-eligible' };
+        },
+        () => ({ tracked: false, destination: fallbackUrl || '', reason: 'not-recorded' })
+      );
+    }
+
+    function affiliateApprove(session, offerId, url) {
+      return write('rpc/affiliate_pathway_approve', [], session, {
+        method: 'POST',
+        refusal: true,
+        body: { p_offer_id: offerId, p_affiliate_url: Dm.trim(url) }
+      }).then((result) => ({
+        offerId: typeof result.body === 'string' ? result.body : ''
+      }));
+    }
+
     /* ------------------------------------------- seller/provider accounts --
        The user's own application rows, and nothing else. RLS is the authority:
        the own-row policy limits every one of these to the signed-in person. */
@@ -655,6 +807,70 @@ window.PV.store = (function () {
          'order=created_at.desc'],
         session, { method: 'GET' }
       ).then((result) => result.rows.map((row) => Dm.normalizeSellerAccount(row)));
+    }
+
+    /* ------------------------------------ the visitor's preferences (0014) --
+       Two columns on the caller's own profile row. RLS is the authority, as
+       for every other read here: profiles_read_own / profiles_update_own
+       (0002) limit each request to the caller's own row, and 0014 grants
+       UPDATE on exactly the two preference columns — role, email, id and the
+       timestamps stay out of any browser's reach. There is no conversion
+       anywhere in this path: a preference is stored, carried back, and applied
+       by the presentation layer as a fallback for prices that state none. */
+    const COUNTRY_CODE = /^[A-Z]{2}$/;
+    const CURRENCY_CODE = /^[A-Z]{3}$/;
+
+    function preferenceCode(raw, shape) {
+      const c = Dm.trim(raw).toUpperCase();
+      return shape.test(c) ? c : '';
+    }
+
+    function normalizePreferencesRow(row) {
+      const r = row || {};
+      return {
+        country: preferenceCode(r.country, COUNTRY_CODE),
+        currency: preferenceCode(r.currency, CURRENCY_CODE)
+      };
+    }
+
+    /* A malformed code is refused, not quietly emptied: a typo the visitor
+       meant to save must come back as a message, never as silence. */
+    function normalizePreferencesInput(patch) {
+      const p = patch || {};
+      const country = Dm.trim(p.country).toUpperCase();
+      const currency = Dm.trim(p.currency).toUpperCase();
+      if (country && !COUNTRY_CODE.test(country)) {
+        throw StoreError('Country is a two-letter code, like KE, GB or DE — or leave it empty.', 'preferences-invalid');
+      }
+      if (currency && !CURRENCY_CODE.test(currency)) {
+        throw StoreError('Preferred currency is a three-letter code, like KES, USD or EUR — or leave it empty.', 'preferences-invalid');
+      }
+      return { country: country, currency: currency };
+    }
+
+    function userPreferencesGet(session) {
+      return write('profiles',
+        ['id=eq.' + encodeURIComponent(session.userId),
+         'select=country,currency',
+         'limit=1'],
+        session, { method: 'GET' }
+      ).then((result) => normalizePreferencesRow(result.rows[0]));
+    }
+
+    function userPreferencesSet(session, patch) {
+      const next = normalizePreferencesInput(patch);
+      return write('profiles',
+        ['id=eq.' + encodeURIComponent(session.userId)],
+        session,
+        {
+          method: 'PATCH',
+          body: { country: next.country, currency: next.currency },
+          prefer: 'return=representation'
+        }
+      ).then((result) => {
+        const row = result.rows && result.rows[0];
+        return row ? normalizePreferencesRow(row) : next;
+      });
     }
 
     function sellerAccountCreate(session, input) {
@@ -1285,12 +1501,14 @@ window.PV.store = (function () {
     }
 
     function orderParam(sort) {
+      /* Every order ends in a unique column (id) so rows can never repeat or
+         go missing between two pages of the same query on a stable dataset. */
       switch (sort) {
-        case 'price-asc': return 'price_amount.asc.nullslast';
-        case 'price-desc': return 'price_amount.desc.nullslast';
-        case 'name-asc': return 'name.asc';
-        case 'name-desc': return 'name.desc';
-        default: return 'created_at.desc';
+        case 'price-asc': return 'price_amount.asc.nullslast,id.asc';
+        case 'price-desc': return 'price_amount.desc.nullslast,id.asc';
+        case 'name-asc': return 'name.asc,id.asc';
+        case 'name-desc': return 'name.desc,id.asc';
+        default: return 'created_at.desc,id.asc';
       }
     }
 
@@ -1338,10 +1556,14 @@ window.PV.store = (function () {
       dealEngineSources: dealEngineSources,
       dealEngineJobs: dealEngineJobs,
       dealEngineImportedDeals: dealEngineImportedDeals,
+      userPreferencesGet: userPreferencesGet,
+      userPreferencesSet: userPreferencesSet,
       dealEngineReviewQueue: dealEngineReviewQueue,
       dealEngineImportedDeal: dealEngineImportedDeal,
       dealEngineImportedDealEvents: dealEngineImportedDealEvents,
       importedDealConvert: importedDealConvert,
+      affiliateClick: affiliateClick,
+      affiliateApprove: affiliateApprove,
       dealSourceSave: dealSourceSave,
       referenceCategoryOptions: referenceCategoryOptions,
       canonicalProducts: canonicalProducts,
@@ -1380,8 +1602,19 @@ window.PV.store = (function () {
       },
 
       list: function (state, opts) {
-        const pageSize = Number(state.pageSize) > 0 ? Number(state.pageSize) : null;
-        const searching = !!state.q;
+        /* Every browse is one server-side window: the database filters
+           (status, category, price, availability, search terms — filterParams),
+           orders (orderParam, deterministic with an id tiebreaker) and pages
+           (limit/offset) in a single request that also carries count=exact.
+           The browser receives only the requested page — never a capped pool
+           to rank or slice locally. The client-side scorer is deliberately not
+           used in this path: the requested sort is the ranking, so page N of
+           the same query is stable while the dataset is stable. */
+        const size = Math.min(
+          Math.max(1, Math.floor(Number(state.pageSize) > 0 ? Number(state.pageSize) : DEFAULT_PAGE_SIZE)),
+          MAX_PAGE_SIZE
+        );
+        const page = Math.max(1, parseInt(state.page, 10) || 1);
         /* The Deals page lists only records that carry an offer: the join is
            made mandatory for that request so the database filters the rows. */
         const dealsOnly = !!(opts && opts.dataset === 'deals');
@@ -1391,42 +1624,12 @@ window.PV.store = (function () {
           'order=' + orderParam(state.sort)
         ]);
         if (dealsOnly) params.push('deals.status=in.(scheduled,active)');
+        params.push('limit=' + size, 'offset=' + (page - 1) * size);
 
-        /* Paged browsing asks the database for exactly one page. An unpaged
-           browse asks for the filtered set, capped so a request can never pull
-           the whole catalogue into the browser. */
-        const limit = pageSize ? pageSize : MAX_ROWS;
-        params.push('limit=' + limit);
-        if (!searching && pageSize) {
-          const page = Math.max(1, parseInt(state.page, 10) || 1);
-          params.push('offset=' + (page - 1) * pageSize);
-        }
-        if (searching) {
-          /* Keep candidate ranking honest: fetch a bounded pool, rank it here. */
-          params.pop();
-          params.push('limit=' + Math.max(MAX_ROWS, (pageSize || DEFAULT_PAGE_SIZE) * 4));
-        }
-
-        return request('listings', params, { count: !searching }).then((result) => {
+        return request('listings', params, { count: true }).then((result) => {
           const listings = readRowsAsListings(result.rows);
-
-          if (searching) {
-            const matched = search(state.q, listings);
-            const size = pageSize || matched.length || 1;
-            const page = Math.max(1, parseInt(state.page, 10) || 1);
-            return {
-              items: size ? matched.slice((page - 1) * size, page * size) : matched,
-              total: matched.length,
-              truncated: false
-            };
-          }
-
           const total = result.total == null ? listings.length : result.total;
-          return {
-            items: listings,
-            total: total,
-            truncated: total > listings.length && !pageSize
-          };
+          return { items: listings, total: total, truncated: false };
         });
       },
 
@@ -1438,6 +1641,82 @@ window.PV.store = (function () {
           'status=eq.published',
           'limit=1'
         ]).then((result) => readRowsAsListings(result.rows)[0] || null);
+      },
+      /* The public canonical presentation (0015's read surface): the active
+         product by id or slug, its active variants, its visible offers
+         (active + unavailable — an empty shelf is shown, not hidden) with the
+         merchants' public identities and media references joined in. Every
+         query states its own status filter, mirroring the database's policies;
+         a visitor can never ask a draft row out of the database. */
+      getProduct: function (idOrSlug) {
+        const key = Dm.trim(idOrSlug);
+        if (!key) return Promise.resolve(null);
+        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const productFilter = UUID.test(key)
+          ? ['id=eq.' + encodeURIComponent(key)]
+          : ['slug=eq.' + encodeURIComponent(key)];
+        return request('products', productFilter
+            .concat(['status=eq.active', 'limit=1']))
+          .then((result) => {
+            const product = Dm.normalizeProduct(result.rows[0]);
+            if (!product.id || product.status !== 'active') return null;
+            const variantsGet = request('product_variants', [
+              'product_id=eq.' + encodeURIComponent(product.id),
+              'status=eq.active',
+              'order=slug.asc'
+            ]);
+            const offersGet = request('merchant_offers', [
+              'product_id=eq.' + encodeURIComponent(product.id),
+              'status=in.(active,unavailable)',
+              'order=variant_id.asc,id.asc'
+            ]);
+            return Promise.all([variantsGet, offersGet]).then((results) => {
+              /* The database's policies are the boundary; these client-side
+                 filters are the same boundary restated, so a row that arrives
+                 unexpectedly can never reach the page. */
+              const variants = results[0].rows
+                .map((row) => Dm.normalizeProductVariant(row))
+                .filter((v) => v.status === 'active');
+              const offers = results[1].rows
+                .map((row) => Dm.normalizeMerchantOffer(row))
+                .filter((o) => o.status === 'active' || o.status === 'unavailable');
+              const merchantIds = [];
+              offers.forEach((o) => {
+                if (o.merchantId && merchantIds.indexOf(o.merchantId) === -1) merchantIds.push(o.merchantId);
+              });
+              const mediaIds = [];
+              offers.forEach((o) => {
+                if (o.id && mediaIds.indexOf(o.id) === -1) mediaIds.push(o.id);
+              });
+              const merchantsGet = merchantIds.length
+                ? request('external_merchants', ['id=in.(' + merchantIds.map((id) => '"' + id + '"').join(',') + ')'])
+                : Promise.resolve({ rows: [] });
+              const mediaGet = mediaIds.length
+                ? request('merchant_offer_media', [
+                    'merchant_offer_id=in.(' + mediaIds.map((id) => '"' + id + '"').join(',') + ')',
+                    'order=sort_order.asc'
+                  ])
+                : Promise.resolve({ rows: [] });
+              return Promise.all([merchantsGet, mediaGet]).then((joined) => {
+                const merchantsById = new Map(joined[0].rows.map((row) => [row.id, Dm.normalizeExternalMerchant(row)]));
+                const mediaByOffer = new Map();
+                joined[1].rows.forEach((row) => {
+                  const list = mediaByOffer.get(row.merchant_offer_id) || [];
+                  list.push({
+                    url: Dm.trim(row.source_media_url),
+                    type: Dm.trim(row.media_type) || 'image',
+                    attribution: Dm.trim(row.attribution)
+                  });
+                  mediaByOffer.set(row.merchant_offer_id, list);
+                });
+                offers.forEach((o) => {
+                  o.media = mediaByOffer.get(o.id) || [];
+                  o.merchant = merchantsById.get(o.merchantId) || null;
+                });
+                return { product: product, variants: variants, offers: offers };
+              });
+            });
+          });
       },
 
       /** Resolve a list of ids in one request (chunked, so a long list cannot
@@ -1991,6 +2270,7 @@ window.PV.store = (function () {
     },
 
     /* ---- browsing (envelope) ------------------------------------------- */
+    defaultPageSize: () => DEFAULT_PAGE_SIZE,
     query: function (state, opts) {
       const s = Object.assign({}, state || {});
       const o = opts || {};
@@ -2038,6 +2318,31 @@ window.PV.store = (function () {
       return fromSource('getListing', (adapter) => adapter.get(key))
         .then((record) => (record && record.id ? finishListing(record) : null));
     },
+    /* The public Product → Variant → Merchant Offer presentation (0015): one
+       canonical product, its active variants and its visible offers, with the
+       merchants' public identities joined. Resolved through the adapter — the
+       demonstration bundle in demo mode, the database's own public read
+       policies in live mode. Nothing here writes, merges or generates a link. */
+    getProduct: (idOrSlug) => Promise.resolve(activeAdapter.getProduct(idOrSlug)),
+
+    /* The tracked affiliate pathway: the browser offers the offer's id, the
+       database resolves (or declines) the approved destination. The fallback
+       is the offer's own public link — used only when nothing was recorded,
+       and never reported as tracked. */
+    affiliateClick: function (offer) {
+      const id = Dm.trim(offer && offer.id);
+      const destination = Dm.trim(offer && offer.affiliateUrl);
+      if (!id || !destination) {
+        return Promise.resolve({ tracked: false, destination: destination || '', reason: 'no-pathway' });
+      }
+      return fromSource('affiliateClick', (adapter) => adapter.affiliateClick(id, destination));
+    },
+
+    /* An administrator approves (or, with an empty url, revokes) an offer's
+       tracked destination. The database checks the role for itself. */
+    affiliateApprove: (session, offerId, url) =>
+      fromSource('affiliateApprove', (adapter) => adapter.affiliateApprove(session, offerId, url)),
+
     getDeal: function (id) {
       const key = Dm.trim(id);
       if (!key) return Promise.resolve(null);
@@ -2172,9 +2477,9 @@ window.PV.store = (function () {
     priceBandLabel: (band) => {
       const b = band || {};
       if (b.min == null && b.max == null) return 'Any price';
-      if (b.min == null) return 'Under ' + Dm.money(b.max, Dm.DEFAULT_CURRENCY);
-      if (b.max == null) return Dm.money(b.min, Dm.DEFAULT_CURRENCY) + ' and above';
-      return Dm.money(b.min, Dm.DEFAULT_CURRENCY) + ' – ' + Dm.money(b.max, Dm.DEFAULT_CURRENCY);
+      if (b.min == null) return 'Under ' + Dm.money(b.max, Dm.displayCurrency());
+      if (b.max == null) return Dm.money(b.min, Dm.displayCurrency()) + ' and above';
+      return Dm.money(b.min, Dm.displayCurrency()) + ' – ' + Dm.money(b.max, Dm.displayCurrency());
     },
     sortOptions: () => SCAFFOLD.sortOptions.slice(),
     availabilityOptions: () => Dm.AVAILABILITY.slice(),
@@ -2256,6 +2561,30 @@ window.PV.store = (function () {
       create: (session, input) => Promise.resolve(activeAdapter.sellerAccountCreate(session, input)),
       update: (session, id, input) => Promise.resolve(activeAdapter.sellerAccountUpdate(session, id, input))
     },
+
+    /* ----------------------------------------------- preferences (0014) ----
+       The signed-in visitor's own country and preferred display currency.
+       load() reads their profile row and applies the currency fallback;
+       save() writes exactly the two granted columns and answers with what the
+       database stored. Both go through the caller's own session, so RLS —
+       not this layer — decides whose rows are reachable. A signed-out
+       visitor's load is a no-op that simply leaves the fallbacks alone. */
+    preferences: {
+      available: () => activeAdapter && activeAdapter.kind === 'api' && !!(CONFIG.url && CONFIG.anonKey),
+      load: (session) => {
+        if (!session) {
+          return Promise.resolve(adoptPreferences({ country: '', currency: '' }));
+        }
+        return Promise.resolve(activeAdapter.userPreferencesGet(session))
+          .then((prefs) => adoptPreferences(prefs));
+      },
+      save: (session, patch) => {
+        return Promise.resolve(activeAdapter.userPreferencesSet(session, patch))
+          .then((prefs) => adoptPreferences(prefs));
+      },
+      current: () => Object.assign({}, userPrefs)
+    },
+
 
     /* ------------------------------------------------------------- admin --
        Administrative access, kept in its own namespace so the catalogue's read
@@ -2388,10 +2717,12 @@ window.PV.store = (function () {
 
     /* ---- model primitives (one import surface for the UI) --------------- */
     money: Dm.money,
-    defaultCurrency: () => Dm.DEFAULT_CURRENCY,
+    defaultCurrency: () => Dm.displayCurrency(),
     priceText: Dm.priceText,
     priceValue: Dm.priceValue,
     priceUnitSuffix: Dm.priceUnitSuffix,
+    merchantOfferPriceText: Dm.merchantOfferPriceText,
+    merchantOfferComparisonSupported: Dm.merchantOfferComparisonSupported,
     formatDate: Dm.formatDate,
     categoryLabel: (slug) => {
       const c = SCAFFOLD.taxonomy.find((x) => x.slug === slug || x.id === slug);

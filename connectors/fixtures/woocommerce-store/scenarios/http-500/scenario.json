@@ -1,0 +1,7 @@
+{
+  "simulate": {
+    "failure": "http",
+    "status": 500,
+    "body": "Internal Server Error"
+  }
+}

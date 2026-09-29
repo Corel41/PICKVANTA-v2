@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1203,
+    "name": "USB-C Audio Interface",
+    "slug": "usb-c-audio-interface",
+    "permalink": "https://store.example/product/usb-c-audio-interface",
+    "date_created": "2026-01-15T09:00:00",
+    "date_modified": "2026-08-02T11:30:00",
+    "type": "simple",
+    "status": "publish",
+    "featured": false,
+    "catalog_visibility": "visible",
+    "description": "<p>Two-input interface with phantom power and direct monitoring.</p>",
+    "short_description": "<p>USB-C Audio Interface</p>",
+    "sku": "STORE-1203",
+    "price": "15500.00",
+    "regular_price": "15500.00",
+    "sale_price": "15500.00",
+    "on_sale": false,
+    "prices": {
+      "price": "1550000",
+      "regular_price": "1550000",
+      "sale_price": "1550000",
+      "currency_code": "KES",
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "KSh",
+      "currency_suffix": "",
+      "currency_symbol": "KSh",
+      "currency_minor_unit": 2
+    },
+    "stock_availability": {
+      "text": "Out of stock",
+      "class": "out-of-stock"
+    },
+    "is_in_stock": false,
+    "is_on_backorder": false,
+    "categories": [
+      {
+        "id": 31,
+        "name": "Audio",
+        "slug": "audio"
+      },
+      {
+        "id": 45,
+        "name": "Interfaces",
+        "slug": "interfaces"
+      }
+    ],
+    "tags": [],
+    "images": [
+      {
+        "id": 12030,
+        "src": "https://store.example/wp-content/uploads/2026/01/ai-1203.jpg",
+        "thumbnail": "https://store.example/wp-content/uploads/2026/01/ai-1203.jpg",
+        "srcset": "",
+        "sizes": {},
+        "name": "USB-C Audio Interface",
+        "alt": ""
+      }
+    ],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true
+  }
+]
