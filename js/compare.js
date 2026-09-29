@@ -7,6 +7,10 @@ PV.util.ready(function () {
   const U = PV.util;
   PV.ui.mountChrome('compare');
 
+  /* The existing mode signal: the comparison renders only records the data
+     layer has delivered, so the answer is the real one at render time. */
+  const isLive = () => PV.store.catalogue().live;
+
   const MAX = PV.compare.max;
   const pickersHost = U.$('#comparePickers');
   const matrixHost = U.$('#compareMatrix');
@@ -146,14 +150,14 @@ PV.util.ready(function () {
           const ref = offer && offer.originalPrice != null ? offer.originalPrice : i.referencePrice;
           return ref != null ? U.money(ref, i.currency || U.defaultCurrency()) : '—';
         }) },
-      { key: 'offerPrice', label: 'Offer price (demo)', values: list.map(function (i) {
+      { key: 'offerPrice', label: isLive() ? 'Offer price' : 'Offer price (demo)', values: list.map(function (i) {
           return i.offer && i.offer.offerPrice != null
             ? U.money(i.offer.offerPrice, i.currency || U.defaultCurrency()) + U.priceUnitSuffix(i.price && i.price.priceType)
             : '—';
         }) },
       { key: 'offer', label: 'Offer status', values: list.map(function (i) {
           const st = U.offerState(i);
-          return st && st.code !== 'none' ? st.label : 'No demo offer';
+          return st && st.code !== 'none' ? st.label : (isLive() ? 'No offer' : 'No demo offer');
         }) },
       { key: 'seller', section: 'Provider & availability', label: 'Seller / provider', values: list.map(function (i) { return U.sellerLabel(i); }) },
       { key: 'sellerType', label: 'Seller type', values: list.map(function (i) { return (i.seller && i.seller.typeLabel) || '—'; }) },
@@ -395,10 +399,10 @@ PV.util.ready(function () {
         '<div class="cmp-intro">' +
           '<h3>Compare options side by side</h3>' +
           '<p>Select up to ' + MAX + ' products or services while you browse and PickVanta lines them up row by row. ' +
-          'Only the rows where the demo values differ are flagged — nothing is scored and no option is recommended.</p>' +
+          'Only the rows where ' + (isLive() ? 'the values' : 'the demo values') + ' differ are flagged — nothing is scored and no option is recommended.</p>' +
           '<div class="cmp-intro-actions">' +
             '<a class="btn-primary" href="discover.html">Search the catalogue</a>' +
-            '<a class="btn-secondary" href="deals.html">See the demo deals</a>' +
+            '<a class="btn-secondary" href="deals.html">' + (isLive() ? 'See the offers' : 'See the demo deals') + '</a>' +
           '</div>' +
           '<div class="empty-chips">' +
             '<span class="empty-chip-label">Browse a category:</span>' +
@@ -510,7 +514,7 @@ PV.util.ready(function () {
       '<table class="cmp-table"><caption class="visually-hidden">Side-by-side comparison of ' + list.length + ' options from ' + PV.store.catalogue().phrase + '</caption>' +
       head + body + '</table></div>' +
       stacked +
-      '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” only mean the demo values are not identical, and a tinted value is one that no other selected option shares. Every option is shown the same way — PickVanta does not score, rank or recommend any of them.' +
+      '<p class="cmp-footnote"><strong>You decide what matters.</strong> Rows marked “Differs” only mean ' + (isLive() ? 'the values' : 'the demo values') + ' are not identical, and a tinted value is one that no other selected option shares. Every option is shown the same way — PickVanta does not score, rank or recommend any of them.' +
       (focusAreas.length ? ' Highlighted rows match your selected comparison areas.' : '') +
       (diffsOnly ? ' Showing the ' + rows.length + ' rows that differ.' : '') + '</p>';
   }
@@ -578,9 +582,11 @@ PV.util.ready(function () {
   function renderNotice() {
     if (!noticeHost) return;
     if (seededTitle && ids().length) {
-      noticeHost.innerHTML =
-        '<div class="notice">Showing a starting demo selection of ' + ids().length + ' technology products so the comparison layout is visible. ' +
-        'Change the slots below — nothing is saved to a server. Demo data only.</div>';
+      noticeHost.innerHTML = isLive()
+        ? '<div class="notice">Showing a starting selection of ' + ids().length + ' technology products so the comparison layout is visible. ' +
+          'Change the slots below — nothing is saved to a server.</div>'
+        : '<div class="notice">Showing a starting demo selection of ' + ids().length + ' technology products so the comparison layout is visible. ' +
+          'Change the slots below — nothing is saved to a server. Demo data only.</div>';
       seededTitle = false;
     }
   }
@@ -618,7 +624,7 @@ PV.util.ready(function () {
       detail: err && err.message ? err.message : '',
       actions: [
         { label: 'Go to Discover', href: 'discover.html' },
-        { label: 'See demo deals', href: 'deals.html' }
+        { label: isLive() ? 'See offers' : 'See demo deals', href: 'deals.html' }
       ]
     });
     PV.ui.announce("We couldn't load these options right now.");

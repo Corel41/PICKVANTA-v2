@@ -38,12 +38,12 @@ test('registry: adapters are found by name and an unknown name is refused by nam
   assert.throws(() => adapters.getAdapter('store-json-v2'), (error) => {
     assert.equal(error.kind, 'unknown-adapter');
     assert.match(error.message, /store-json-v2/);
-    assert.match(error.message, /store-json, product-csv/);
+    assert.match(error.message, /store-json, product-csv, woo-store-api/);
     return true;
   });
   const listed = adapters.listAdapters();
-  assert.deepEqual(listed.map((entry) => entry.name), ['store-json', 'product-csv']);
-  assert.deepEqual(listed.map((entry) => entry.method), ['json-api', 'csv']);
+  assert.deepEqual(listed.map((entry) => entry.name), ['store-json', 'product-csv', 'woo-store-api']);
+  assert.deepEqual(listed.map((entry) => entry.method), ['json-api', 'csv', 'json-api']);
 });
 
 /* ------------------------------------------------------- store-json map -- */
@@ -213,4 +213,107 @@ test('product-csv: a row with the wrong number of fields is a response error, no
     productCsv.fetchRaw({ transport: { readTextFile: async () => 'item_id,item_name\n' } }),
     (error) => error.kind === 'empty-source'
   );
+});
+/* ------------------------------------------------------ woo-store-api -- */
+
+const wooStoreApi = require('../lib/adapters/woo-store-api');
+
+const STORE = path.join(REPO_ROOT, 'connectors', 'fixtures', 'woocommerce-store');
+
+function storeContext() {
+  const manifest = readJson(path.join(STORE, 'source.json'));
+  return { source: manifest };
+}
+
+function pagesTransport(pages) {
+  return {
+    kind: 'http',
+    meta: { requests: pages.length, pages: pages.length, bytes: 0 },
+    readTextPage: async (pageNumber) => (pageNumber <= pages.length ? pages[pageNumber - 1] : null)
+  };
+}
+
+test('woo-store-api: a saved Store API page maps onto the contract shape', () => {
+  const page = readJson(path.join(STORE, 'scenarios', 'ok', 'page-1.json'));
+  assert.ok(Array.isArray(page), 'the documented Store API answer is a bare array of products');
+
+  const mapped = wooStoreApi.toRecord(page[0], storeContext());
+  assert.equal(mapped.external_product_id, 'STORE-1201');
+  assert.equal(mapped.source_url, 'https://store.example/product/studio-monitor-headphones');
+  assert.equal(mapped.title, 'Studio Monitor Headphones');
+  assert.deepEqual(mapped.price, { amount: '8990.00', currency: 'KES' });
+  assert.equal(mapped.availability_text, 'In stock');
+  assert.equal(mapped.category_text, 'Audio > Headphones');
+  assert.equal(mapped.media.length, 2);
+  assert.deepEqual(mapped.raw, page[0], 'the source record is kept verbatim as the evidence');
+  assert.match(mapped.description, /Closed-back monitoring headphones/);
+  assert.doesNotMatch(mapped.description, /<p>/, 'the mapped description is plain text');
+});
+
+test('woo-store-api: a product with no SKU is identified by its own id', () => {
+  const page = readJson(path.join(STORE, 'scenarios', 'ok', 'page-1.json'));
+  const withoutSku = wooStoreApi.toRecord(page[1], storeContext());
+  assert.equal(withoutSku.external_product_id, '1202');
+
+  const malformed = readJson(path.join(STORE, 'scenarios', 'malformed-records', 'page-1.json'));
+  const withoutIdentity = wooStoreApi.toRecord(malformed[0], storeContext());
+  assert.equal(withoutIdentity.external_product_id, '', 'no id and no SKU stays blank: the boundary refuses it');
+  assert.equal(contract.validateRecord(withoutIdentity).ok, false);
+  assert.deepEqual(contract.validateRecord(withoutIdentity).errors.map((entry) => entry.field), ['external_product_id']);
+});
+
+test('woo-store-api: both documented answers are read, and anything else is a named error', () => {
+  assert.equal(wooStoreApi.productsOf([{ id: 1 }], 1).length, 1, 'a bare array');
+  assert.equal(wooStoreApi.productsOf({ products: [{ id: 1 }, { id: 2 }] }, 1).length, 2, 'the wrapper a proxy may add');
+  for (const body of [{ items: [] }, null, 'ok', 42]) {
+    assert.throws(() => wooStoreApi.productsOf(body, 7), (error) => {
+      assert.equal(error.kind, 'malformed-response');
+      assert.match(error.message, /page 7/);
+      return true;
+    }, 'expected ' + JSON.stringify(body) + ' to be refused');
+  }
+});
+
+test('woo-store-api: pages are read until one comes back short', async () => {
+  const full = JSON.stringify([{ id: 1 }, { id: 2 }]);
+  const short = JSON.stringify([{ id: 3 }]);
+  const fetched = await wooStoreApi.fetchRaw({
+    source: { config: { per_page: 2 } },
+    transport: pagesTransport([full, full, short])
+  });
+  assert.equal(fetched.rawRecords.length, 5);
+  assert.equal(fetched.meta.pages, 3);
+  assert.equal(fetched.meta.truncated, false, 'a short page is the end of the catalogue, not a truncation');
+});
+
+test('woo-store-api: a store that never comes back short is bounded by max_pages', async () => {
+  const full = JSON.stringify([{ id: 1 }, { id: 2 }]);
+  const fetched = await wooStoreApi.fetchRaw({
+    source: { config: { per_page: 2, max_pages: 3 } },
+    transport: pagesTransport([full, full, full, full, full])
+  });
+  assert.equal(fetched.meta.pages, 3);
+  assert.equal(fetched.meta.truncated, true, 'the run says it stopped at the ceiling rather than claiming the end');
+});
+
+test('woo-store-api: the defaults a real store gets are a hundred a page and twenty pages', async () => {
+  assert.equal(wooStoreApi.DEFAULT_PER_PAGE, 100);
+  assert.equal(wooStoreApi.DEFAULT_MAX_PAGES, 20);
+  const fetched = await wooStoreApi.fetchRaw({
+    source: { config: {} },
+    transport: pagesTransport([JSON.stringify([{ id: 1 }, { id: 2 }, { id: 3 }])])
+  });
+  assert.equal(fetched.meta.per_page, 100);
+  assert.equal(fetched.meta.pages, 1, 'three products is a short page for a store with no configured page size');
+});
+
+test('woo-store-api: a page that is not JSON at all is refused with the page number', async () => {
+  await assert.rejects(wooStoreApi.fetchRaw({
+    source: { config: { per_page: 2 } },
+    transport: pagesTransport(['<html>maintenance</html>'])
+  }), (error) => {
+    assert.equal(error.kind, 'malformed-response');
+    assert.match(error.message, /page 1 is not valid JSON/);
+    return true;
+  });
 });

@@ -31,6 +31,22 @@ function credentialEnvName(sourceId) {
   return 'PV_SOURCE_' + compact.slice(0, 12) + '_TOKEN';
 }
 
+/**
+ * The value of a source's own credential, and whether it is there — the only
+ * place in this build where a source secret is read. 17C-D is the first step
+ * that needs one: the runner reads it here, hands it to the transport, and
+ * reports only the variable name and whether it is present.
+ */
+function sourceCredential(env, source) {
+  if (!source || source.requires_credential !== true) {
+    return { variable: null, present: false, value: '' };
+  }
+  const name = credentialEnvName(source.id);
+  const raw = (env || {})[name];
+  const value = String(raw === null || raw === undefined ? '' : raw).trim();
+  return { variable: name, present: value !== '', value: value };
+}
+
 /** Decodes a JWT payload without verifying it: a local guard, not a security control. */
 function jwtPayload(token) {
   const parts = String(token || '').split('.');
@@ -112,6 +128,7 @@ module.exports = {
   ENV_URL: ENV_URL,
   ENV_SERVICE_KEY: ENV_SERVICE_KEY,
   credentialEnvName: credentialEnvName,
+  sourceCredential: sourceCredential,
   jwtPayload: jwtPayload,
   maskUrl: maskUrl,
   inspectEnvironment: inspectEnvironment

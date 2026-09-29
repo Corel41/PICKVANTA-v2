@@ -8,8 +8,39 @@ PV.util.ready(function () {
   const U = PV.util;
   PV.ui.mountChrome(null);
 
+  /* The existing mode signal: what the data layer is serving. This page only
+     renders records the layer has already delivered, so by render time the
+     answer is the real one — and a live record never wears a demo label. */
+  const isLive = () => PV.store.catalogue().live;
+
   const host = U.$('#detail');
   const crumb = U.$('#crumb');
+
+  /* The tracked affiliate pathway. The visitor's click offers only the offer's
+     id: the database resolves the approved destination from the stored offer,
+     or records nothing and answers null. The interface then follows that
+     answer — never a URL it decided on itself. If recording failed outright,
+     the visitor still follows the offer's public link directly, and nothing
+     anywhere claims the click was recorded. A plain visit to a merchant's own
+     source URL is not tracked at all: that is an ordinary visit, not the
+     affiliate pathway. */
+  host.addEventListener('click', function (e) {
+    if (e.defaultPrevented) return;
+    const btn = e.target && e.target.closest
+      ? e.target.closest('[data-offer-link="affiliate"]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    const href = btn.getAttribute('href') || '';
+    PV.store.affiliateClick({
+      id: btn.getAttribute('data-offer-id'),
+      affiliateUrl: href
+    }).then(function (answer) {
+      const destination = answer && answer.destination;
+      if (destination) window.location.href = destination;
+    }).catch(function () {
+      if (href) window.location.href = href;
+    });
+  });
   /* Records are addressed by their stable id; ?slug= is accepted so a readable
      link keeps working too. */
   const id = U.params().get('id') || U.params().get('slug') || '';
@@ -47,7 +78,7 @@ PV.util.ready(function () {
       detail: err && err.message ? err.message : '',
       actions: [
         { label: 'Go to Discover', href: 'discover.html' },
-        { label: 'See demo deals', href: 'deals.html' }
+        { label: isLive() ? 'See offers' : 'See demo deals', href: 'deals.html' }
       ]
     }) + '</div>';
     PV.ui.announce("We couldn't load these options right now.");
@@ -74,7 +105,7 @@ PV.util.ready(function () {
           : 'The link may be old, or the item id is not part of this stage’s demo content. Browse Discover to pick another option.',
         actions: [
           { label: 'Go to Discover', href: 'discover.html' },
-          { label: 'See demo deals', href: 'deals.html' }
+          { label: isLive() ? 'See offers' : 'See demo deals', href: 'deals.html' }
         ]
       }) +
       '</div>';
@@ -137,7 +168,7 @@ PV.util.ready(function () {
     push('Price', U.priceText(record));
     if (isService) push('Service area', attr('Service area'));
     push('Location', U.locationLabel(record));
-    push('Availability', status.label);
+    push('Availability', availability.label);
 
     if (isService) {
       push('Turnaround', attr('Turnaround') || attr('Timeline'));
@@ -150,7 +181,7 @@ PV.util.ready(function () {
       push('Condition', attr('Condition'));
       push('Warranty', attr('Warranty'));
     }
-    push('Offer', offer ? (offer.title || U.offerKindLabel(offer)) : 'No demo offer on this record');
+    push('Offer', offer ? (offer.title || U.offerKindLabel(offer)) : (isLive() ? 'No offer on this record' : 'No demo offer on this record'));
     return facts;
   }
 
@@ -183,7 +214,7 @@ PV.util.ready(function () {
                   '<span class="detail-icon" aria-hidden="true" hidden>' + U.esc(image.icon || '📦') + '</span>'
                 : '<span class="detail-icon" aria-hidden="true">' + U.esc(image.icon || '📦') + '</span>') +
               '<span class="type-flag">' + U.esc(U.typeLabel(record.type)) + '</span>' +
-              (offer ? '<span class="discount">-' + offer.discountPercent + '% · Demo</span>' : record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + ' flag-right">' + U.esc(record.badge.label) + '</span>' : '') +
+              (offer ? '<span class="discount">-' + offer.discountPercent + '%' + (isLive() ? '' : ' · Demo') + '</span>' : record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + ' flag-right">' + U.esc(record.badge.label) + '</span>' : '') +
             '</div>' +
             '<p class="media-note">Image placeholder — ' +
               (PV.store.catalogue().live ? 'records without media use' : 'demo records use') +
@@ -194,7 +225,7 @@ PV.util.ready(function () {
             '<div class="detail-tags">' +
               '<a class="tag-link" href="discover.html?category=' + U.esc(record.category) + '">' + U.esc((category && category.icon) || '') + ' ' + U.esc(U.categoryLabel(record.category)) + '</a>' +
               (record.subcategory ? '<span class="tag-static">' + U.esc(record.subcategory) + '</span>' : '') +
-              '<span class="tag-static demo-tag">Demo listing</span>' +
+              (isLive() ? '' : '<span class="tag-static demo-tag">Demo listing</span>') +
               (record.badge ? '<span class="badge-pill ' + U.esc(record.badge.tone || 'neutral') + '">' + U.esc(record.badge.label) + '</span>' : '') +
             '</div>' +
 
@@ -203,10 +234,10 @@ PV.util.ready(function () {
 
             '<div class="detail-price-row">' +
               '<span class="detail-price">' + U.esc(U.priceText(record)) + '</span>' +
-              '<span class="price-note">Illustrative demo price</span>' +
+              (isLive() ? '' : '<span class="price-note">Illustrative demo price</span>') +
               (offer && offer.originalPrice != null ? '<span class="price-old">' + U.esc(U.money(offer.originalPrice, currency)) + '</span>' : '') +
               (!offer && record.referencePrice != null ? '<span class="price-old">ref. ' + U.esc(U.money(record.referencePrice, currency)) + '</span>' : '') +
-              (saved ? '<span class="save-pill">Save ' + U.esc(saved) + ' (demo)</span>' : '') +
+              (saved ? '<span class="save-pill">Save ' + U.esc(saved) + (isLive() ? '' : ' (demo)') + '</span>' : '') +
             '</div>' +
 
             '<dl class="detail-facts">' +
@@ -215,8 +246,8 @@ PV.util.ready(function () {
               '<div><dt><span class="fact-icon" aria-hidden="true">📍</span>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>' + U.esc(U.typeLabel(record.type)) + (record.subcategory ? ' <small>· ' + U.esc(record.subcategory) + '</small>' : '') + '</dd></div>' +
               '<div><dt><span class="fact-icon" aria-hidden="true">🗓</span>Availability</dt><dd><span class="status-pill ' + U.esc(availability.tone) + '">' + U.esc(availability.label) + '</span> <small>(' + U.esc(availability.help) + ')</small></dd></div>' +
-              '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.createdAt)) + ' <small>· demo record</small></dd></div>' +
-              (offer && offerState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(offerState.tone) + '">' + U.esc(offerState.label) + '</span> <small>· demo offer</small></dd></div>' : '') +
+              '<div><dt><span class="fact-icon" aria-hidden="true">🔖</span>Listed</dt><dd>' + U.esc(U.formatDate(record.createdAt)) + (isLive() ? '' : ' <small>· demo record</small>') + '</dd></div>' +
+              (offer && offerState ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Offer status</dt><dd><span class="status-pill ' + U.esc(offerState.tone) + '">' + U.esc(offerState.label) + '</span>' + (isLive() ? '' : ' <small>· demo offer</small>') + '</dd></div>' : '') +
               /* Services state where they work and how long they take; products
                  do not get these rows at all. */
               (function () {
@@ -272,7 +303,9 @@ PV.util.ready(function () {
               '<button type="button" class="btn-ghost btn-large" data-later="Seller contact">Contact seller</button>' +
             '</div>' +
 
-            '<p class="actions-note">Compare adds this option to the demo comparison tray (up to 3). Save and Contact seller are demo interactions — there is no account, no messaging and no real seller contact in this build.</p>' +
+            '<p class="actions-note">' + (isLive()
+              ? 'Compare adds this option to the comparison tray (up to 3). Save and Contact seller are placeholders in this build — there is no account messaging or seller contact yet.'
+              : 'Compare adds this option to the demo comparison tray (up to 3). Save and Contact seller are demo interactions — there is no account, no messaging and no real seller contact in this build.') + '</p>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -284,7 +317,7 @@ PV.util.ready(function () {
         '<div class="panel">' +
           '<h2 id="about-title" class="panel-title">About this ' + U.esc(record.type) + '</h2>' +
           '<p class="panel-text">' + U.esc(record.description) + '</p>' +
-          '<p class="panel-note">Illustrative description for interface demonstration. Not a manufacturer or provider statement.</p>' +
+          '<p class="panel-note">' + (isLive() ? '' : 'Illustrative description for interface demonstration. ') + 'Not a manufacturer or provider statement.</p>' +
         '</div>' +
 
         '<div class="panel side-panel">' +
@@ -300,8 +333,10 @@ PV.util.ready(function () {
             '<div><dt>Location</dt><dd>' + U.esc(U.locationLabel(record)) + '</dd></div>' +
             '<div><dt>Current availability</dt><dd><span class="status-pill ' + U.esc(availability.tone) + '">' + U.esc(availability.label) + '</span></dd></div>' +
           '</dl>' +
-          '<p class="panel-note">Demo seller: the name is invented for this interface, and PickVanta keeps no contact details. PickVanta does not contact sellers, verify providers, publish ratings or check stock in this build.</p>' +
-          '<button type="button" class="btn-secondary btn-block" data-later="Seller contact">Contact seller (demo)</button>' +
+          '<p class="panel-note">' + (isLive()
+            ? 'PickVanta does not contact sellers, verify providers, publish ratings or check stock in this build.'
+            : 'Demo seller: the name is invented for this interface, and PickVanta keeps no contact details. PickVanta does not contact sellers, verify providers, publish ratings or check stock in this build.') + '</p>' +
+          '<button type="button" class="btn-secondary btn-block" data-later="Seller contact">' + (isLive() ? 'Contact seller' : 'Contact seller (demo)') + '</button>' +
           (similar.length
             ? '<a class="btn-secondary btn-block" href="' + U.esc(compareHref) + '">Compare with ' + similar.length + ' similar option' + (similar.length === 1 ? '' : 's') + '</a>'
             : '') +
@@ -315,13 +350,13 @@ PV.util.ready(function () {
           '<div class="shell">' +
             '<div class="deal-box">' +
               '<div class="deal-box-main">' +
-                '<span class="deal-flag">Special offer · demo</span>' +
+                '<span class="deal-flag">Special offer' + (isLive() ? '' : ' · demo') + '</span>' +
                 '<h2 id="deal-title">Offer attached to ' + U.esc(record.name) + '</h2>' +
                 (offer.title ? '<p class="deal-headline">' + U.esc(offer.title) + '</p>' : '') +
                 '<p class="deal-sub">The offer changes the price of this ' + U.esc(record.type) + ' — it is not a separate item.</p>' +
                 '<h3 class="deal-sub-title">Price</h3>' +
                 '<div class="deal-terms">' +
-                  '<div><span>Offer price (demo)</span><strong>' + U.esc(U.money(offer.offerPrice, currency)) + U.esc(U.priceUnitSuffix(record.price && record.price.priceType)) + '</strong></div>' +
+                  '<div><span>' + (isLive() ? 'Offer price' : 'Offer price (demo)') + '</span><strong>' + U.esc(U.money(offer.offerPrice, currency)) + U.esc(U.priceUnitSuffix(record.price && record.price.priceType)) + '</strong></div>' +
                   '<div><span>Original price</span><strong>' + U.esc(U.money(offer.originalPrice, currency)) + '</strong></div>' +
                   '<div><span>Discount</span><strong>-' + offer.discountPercent + '%</strong></div>' +
                 '</div>' +
@@ -330,14 +365,20 @@ PV.util.ready(function () {
                   '<div><span>Offer type</span><strong>' + U.esc(U.offerKindLabel(offer)) + '</strong></div>' +
                   '<div><span>Starts</span><strong>' + U.esc(U.formatDate(offer.startsAt)) + '</strong></div>' +
                   '<div><span>Ends</span><strong>' + U.esc(U.formatDate(offer.endsAt)) + '</strong></div>' +
-                  '<div><span>Status</span><strong>' + U.esc(offerState ? offerState.label : 'Demo offer') + '</strong></div>' +
+                  '<div><span>Status</span><strong>' + U.esc(offerState ? offerState.label : (isLive() ? 'Offer' : 'Demo offer')) + '</strong></div>' +
                 '</div>' +
                 '<h3 class="deal-sub-title">Important context</h3>' +
-                '<p class="deal-context">This is a demonstration offer. PickVanta does not process the transaction — there is no checkout, no payment and no order. Prices are illustrative, and the reference price is an invented comparison figure rather than a checked market price.</p>' +
+                /* The no-transaction statement is true in both modes and stays.
+                   The demonstration wording around it belongs to demo data: a
+                   live offer comes from the published catalogue, so it is not
+                   called a demonstration. */
+                '<p class="deal-context">' + (isLive()
+                  ? 'PickVanta does not process the transaction — there is no checkout, no payment and no order.'
+                  : 'This is a demonstration offer. PickVanta does not process the transaction — there is no checkout, no payment and no order. Prices are illustrative, and the reference price is an invented comparison figure rather than a checked market price.') + '</p>' +
                 (offer.conditions.length
-                  ? '<div class="deal-conditions"><h3>Conditions (demo)</h3><ul>' + offer.conditions.map(function (c) { return '<li>' + U.esc(c) + '</li>'; }).join('') + '</ul></div>'
+                  ? '<div class="deal-conditions"><h3>' + (isLive() ? 'Conditions' : 'Conditions (demo)') + '</h3><ul>' + offer.conditions.map(function (c) { return '<li>' + U.esc(c) + '</li>'; }).join('') + '</ul></div>'
                   : '') +
-                '<p class="deal-disclaimer">This offer is invented for interface demonstration. It is not available, not checked against live pricing, and cannot be claimed.</p>' +
+                (isLive() ? '' : '<p class="deal-disclaimer">This offer is invented for interface demonstration. It is not available, not checked against live pricing, and cannot be claimed.</p>') +
               '</div>' +
               '<div class="deal-box-side">' +
                 '<a class="btn-primary btn-block" href="deals.html?q=' + encodeURIComponent(record.name) + '">Open on the Deals page</a>' +
@@ -414,6 +455,186 @@ PV.util.ready(function () {
   PV.ui.renderTray();
   }
 
+  /* ================================================================ canonical
+     A canonical product page (0008's model): the product's own identity, its
+     variants, and each merchant's offer as its own card — separate prices,
+     separate merchants, never one merged number. Everything shown comes from
+     the reviewed canonical records through the store; nothing is invented,
+     converted or merged here, and a buyer pathway is shown only when the
+     record carries one. */
+  function optionsLine(variant) {
+    const values = variant && variant.optionValues ? variant.optionValues : {};
+    return Object.keys(values).map(function (k) {
+      return k.replace(/_/g, ' ') + ': ' + values[k];
+    }).join(' · ');
+  }
+
+  /* The public pill vocabulary is ok/warn/info/muted; the domain copy's tones
+     are the panel's (good/warning/…), so they are translated once here. */
+  function pillTone(tone) {
+    if (tone === 'good' || tone === 'ok') return 'ok';
+    if (tone === 'warning' || tone === 'warn') return 'warn';
+    if (tone === 'muted') return 'muted';
+    return 'info';
+  }
+
+  function offerCard(offer) {
+    const merchantName = (offer.merchant && offer.merchant.name) ? offer.merchant.name : 'Merchant offer';
+    const status = offer.statusCopy || { label: offer.status, tone: 'muted' };
+    const price = U.merchantOfferPriceText(offer);
+    const comparable = U.merchantOfferComparisonSupported(offer);
+    const observed = offer.priceObservedAt || offer.lastObservedAt;
+    const media = offer.media && offer.media.length ? offer.media[0] : null;
+    return (
+      '<div class="panel">' +
+        (media && media.url
+          ? '<img class="media-img" src="' + U.esc(media.url) + '" alt="' + U.esc(media.attribution || merchantName) + '" loading="lazy" decoding="async" />'
+          : '') +
+        '<p class="panel-text"><strong>' + U.esc(merchantName) + '</strong> ' +
+          '<span class="status-pill ' + U.esc(pillTone(status.tone)) + '">' + U.esc(status.label) + '</span></p>' +
+        (offer.merchantTitle ? '<p class="panel-note">' + U.esc(offer.merchantTitle) + '</p>' : '') +
+        '<div class="detail-price-row">' +
+          '<span class="detail-price">' + U.esc(price || 'Price not stated') + '</span>' +
+          (comparable ? '<span class="price-old">' + U.esc(U.merchantOfferPriceText({ priceAmount: offer.originalPrice, currency: offer.currency })) + '</span>' : '') +
+        '</div>' +
+        (offer.currency ? '' : '<p class="panel-note">The merchant did not record a currency, so none is shown.</p>') +
+        (observed ? '<p class="panel-note">Price observed ' + U.esc(U.formatDate(observed)) + ', as the merchant listed it.</p>' : '') +
+        '<div class="actions-row">' +
+          (offer.affiliateUrl
+            ? '<a class="btn-primary" data-offer-link="affiliate" data-offer-id="' + U.esc(offer.id) + '" href="' + U.esc(offer.affiliateUrl) + '" rel="noopener noreferrer nofollow">Buy at ' + U.esc(merchantName) + '</a>'
+            : (offer.sourceUrl
+              ? '<a class="btn-secondary" href="' + U.esc(offer.sourceUrl) + '" rel="noopener noreferrer nofollow">View at ' + U.esc(merchantName) + '</a>' +
+                '<span class="price-note">PickVanta has no tracked link for this offer.</span>'
+              : '<span class="price-note">No purchase link yet</span>')) +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderProductPage(model) {
+    const product = model.product;
+    const variants = model.variants || [];
+    const offers = model.offers || [];
+    document.title = product.name + ' | PickVanta';
+    crumbTrail({ category: product.categoryId || '', name: product.name });
+
+    /* offers grouped by variant; product-level offers (and offers whose
+       variant is not itself published) land in their own group */
+    const byVariant = new Map();
+    const productLevel = [];
+    offers.forEach(function (o) {
+      const variant = variants.find(function (v) { return v.id === o.variantId; });
+      if (variant) {
+        const list = byVariant.get(variant.id) || [];
+        list.push(o);
+        byVariant.set(variant.id, list);
+      } else {
+        productLevel.push(o);
+      }
+    });
+
+    const firstMedia = offers.map(function (o) { return o.media && o.media[0]; })
+      .filter(Boolean).find(function (m) { return !!m.url; }) || null;
+    const isDemo = !isLive();
+
+    host.innerHTML =
+      '<section class="detail-top" id="detailTop">' +
+        '<div class="shell">' +
+          '<div class="detail-grid">' +
+            '<div class="detail-media-wrap">' +
+              '<div class="detail-media">' +
+                (firstMedia
+                  ? '<img class="media-img" src="' + U.esc(firstMedia.url) + '" alt="' + U.esc(firstMedia.attribution || product.name) + '" loading="lazy" decoding="async" />'
+                  : '<span class="detail-icon" aria-hidden="true">📦</span>') +
+                '<span class="type-flag">Product</span>' +
+              '</div>' +
+              '<p class="media-note">' +
+                (firstMedia
+                  ? 'A merchant\'s own product image, shown as the merchant hosts it.'
+                  : 'Product images come from merchants\' own pages; none is available yet, so this tile stands in.') +
+              '</p>' +
+            '</div>' +
+
+            '<div class="detail-info">' +
+              '<div class="detail-tags">' +
+                '<a class="tag-link" href="discover.html?category=' + U.esc(product.categoryId || '') + '">' + U.esc(U.categoryLabel(product.categoryId || '')) + '</a>' +
+                (isDemo ? '<span class="tag-static demo-tag">Demo product</span>' : '') +
+              '</div>' +
+
+              '<h1>' + U.esc(product.name) + '</h1>' +
+              (product.brand ? '<p class="detail-lead">' + U.esc(product.brand) + '</p>' : '') +
+
+              '<div class="detail-price-row">' +
+                '<span class="detail-price">' +
+                  (offers.length
+                    ? 'Compare ' + offers.length + ' merchant offer' + (offers.length === 1 ? '' : 's') + ' below'
+                    : 'No merchant offers yet') +
+                '</span>' +
+              '</div>' +
+
+              '<dl class="detail-facts">' +
+                (product.brand ? '<div><dt><span class="fact-icon" aria-hidden="true">🏷</span>Brand</dt><dd>' + U.esc(product.brand) + '</dd></div>' : '') +
+                '<div><dt><span class="fact-icon" aria-hidden="true">📦</span>Type</dt><dd>Product</dd></div>' +
+                (product.modelNumber ? '<div><dt><span class="fact-icon" aria-hidden="true">#️⃣</span>Model</dt><dd>' + U.esc(product.modelNumber) + '</dd></div>' : '') +
+                '<div><dt><span class="fact-icon" aria-hidden="true">🎨</span>Configurations</dt><dd>' +
+                  (variants.length ? U.esc(String(variants.length)) + ' — ' + U.esc(variants.map(function (v) { return v.name; }).join('; ')) : 'One configuration') +
+                '</dd></div>' +
+              '</dl>' +
+
+              (product.description
+                ? '<div class="block">' +
+                    '<h2 class="block-title">About this product</h2>' +
+                    '<p class="block-note">' + U.esc(product.description) + '</p>' +
+                    '<p class="panel-note">The product\'s own description — not one merchant\'s wording.</p>' +
+                  '</div>'
+                : '') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</section>' +
+
+      /* ----------------------------------------------------- the offers -- */
+      (offers.length
+        ? variants.map(function (v) {
+            const groupOffers = byVariant.get(v.id) || [];
+            if (!groupOffers.length) return '';
+            return '<section class="section" aria-labelledby="grp-' + U.esc(v.slug || v.id) + '">' +
+              '<div class="shell">' +
+                '<div class="section-head"><div>' +
+                  '<h2 id="grp-' + U.esc(v.slug || v.id) + '">' + U.esc(v.name) + '</h2>' +
+                  (optionsLine(v) ? '<p class="panel-note">' + U.esc(optionsLine(v)) + '</p>' : '') +
+                '</div></div>' +
+                '<div class="products-grid grid-4">' +
+                  groupOffers.map(offerCard).join('') +
+                '</div>' +
+              '</div>' +
+            '</section>';
+          }).join('') +
+          (productLevel.length
+            ? '<section class="section" aria-labelledby="grp-all">' +
+                '<div class="shell">' +
+                  '<div class="section-head"><div>' +
+                    '<h2 id="grp-all">' + (variants.length ? 'All configurations' : 'Offers') + '</h2>' +
+                    (variants.length ? '<p class="panel-note">Offers not tied to one configuration.</p>' : '') +
+                  '</div></div>' +
+                  '<div class="products-grid grid-4">' +
+                    productLevel.map(offerCard).join('') +
+                  '</div>' +
+                '</div>' +
+              '</section>'
+            : '')
+        : '<section class="section"><div class="shell"><div class="panel">' +
+            '<h2 class="panel-title">No merchant offers yet</h2>' +
+            '<p class="panel-text">No merchant offer is published for this product right now. When one is, it will appear here with its own price, in its own currency, and its own availability.</p>' +
+          '</div></div></section>') +
+
+      '<div id="detailKnow"></div>';
+
+    PV.ui.syncCompareButtons();
+    PV.ui.renderTray();
+  }
+
+
   /* The record and its related options are fetched through the data layer; the
      page knows nothing about where they come from. */
   function load() {
@@ -422,8 +643,22 @@ PV.util.ready(function () {
     PV.store.getListing(id).then(function (record) {
       if (current !== token) return null;
       if (!record) {
-        notFound();
-        return null;
+        /* Not a listing: it may address a canonical product. The listing
+           catalogue keeps precedence — existing links behave exactly as they
+           did. */
+        return (PV.store.getProduct
+          ? PV.store.getProduct(id)
+          : Promise.resolve(null)).then(function (model) {
+          if (current !== token) return null;
+          if (!model) {
+            notFound();
+            return null;
+          }
+          renderProductPage(model);
+          return null;
+        }).catch(function (err) {
+          if (current === token) failure(err);
+        });
       }
       return PV.store.getRelatedListings(record.id, 4).then(function (matches) {
         if (current !== token) return null;

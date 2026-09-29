@@ -5,18 +5,20 @@
  *
  * Adding a source shape means adding one module here and naming it in the
  * source's configuration (`config.adapter`). Nothing else in the runner knows
- * which adapter is in play, which is what makes the boundary reusable: a real
- * merchant source in 17C-D is a new adapter plus a transport, not a new
- * pipeline.
+ * which adapter is in play, which is what makes the boundary reusable: the real
+ * merchant source added in 17C-D is one adapter (`woo-store-api`) plus the HTTP
+ * transport, not a new pipeline.
  */
 
 const { AdapterError } = require('../errors');
 const storeJson = require('./store-json');
 const productCsv = require('./product-csv');
+const wooStoreApi = require('./woo-store-api');
 
 const ADAPTERS = new Map([
   [storeJson.name, storeJson],
-  [productCsv.name, productCsv]
+  [productCsv.name, productCsv],
+  [wooStoreApi.name, wooStoreApi]
 ]);
 
 function getAdapter(name) {

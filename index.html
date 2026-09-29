@@ -75,7 +75,7 @@
             <div class="visual-top">
               <span class="visual-badge">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
-                Demo interface · No real algorithm yet
+                Differences only · No ranking algorithm
               </span>
               <div class="visual-dots" aria-hidden="true"><i></i><i></i><i></i></div>
             </div>
@@ -84,7 +84,7 @@
               <div class="compare-head">
                 <div>
                   <div class="compare-title">Compare options</div>
-                  <div class="compare-sub">No scores, no ranking — demo data</div>
+                  <div class="compare-sub">No scores, no ranking<span data-demo-only> — demo data</span></div>
                 </div>
                 <span class="visual-count" id="heroOptionCount">3 options</span>
               </div>
@@ -97,7 +97,7 @@
               <div class="option-list" id="heroCompareList"></div>
             </div>
 
-            <div class="demo-note">
+            <div class="demo-note" data-demo-only>
               Interface preview only: three demo headphones from the catalogue, lined up row by row. Prices and specifications are
               illustrative demo values — PickVanta shows what differs, and does not score, rank or declare a winner.
             </div>
@@ -132,7 +132,7 @@
         <div class="section-head">
           <div>
             <h2 id="needs-title">Explore by need</h2>
-            <p>Common reasons people look for something. Each shortcut applies a tag or a search to the demo catalogue — nothing is personalised or tracked.</p>
+            <p>Common reasons people look for something. Each shortcut applies a tag or a search to the catalogue — nothing is personalised or tracked.</p>
           </div>
           <a href="discover.html" class="link-arrow">Browse everything <span aria-hidden="true">→</span></a>
         </div>
@@ -146,7 +146,7 @@
         <div class="section-head">
           <div>
             <h2 id="discover-title">Discover what fits you</h2>
-            <p>A small slice of the demo dataset. Products and services are stored as structured records, ready to be replaced by a real source later.</p>
+            <p data-demo-only>A small slice of the demo dataset. Products and services are stored as structured records, ready to be replaced by a real source later.</p>
           </div>
           <a href="discover.html" class="link-arrow">See more <span aria-hidden="true">→</span></a>
         </div>
@@ -183,9 +183,9 @@
         <div class="deal-banner">
           <div>
             <h3 id="deals-title">Deals worth a look</h3>
-            <p>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
+            <p data-demo-only>Demo offers to illustrate how PickVanta will surface worthwhile options. Not live pricing, and not real merchants.</p>
           </div>
-          <a class="btn-secondary" href="deals.html">Browse demo deals</a>
+          <a class="btn-secondary" href="deals.html">Browse deals</a>
         </div>
 
         <div class="deals-grid" id="homeDeals"></div>

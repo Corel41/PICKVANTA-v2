@@ -1,0 +1,206 @@
+[
+  {
+    "id": null,
+    "name": "Studio Monitor Headphones",
+    "slug": "studio-monitor-headphones",
+    "permalink": "https://store.example/product/studio-monitor-headphones",
+    "date_created": "2026-01-15T09:00:00",
+    "date_modified": "2026-08-02T11:30:00",
+    "type": "simple",
+    "status": "publish",
+    "featured": false,
+    "catalog_visibility": "visible",
+    "description": "<p>Closed-back monitoring headphones with a replaceable cable.</p>",
+    "short_description": "<p>Studio Monitor Headphones</p>",
+    "sku": "",
+    "price": "8990.00",
+    "regular_price": "8990.00",
+    "sale_price": "8990.00",
+    "on_sale": false,
+    "prices": {
+      "price": "899000",
+      "regular_price": "899000",
+      "sale_price": "899000",
+      "currency_code": "KES",
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "KSh",
+      "currency_suffix": "",
+      "currency_symbol": "KSh",
+      "currency_minor_unit": 2
+    },
+    "stock_availability": {
+      "text": "In stock",
+      "class": "in-stock"
+    },
+    "is_in_stock": true,
+    "is_on_backorder": false,
+    "categories": [
+      {
+        "id": 31,
+        "name": "Audio",
+        "slug": "audio"
+      },
+      {
+        "id": 44,
+        "name": "Headphones",
+        "slug": "headphones"
+      }
+    ],
+    "tags": [],
+    "images": [
+      {
+        "id": 12010,
+        "src": "https://store.example/wp-content/uploads/2026/01/sm-1201.jpg",
+        "thumbnail": "https://store.example/wp-content/uploads/2026/01/sm-1201.jpg",
+        "srcset": "",
+        "sizes": {},
+        "name": "Studio Monitor Headphones",
+        "alt": ""
+      },
+      {
+        "id": 12011,
+        "src": "https://store.example/wp-content/uploads/2026/01/sm-1201-side.jpg",
+        "thumbnail": "https://store.example/wp-content/uploads/2026/01/sm-1201-side.jpg",
+        "srcset": "",
+        "sizes": {},
+        "name": "Studio Monitor Headphones",
+        "alt": ""
+      }
+    ],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true
+  },
+  {
+    "id": 1202,
+    "name": "",
+    "slug": "desk-microphone-arm",
+    "permalink": "https://store.example/product/desk-microphone-arm",
+    "date_created": "2026-01-15T09:00:00",
+    "date_modified": "2026-08-02T11:30:00",
+    "type": "simple",
+    "status": "publish",
+    "featured": false,
+    "catalog_visibility": "visible",
+    "description": "<p>A weighted boom arm with a C-clamp mount.</p>",
+    "short_description": "<p>Desk Microphone Arm</p>",
+    "sku": "STORE-1202",
+    "price": "3450.00",
+    "regular_price": "3450.00",
+    "sale_price": "3450.00",
+    "on_sale": false,
+    "prices": {
+      "price": "345000",
+      "regular_price": "345000",
+      "sale_price": "345000",
+      "currency_code": "KES",
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "KSh",
+      "currency_suffix": "",
+      "currency_symbol": "KSh",
+      "currency_minor_unit": 2
+    },
+    "stock_availability": {
+      "text": "Only 3 left in stock",
+      "class": "low-stock"
+    },
+    "is_in_stock": false,
+    "is_on_backorder": false,
+    "categories": [
+      {
+        "id": 31,
+        "name": "Audio",
+        "slug": "audio"
+      },
+      {
+        "id": 46,
+        "name": "Accessories",
+        "slug": "accessories"
+      }
+    ],
+    "tags": [],
+    "images": [
+      {
+        "id": 12020,
+        "src": "https://store.example/wp-content/uploads/2026/01/ma-1202.jpg",
+        "thumbnail": "https://store.example/wp-content/uploads/2026/01/ma-1202.jpg",
+        "srcset": "",
+        "sizes": {},
+        "name": "Desk Microphone Arm",
+        "alt": ""
+      }
+    ],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true
+  },
+  {
+    "id": 1203,
+    "name": "USB-C Audio Interface",
+    "slug": "usb-c-audio-interface",
+    "permalink": "https://store.example/product/usb-c-audio-interface",
+    "date_created": "2026-01-15T09:00:00",
+    "date_modified": "2026-08-02T11:30:00",
+    "type": "simple",
+    "status": "publish",
+    "featured": false,
+    "catalog_visibility": "visible",
+    "description": "<p>Two-input interface with phantom power and direct monitoring.</p>",
+    "short_description": "<p>USB-C Audio Interface</p>",
+    "sku": "STORE-1203",
+    "price": "15500.00",
+    "regular_price": "15500.00",
+    "sale_price": "15500.00",
+    "on_sale": false,
+    "prices": {
+      "price": "1550000",
+      "regular_price": "1550000",
+      "sale_price": "1550000",
+      "currency_code": "KES",
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "KSh",
+      "currency_suffix": "",
+      "currency_symbol": "KSh",
+      "currency_minor_unit": 2
+    },
+    "stock_availability": {
+      "text": "Out of stock",
+      "class": "out-of-stock"
+    },
+    "is_in_stock": false,
+    "is_on_backorder": false,
+    "categories": [
+      {
+        "id": 31,
+        "name": "Audio",
+        "slug": "audio"
+      },
+      {
+        "id": 45,
+        "name": "Interfaces",
+        "slug": "interfaces"
+      }
+    ],
+    "tags": [],
+    "images": [
+      {
+        "id": 12030,
+        "src": "https://store.example/wp-content/uploads/2026/01/ai-1203.jpg",
+        "thumbnail": "https://store.example/wp-content/uploads/2026/01/ai-1203.jpg",
+        "srcset": "",
+        "sizes": {},
+        "name": "USB-C Audio Interface",
+        "alt": ""
+      }
+    ],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true
+  }
+]
