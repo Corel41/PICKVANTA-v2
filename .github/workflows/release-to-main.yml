@@ -1,0 +1,67 @@
+name: Release to main
+
+# Controlled release path for PICKVANTA-v2.
+#
+# Replaces the historical "Auto Sync to Main" workflow (auto-sync-main.yml),
+# which merged every push to arena/** directly into main without review.
+# That file was removed; its exact content remains recoverable from git
+# history: git show f3f804c:.github/workflows/auto-sync-main.yml
+#
+# What happens now:
+#   1. A push to any arena/** branch -- or a manual workflow_dispatch naming
+#      one -- opens (or finds) a release pull request from that branch into
+#      main. The pull request shows the full diff.
+#   2. Nothing is ever merged by this workflow. A maintainer reviews the
+#      pull request and merges it on GitHub. That human merge is the explicit
+#      approval that moves code into main (and triggers deployment).
+#
+# Loop safety: this workflow never pushes to any branch and never runs a
+# merge. Opening a pull request fires no push event, and events created with
+# the automatic GITHUB_TOKEN never trigger other workflows -- so this file
+# cannot recursively invoke itself or create a merge loop.
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+  workflow_dispatch:
+    inputs:
+      arena_branch:
+        description: 'Existing arena branch to open a release pull request for (e.g. arena/2026-09-30-fixes)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# One preparation run per source branch at a time; queued, never cancelled.
+concurrency:
+  group: release-to-main-${{ github.event_name == 'workflow_dispatch' && inputs.arena_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  open-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the branch being released
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.arena_branch || github.ref_name }}
+
+      - name: Open the release pull request (never merge)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.arena_branch || github.ref_name }}
+        run: |
+          set -eu
+          open_count="$(gh pr list --base main --head "$HEAD_BRANCH" --state open --json number --jq 'length')"
+          if [ "$open_count" -gt 0 ]; then
+            echo "An open release pull request for $HEAD_BRANCH already exists."
+            echo "It already shows the latest pushed commits; no new pull request is needed."
+            exit 0
+          fi
+          title="Release $HEAD_BRANCH into main"
+          body="$(printf 'Automated release candidate for %s.\n\nThis pull request was opened by the release workflow. Nothing is merged automatically.\nA maintainer must review the diff and merge it deliberately: that merge is the explicit\napproval that publishes these changes to main and triggers deployment.\n\n- To release: review and merge this pull request.\n- To hold: close it, or simply leave it unmerged.' "$HEAD_BRANCH")"
+          gh pr create --base main --head "$HEAD_BRANCH" --title "$title" --body "$body"
