@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#101114" />
+  <meta name="description" content="PickVanta helps you find, discover, compare, and choose products, services, and deals in one place. Make the smarter pick." />
+  <meta name="color-scheme" content="light dark" />
+  <title>PickVanta | Make the smarter pick.</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/vanta.css" />
+</head>
+<body>
+  <a href="#main" class="visually-hidden">Skip to content</a>
+
+  <!-- Shared navigation (rendered by js/core.js so every view stays consistent) -->
+  <header id="siteHeader">
+    <noscript>
+      <div class="shell" style="padding:16px 0">
+        <p class="notice">PickVanta’s discovery views are rendered in your browser with JavaScript. Please enable JavaScript to browse Discover, Deals, Compare and Guides.</p>
+      </div>
+    </noscript>
+  </header>
+
+  <main id="main">
+    <section class="vx-hero" aria-labelledby="hero-title">
+      <div class="shell">
+        <div class="vx-hero-top">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Discover · Compare · Find the deal</div>
+            <h1 id="hero-title"><span class="vx-line">Make the</span><span class="vx-line"><span class="vx-out">smarter</span> <span class="accent">pick.</span></span></h1>
+          </div>
+          <div class="vx-hero-aside">
+            <p class="hero-copy">Search once, then discover, compare and shortlist products, services and deals before you decide. PickVanta does not sell anything — it helps you make the smarter pick.</p>
+            <nav class="vx-verbs" aria-label="Start with">
+              <a href="discover.html"><b>01</b> Discover</a>
+              <a href="compare.html"><b>02</b> Compare</a>
+              <a href="deals.html"><b>03</b> Deals</a>
+            </nav>
+          </div>
+        </div>
+
+        <div class="search-wrap vx-search" id="searchWrap">
+          <form id="searchForm" role="search" aria-label="Site search">
+            <label for="searchInput" class="visually-hidden">What are you looking for?</label>
+            <div class="search-row">
+              <div class="search-input-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
+                <input id="searchInput" type="search" placeholder="Headphones, internet plans, a sofa…" autocomplete="off" aria-autocomplete="list" aria-controls="suggestions" aria-expanded="false" />
+              </div>
+              <button class="search-btn" type="submit">Search
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+            <div class="suggestions" id="suggestions" role="listbox" aria-label="Search suggestions"></div>
+          </form>
+        </div>
+        <div class="quick" aria-label="Example searches">
+          <span class="quick-label">Try</span>
+          <button class="chip" data-fill="headphones">Headphones</button>
+          <button class="chip" data-fill="laptop">Laptops</button>
+          <button class="chip" data-fill="furniture">Furniture</button>
+          <button class="chip" data-fill="internet">Internet providers</button>
+          <button class="chip" data-fill="travel">Travel</button>
+          <button class="chip" data-fill="detailing">Car detailing</button>
+        </div>
+
+        <div class="vx-stage hero-visual-stage">
+          <div class="hero-collage" id="heroCollage"></div>
+          <div class="vx-panel" id="compare-preview">
+            <div class="visual-top">
+              <span class="visual-badge">Demo interface · No scoring</span>
+              <div class="visual-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            </div>
+            <div class="compare-card">
+              <div class="compare-head">
+                <div>
+                  <div class="compare-title">Side by side</div>
+                  <div class="compare-sub">No scores, no ranking — demo data</div>
+                </div>
+                <span class="visual-count" id="heroOptionCount">3 options</span>
+              </div>
+              <div class="compare-search" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
+                Wireless headphones · over-ear
+              </div>
+              <div class="option-list" id="heroCompareList"></div>
+            </div>
+            <p class="demo-note">Three demo records from the catalogue, lined up row by row. Prices and specifications are illustrative — PickVanta shows what differs and never declares a winner.</p>
+            <a class="btn-primary" href="compare.html">Open Compare →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="categories" aria-labelledby="cat-title">
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">01 / Browse</span>
+          <div><h2 id="cat-title">Explore by category</h2><p>Each one opens Discover with that category already selected.</p></div>
+          <a href="discover.html" class="link-arrow">View all →</a>
+        </div>
+        <div class="categories vx-rail" id="homeCategories" role="list"></div>
+      </div>
+    </section>
+
+    <section class="section" id="discover" aria-labelledby="discover-title">
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">02 / Discover</span>
+          <div><h2 id="discover-title">Discover what fits you</h2><p>A curated slice of the catalogue, spread across categories and price bands.</p></div>
+          <a href="discover.html" class="link-arrow">See more →</a>
+        </div>
+        <div class="products-grid" id="homeDiscover"></div>
+        <p class="dataset-note" id="homeDatasetNote"></p>
+      </div>
+    </section>
+
+    <section class="section" id="needs" aria-labelledby="needs-title">
+      <div class="shell">
+        <div class="vx-needs-board">
+          <div>
+            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Explore by need</span>
+            <h2 id="needs-title">Start from the reason, not the product.</h2>
+            <p>Each shortcut applies a tag or a search to the catalogue — nothing is personalised or tracked.</p>
+            <a href="discover.html" class="link-arrow">Browse everything →</a>
+          </div>
+          <div class="needs" id="homeNeeds"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tight" aria-labelledby="compare-cta-title">
+      <div class="shell">
+        <div class="vx-band compare-cta">
+          <div class="compare-cta-main">
+            <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Compare</span>
+            <h2 id="compare-cta-title">Two or three options? <em>See them side by side.</em></h2>
+            <p>Select up to <strong>3 options</strong> with <strong>Compare</strong> and PickVanta lines them up row by row. Pick a <strong>compare focus</strong>, switch on <strong>differences only</strong>, and keep the decision yourself — no scores, no winners.</p>
+          </div>
+          <div class="compare-cta-side">
+            <a class="btn-primary btn-large" href="compare.html">Open Compare</a>
+            <a class="btn-secondary btn-large" href="discover.html">Find options to compare</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="deals" aria-labelledby="deals-title">
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">03 / Deals</span>
+          <div><h2 id="deals-title">Deals worth a look</h2><p>Demo offers attached to catalogue records. Not live pricing, not real merchants.</p></div>
+          <a class="link-arrow" href="deals.html">All demo deals →</a>
+        </div>
+        <div class="deals-grid" id="homeDeals"></div>
+      </div>
+    </section>
+
+    <section class="section" id="how" aria-labelledby="how-title">
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">04 / Method</span>
+          <div><h2 id="how-title">How PickVanta works</h2><p>One path from a question to a decision — no checkout, no pressure, no ranking.</p></div>
+          <a href="discover.html" class="link-arrow">Start →</a>
+        </div>
+        <div class="steps vx-steps" role="list">
+          <a class="step" role="listitem" href="discover.html?focus=search"><span class="step-num" aria-hidden="true">01</span><div class="step-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg></div><h3>Find</h3><p>Search by name, brand, seller, category or keyword.</p></a>
+          <a class="step" role="listitem" href="discover.html"><span class="step-num" aria-hidden="true">02</span><div class="step-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><h3>Discover</h3><p>Filter by category, price, location, type and availability.</p></a>
+          <a class="step" role="listitem" href="compare.html"><span class="step-num" aria-hidden="true">03</span><div class="step-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10"/><path d="m11 4 3 3-3 3"/><path d="M20 17H10"/><path d="m13 14-3 3 3 3"/></svg></div><h3>Compare</h3><p>Up to three options side by side — see exactly which rows differ.</p></a>
+          <a class="step" role="listitem" href="guides.html"><span class="step-num" aria-hidden="true">04</span><div class="step-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></div><h3>Choose</h3><p>Use the guides and your own priorities, then continue with the seller.</p></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="guides" aria-labelledby="guides-title">
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">05 / Guides</span>
+          <div><h2 id="guides-title">Know what to check</h2><p>Short, practical buying guides to read before you compare.</p></div>
+          <a href="guides.html" class="link-arrow">All guides →</a>
+        </div>
+        <div class="guides-grid" id="homeGuides"></div>
+      </div>
+    </section>
+
+    <section class="section section-tight" id="recent" aria-labelledby="recent-title" hidden>
+      <div class="shell">
+        <div class="vx-chapter">
+          <span class="vx-num">On this device</span>
+          <div><h2 id="recent-title">Recently viewed</h2><p>Kept in this browser only — nothing is sent anywhere.</p></div>
+          <button type="button" class="btn-ghost" id="recentClear">Clear this list</button>
+        </div>
+        <div class="recent-strip" id="homeRecent"></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="closing-title">
+      <div class="shell vx-closing">
+        <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Keep exploring</span>
+        <h2 id="closing-title">Discover. Compare. Find the deal.</h2>
+        <p>The catalogue is open, the comparison is neutral, and nothing here is trying to rush you.</p>
+        <div class="closing-actions">
+          <a class="btn-primary btn-large" href="discover.html">Start discovering</a>
+          <a class="btn-secondary btn-large" href="guides.html">Read the guides</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+
+  <!-- Shared footer (rendered by js/core.js) -->
+  <footer id="siteFooter"></footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Runtime configuration. The local file is git-ignored and holds this
+       deployment's own values (it is absent from the repository: if it is not
+       there, the browser logs one 404 and js/config.js defaults to the bundled
+       demonstration catalogue). It must load immediately before js/config.js,
+       which merges its public values. Never contains a secret. -->
+  <script src="js/config.local.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/domain.js"></script>
+  <!-- Data-access layer: the only module that talks to the catalogue source
+       (the bundled demonstration data, or the read-only Supabase API) -->
+  <script src="js/store.js"></script>
+  <!-- Authentication layer: the only module that talks to Supabase Auth -->
+  <script src="js/auth.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
