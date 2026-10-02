@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0F172A" />
+  <meta name="theme-color" content="#101114" />
   <meta name="description" content="Discover products, services and offers on PickVanta. Browse by category, filter the catalogue and open any option for detail." />
   <meta name="color-scheme" content="light dark" />
   <title>Discover | PickVanta</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap" />
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/vanta.css" />
 </head>
 <body>
   <a href="#main" class="visually-hidden">Skip to content</a>
@@ -22,24 +26,21 @@
 
   <main id="main">
     <!-- PAGE HEAD -->
-    <section class="page-head">
+    <section class="vx-dhead" aria-labelledby="cats-title">
       <div class="shell">
-        <div class="page-head-grid">
+        <div class="vx-dhead-row">
           <div>
             <div class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Find · Discover</div>
             <h1>Discover</h1>
-            <p class="page-lead">
-              Explore products, services and offers available through PickVanta. Browse by category, narrow the list with filters,
-              then open any option to see its details and decide what is worth comparing.
-            </p>
+            <p class="page-lead">Products, services and offers in one place. Narrow with filters, open anything for detail, and send up to three to Compare.</p>
           </div>
           <div class="page-side">
             <div class="dataset-stat" id="datasetStat" aria-live="polite"></div>
-            <p class="notice" data-demo-only>Demonstration data only. No live listings, live prices, real sellers or real availability.</p>
+            <p class="notice" data-demo-only>Demonstration data only. No live listings, prices, sellers or availability.</p>
           </div>
         </div>
-
-        <div class="search-wrap wide" id="searchWrap">
+        <div class="vx-dsticky">
+          <div class="search-wrap wide" id="searchWrap">
           <form id="searchForm" role="search" aria-label="Search the catalogue">
             <label for="pageSearch" class="visually-hidden">Search products, services, brands or deals</label>
             <div class="search-row">
@@ -55,29 +56,19 @@
             <div class="suggestions" id="suggestions" role="listbox" aria-label="Search suggestions"></div>
           </form>
         </div>
-      </div>
-    </section>
-
-    <!-- CATEGORY NAVIGATION -->
-    <section class="section section-tight" id="categories" aria-labelledby="cats-title">
-      <div class="shell">
-        <div class="section-head compact">
-          <div>
-            <h2 id="cats-title">Browse by category</h2>
-            <p>Pick a broad category, or stay on “All” to see everything in the catalogue.</p>
+          <div class="vx-catdock" id="categories">
+            <h2 id="cats-title" class="visually-hidden">Browse by category</h2>
+            <nav class="cat-strip" id="categoryStrip" aria-label="Categories"></nav>
+            <div class="tag-strip">
+              <span class="tag-strip-label" id="tagStripLabel">Popular tags</span>
+              <div class="tag-strip-items" id="tagStrip" role="group" aria-labelledby="tagStripLabel"></div>
+            </div>
           </div>
         </div>
-        <nav class="cat-strip" id="categoryStrip" aria-label="Categories"></nav>
-
-        <div class="tag-strip">
-          <span class="tag-strip-label" id="tagStripLabel">Popular tags:</span>
-          <div class="tag-strip-items" id="tagStrip" role="group" aria-labelledby="tagStripLabel"></div>
-        </div>
       </div>
     </section>
-
     <!-- RESULTS + FILTERS -->
-    <section class="section section-tight" aria-labelledby="results-title">
+    <section class="section section-tight vx-results" aria-labelledby="results-title">
       <div class="shell">
         <h2 id="results-title" class="visually-hidden">Results</h2>
         <div class="listing-layout">
