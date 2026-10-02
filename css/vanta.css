@@ -632,3 +632,31 @@ thead th{position:static!important}
 .tray-slot{flex:0 1 160px!important}
 .compare-tray .tray-label{white-space:nowrap}
 thead th, thead th *{color:var(--text)} thead th [class*="price"],thead th small{font-family:var(--font-display)}
+
+
+/* ======================================================================
+   STAGE 4 - polish sweep (tray clearance, narrow widths)
+   Additive only: fixes measured overlap/exposure issues between this
+   overlay and the fixed compare tray. No selectors above are changed.
+   ====================================================================== */
+/* The tray offsets by var(--safe-bottom); the page reservation and the
+   toast offset must include it too, or notched-device insets let the
+   fixed tray overlap page content (tray occupies 86px + inset vs the
+   110px flat reserve; toast sits at 96px flat). */
+@media (min-width:721px){
+  body.has-tray{padding-bottom:calc(110px + var(--safe-bottom))}
+  body.has-tray .toast{bottom:calc(96px + var(--safe-bottom))}
+}
+@media (max-width:720px){
+  body.has-tray{padding-bottom:calc(150px + var(--safe-bottom))}
+  body.has-tray .toast{bottom:calc(150px + var(--safe-bottom))}
+  /* Open tray stacks up to three 48px chips: ~258px tall - reserve for it
+     (main's flat 200px reservation under-reserves this layout). */
+  body.has-tray.tray-expanded{padding-bottom:calc(270px + var(--safe-bottom))}
+  /* The later desktop fix `.tray-chip{flex:0 1 220px!important}` leaks into
+     the open column list, where flex-basis becomes HEIGHT (220px-tall chips),
+     and `.tray-chips{flex:1 1 auto}` un-seats the full-width basis. Pin both
+     at (0,3,0) so they win the cascade. */
+  .compare-tray.tray-open .tray-chips{flex:1 1 100%!important}
+  .compare-tray.tray-open .tray-chip{flex:0 0 auto!important;height:48px}
+}
