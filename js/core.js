@@ -1696,6 +1696,13 @@ window.PV = Object.assign(window.PV || {}, (function () {
         toast('Comparison cleared.');
         return;
       }
+      /* saved favorites (browser-local by design — see the favorites store) */
+      const fav = e.target.closest('[data-favorite-toggle]');
+      if (fav) {
+        e.preventDefault();
+        favorites.toggle(fav.getAttribute('data-favorite-toggle'));
+        return;
+      }
       /* features that intentionally do not exist yet */
       const later = e.target.closest('[data-later]');
       if (later) {
