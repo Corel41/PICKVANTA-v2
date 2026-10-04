@@ -378,6 +378,46 @@ entries, guide sections, `service_area text[]`, settings values). Every relation
 that is a relationship is a foreign key; there is no record that stores an array of ids
 in place of a join table, and no column holds HTML or a pre-formatted price.
 
+### Merchant compliance profiles (Phase 1)
+
+> This section documents the recovered Phase 1 contract **as it exists in this
+> repository today**. The original README wording was lost with the Phase 1
+> clone; what follows is a reconstruction of the contract, not a byte-exact
+> restoration of the historical text.
+
+PickVanta models each merchant offer's display and buyer-pathway rules as one
+**generic compliance profile**: there are no merchant-specific branches anywhere in
+the code. Which rules apply to an offer is data recorded by its configured source,
+never code.
+
+The rules cross from `deal_sources.config` (admin-only: no anon grant, no public
+policy — `0005`/`0015`) to the public page through one read-only function:
+
+| Function | Migration | Who may call it | What it does |
+| -------- | --------- | --------------- | ------------- |
+| `merchant_offer_compliance(p_product_id uuid)` | `0018` | `anon`, `authenticated` | For one product's publicly visible offers (`active`/`unavailable`, the 0015 offers policy), returns one sanitized profile per offer, keyed by merchant-offer id |
+
+The projection whitelists exactly eleven fields — `pathway_mode`, `telemetry_blocking`,
+`price_display`, `availability_display`, `content_refresh`, `image_handling`, `disclosure`,
+`disclaimers`, `api_data_only`, `link_health`, `prohibited` — each rebuilt individually
+against the closed vocabulary. Raw `deal_sources.config`, credentials, source internals and
+affiliate URLs never cross this boundary, and neither do unknown keys. Missing, malformed or
+unavailable compliance information falls back to the historical default behaviour: the offer
+renders exactly as PickVanta has always rendered it.
+
+`js/compliance.js` is the single normalizing engine; `js/store.js` fetches one such map
+per product load and attaches each profile to its offer. The buyer pathway then follows
+the profile: `tracked-redirect` (the database-resolved pathway that has always existed) or
+`direct-link` — a plain native anchor carrying `rel="nofollow sponsored noopener"`, with
+one fire-and-forget telemetry request that never blocks, rewrites or waits for the
+navigation. `price_display` and `availability_display` can suppress what the offer card
+shows; `disclosure: 'associates'` renders "As an Amazon Associate I earn from qualifying
+purchases." beside the offer. No price history, price alerts, background jobs or automatic
+publishing exist in this stage.
+
+> **`0018` is already applied to the live database.** The file under `db/migrations/`
+> is the source record of that deployed contract — it must not be casually re-applied.
+
 ### Applying the schema and the seed
 
 ```bash
