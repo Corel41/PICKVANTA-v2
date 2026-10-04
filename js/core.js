@@ -527,7 +527,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
 
   function syncFavoritesButtons() {
     const ids = favorites.ids();
-    $("[data-favorite-toggle]").forEach((btn) => {
+    $$("[data-favorite-toggle]").forEach((btn) => {
       const id = btn.getAttribute("data-favorite-toggle");
       const active = ids.indexOf(id) !== -1;
       btn.classList.toggle("active", active);
