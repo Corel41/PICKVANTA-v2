@@ -299,13 +299,24 @@ PV.util.ready(function () {
               '</button>' +
               (offer ? '<a class="btn-secondary btn-large" href="#dealBox">View offer</a>' : '') +
               (related.length ? '<a class="btn-secondary btn-large" href="#related">Explore similar options</a>' : '') +
-              '<button type="button" class="btn-ghost btn-large" data-later="Saving items">Save</button>' +
+              /* The same Save control the listing cards use: a PV favorite,
+                 browser-local (localStorage ids only). The global handler in
+                 js/core.js owns the click, and js/core.js keeps the icon,
+                 label state and title of every [data-favorite-toggle] button
+                 in sync. There is deliberately no backend persistence and no
+                 saved-items page yet. */
+              '<button type="button" class="small-btn fav-btn" data-favorite-toggle="' + U.esc(record.id) + '"' +
+                ' aria-pressed="' + (PV.favorites.has(record.id) ? 'true' : 'false') + '"' +
+                ' title="' + (PV.favorites.has(record.id) ? 'Remove from saved favorites' : 'Save for later') + '">' +
+                '<span class="fav-icon" aria-hidden="true">' + (PV.favorites.has(record.id) ? '♥' : '♡') + '</span>' +
+                '<span class="btn-label">Save</span>' +
+              '</button>' +
               '<button type="button" class="btn-ghost btn-large" data-later="Seller contact">Contact seller</button>' +
             '</div>' +
 
             '<p class="actions-note">' + (isLive()
-              ? 'Compare adds this option to the comparison tray (up to 3). Save and Contact seller are placeholders in this build — there is no account messaging or seller contact yet.'
-              : 'Compare adds this option to the demo comparison tray (up to 3). Save and Contact seller are demo interactions — there is no account, no messaging and no real seller contact in this build.') + '</p>' +
+              ? 'Compare adds this option to the comparison tray (up to 3). Save keeps this option in this browser only — there is no account-synced or cross-device saved list yet. Contact seller is a placeholder in this build — there is no seller messaging yet.'
+              : 'Compare adds this option to the demo comparison tray (up to 3). Save keeps this option in this browser only — there is no account, no cross-device saved list and no real seller contact in this build.') + '</p>' +
           '</div>' +
         '</div>' +
       '</div>' +

@@ -168,10 +168,12 @@ PV.util.ready(function () {
 
   function renderCatalogue() {
     /* ---------------------------------------------------- hero preview card */
-    /* The three options shown in the hero compare preview come from the same
-       records the Compare page seeds itself with — nothing is hard-coded in the
-       markup. Names are shortened and attribute values trimmed so the small
-       preview keeps its shape whatever the catalogue contains. */
+    /* The three options shown in the hero compare preview are a read-only
+       preview of the configured default comparison products (demo data, or
+       catalogue_settings in live mode) — this page never adds them to the
+       comparison. Names are shortened and attribute values trimmed so the
+       small preview keeps its shape whatever the catalogue contains. */
+
     const heroList = U.$('#heroCompareList');
     if (heroList) {
       const heroIds = PV.store.defaultCompareIds();

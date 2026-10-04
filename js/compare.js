@@ -16,7 +16,6 @@ PV.util.ready(function () {
   const matrixHost = U.$('#compareMatrix');
   const toolsHost = U.$('#compareTools');
   const suggestHost = U.$('#compareSuggest');
-  const noticeHost = U.$('#compareNotice');
 
   /* The picker pool and the quick picks come from one catalogue request; the
      records themselves are resolved through the data layer, never read from a
@@ -24,7 +23,6 @@ PV.util.ready(function () {
   let ALL = [];
   let byId = new Map();
   let diffsOnly = false;
-  let seededTitle = false;
   /* Compare focus: which areas the visitor asked to have emphasised. It only
      highlights rows — it never scores, ranks or picks anything. */
   let focusAreas = [];
@@ -42,6 +40,11 @@ PV.util.ready(function () {
     .slice(0, MAX);
   const linkHadIds = U.params().has('ids');
 
+  /* The selection lives in this browser (PV.compare persists it in
+     localStorage), so an empty selection is a real state, not a gap to fill:
+     nothing is auto-seeded here. A share link's ids restore that exact
+     selection; a link whose ids are all missing from the catalogue clears it;
+     any other visit shows whatever this browser last had — including nothing. */
   function seedSelection() {
     if (linkIds.length) {
       PV.compare.set(linkIds);
@@ -49,9 +52,6 @@ PV.util.ready(function () {
       /* a link carried ids that are not in the catalogue — show the empty
          state rather than silently substituting other options */
       PV.compare.set([]);
-    } else if (!PV.compare.count()) {
-      PV.compare.set(PV.store.defaultCompareIds());
-      seededTitle = true;
     }
   }
 
@@ -579,24 +579,11 @@ PV.util.ready(function () {
     });
   }
 
-  function renderNotice() {
-    if (!noticeHost) return;
-    if (seededTitle && ids().length) {
-      noticeHost.innerHTML = isLive()
-        ? '<div class="notice">Showing a starting selection of ' + ids().length + ' technology products so the comparison layout is visible. ' +
-          'Change the slots below — nothing is saved to a server.</div>'
-        : '<div class="notice">Showing a starting demo selection of ' + ids().length + ' technology products so the comparison layout is visible. ' +
-          'Change the slots below — nothing is saved to a server. Demo data only.</div>';
-      seededTitle = false;
-    }
-  }
-
   function render() {
     renderPickers();
     renderTools();
     renderMatrix();
     renderSuggest();
-    renderNotice();
   }
 
   PV.onCompareChange(function () {
