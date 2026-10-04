@@ -16,6 +16,15 @@ PV.util.ready(function () {
   const host = U.$('#detail');
   const crumb = U.$('#crumb');
 
+  /* The compliance profile engine (js/compliance.js): the single source of
+     truth for how an offer's buyer pathway, disclosure and price/availability
+     display must behave. The domain layer already fails loudly when the
+     module is missing; this page asserts the same order for itself. */
+  const Cm = window.PV.compliance;
+  if (!Cm || typeof Cm.forOffer !== 'function') {
+    throw new Error('js/detail.js requires js/compliance.js — load js/compliance.js before js/detail.js.');
+  }
+
   /* The tracked affiliate pathway. The visitor's click offers only the offer's
      id: the database resolves the approved destination from the stored offer,
      or records nothing and answers null. The interface then follows that
@@ -40,6 +49,32 @@ PV.util.ready(function () {
     }).catch(function () {
       if (href) window.location.href = href;
     });
+  });
+
+  /* The direct-link pathway. An offer whose compliance profile says
+     "direct-link" renders as a plain native anchor (data-offer-link=
+     "affiliate-direct", deliberately not the tracked selector above): the
+     browser follows the href itself, so navigation works with JavaScript
+     disabled and nothing on this path calls preventDefault or waits. This
+     one delegated listener exists only to fire the database's
+     fire-and-forget telemetry alongside the navigation the browser is
+     already performing — once per click, never awaited, never retried, and
+     never a reason the click fails. Which pathway applies is the offer's
+     compliance profile's decision; nothing about the URL is inspected. */
+  host.addEventListener('click', function (e) {
+    const anchor = e.target && e.target.closest
+      ? e.target.closest('[data-offer-link="affiliate-direct"]') : null;
+    if (!anchor) return;
+    if (typeof PV.store.affiliateClickTelemetry === 'function') {
+      try {
+        PV.store.affiliateClickTelemetry({
+          id: anchor.getAttribute('data-offer-id'),
+          affiliateUrl: anchor.getAttribute('href') || ''
+        });
+      } catch (err) {
+        /* telemetry must never disturb the navigation that is already under way */
+      }
+    }
   });
   /* Records are addressed by their stable id; ?slug= is accepted so a readable
      link keeps working too. */
@@ -490,29 +525,47 @@ PV.util.ready(function () {
   }
 
   function offerCard(offer) {
+    /* The offer's compliance profile decides everything below: the pathway
+       (tracked vs direct), whether a program disclosure is required, and
+       whether the merchant's price and availability may be shown at all.
+       An offer with no profile resolves to the DEFAULT profile, which is
+       exactly the historical behaviour of this card. */
+    const profile = Cm.forOffer(offer);
     const merchantName = (offer.merchant && offer.merchant.name) ? offer.merchant.name : 'Merchant offer';
     const status = offer.statusCopy || { label: offer.status, tone: 'muted' };
-    const price = U.merchantOfferPriceText(offer);
+    const mayShowPrice = profile.priceDisplay === 'source';
+    const mayShowAvailability = profile.availabilityDisplay === 'source';
+    const directLink = profile.pathwayMode === 'direct-link';
     const comparable = U.merchantOfferComparisonSupported(offer);
     const observed = offer.priceObservedAt || offer.lastObservedAt;
     const media = offer.media && offer.media.length ? offer.media[0] : null;
+    const disclosureLine = profile.disclosure === 'associates'
+      ? '<p class="panel-note">As an Amazon Associate I earn from qualifying purchases.</p>'
+      : '';
     return (
       '<div class="panel">' +
         (media && media.url
           ? '<img class="media-img" src="' + U.esc(media.url) + '" alt="' + U.esc(media.attribution || merchantName) + '" loading="lazy" decoding="async" />'
           : '') +
         '<p class="panel-text"><strong>' + U.esc(merchantName) + '</strong> ' +
-          '<span class="status-pill ' + U.esc(pillTone(status.tone)) + '">' + U.esc(status.label) + '</span></p>' +
+          (mayShowAvailability
+            ? '<span class="status-pill ' + U.esc(pillTone(status.tone)) + '">' + U.esc(status.label) + '</span>'
+            : '') + '</p>' +
         (offer.merchantTitle ? '<p class="panel-note">' + U.esc(offer.merchantTitle) + '</p>' : '') +
-        '<div class="detail-price-row">' +
-          '<span class="detail-price">' + U.esc(price || 'Price not stated') + '</span>' +
-          (comparable ? '<span class="price-old">' + U.esc(U.merchantOfferPriceText({ priceAmount: offer.originalPrice, currency: offer.currency })) + '</span>' : '') +
-        '</div>' +
-        (offer.currency ? '' : '<p class="panel-note">The merchant did not record a currency, so none is shown.</p>') +
-        (observed ? '<p class="panel-note">Price observed ' + U.esc(U.formatDate(observed)) + ', as the merchant listed it.</p>' : '') +
+        (mayShowPrice
+          ? '<div class="detail-price-row">' +
+              '<span class="detail-price">' + U.esc(U.merchantOfferPriceText(offer) || 'Price not stated') + '</span>' +
+              (comparable ? '<span class="price-old">' + U.esc(U.merchantOfferPriceText({ priceAmount: offer.originalPrice, currency: offer.currency })) + '</span>' : '') +
+            '</div>' +
+            (offer.currency ? '' : '<p class="panel-note">The merchant did not record a currency, so none is shown.</p>') +
+            (observed ? '<p class="panel-note">Price observed ' + U.esc(U.formatDate(observed)) + ', as the merchant listed it.</p>' : '')
+          : '<p class="panel-note">See the price at ' + U.esc(merchantName) + '.</p>') +
+        disclosureLine +
         '<div class="actions-row">' +
           (offer.affiliateUrl
-            ? '<a class="btn-primary" data-offer-link="affiliate" data-offer-id="' + U.esc(offer.id) + '" href="' + U.esc(offer.affiliateUrl) + '" rel="noopener noreferrer nofollow">Buy at ' + U.esc(merchantName) + '</a>'
+            ? (directLink
+              ? '<a class="btn-primary" data-offer-link="affiliate-direct" data-offer-id="' + U.esc(offer.id) + '" href="' + U.esc(offer.affiliateUrl) + '" rel="nofollow sponsored noopener">Buy at ' + U.esc(merchantName) + '</a>'
+              : '<a class="btn-primary" data-offer-link="affiliate" data-offer-id="' + U.esc(offer.id) + '" href="' + U.esc(offer.affiliateUrl) + '" rel="noopener noreferrer nofollow">Buy at ' + U.esc(merchantName) + '</a>')
             : (offer.sourceUrl
               ? '<a class="btn-secondary" href="' + U.esc(offer.sourceUrl) + '" rel="noopener noreferrer nofollow">View at ' + U.esc(merchantName) + '</a>' +
                 '<span class="price-note">PickVanta has no tracked link for this offer.</span>'

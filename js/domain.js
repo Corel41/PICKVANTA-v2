@@ -47,6 +47,17 @@ window.PV = window.PV || {};
 window.PV.domain = (function () {
   'use strict';
 
+  /* The merchant-compliance profile engine (js/compliance.js, Phase 1 of the
+     merchant-compliance design). The domain layer owns the reference, never
+     the implementation: vocabulary, defaults and normalization live in that
+     module alone, and the load order (compliance.js before domain.js) is what
+     guarantees the reference below resolves. A missing module fails loudly
+     here rather than falling back to a quiet second implementation. */
+  const Cm = window.PV.compliance;
+  if (!Cm || typeof Cm.normalize !== 'function') {
+    throw new Error('js/domain.js requires js/compliance.js — load js/compliance.js before js/domain.js.');
+  }
+
   /* ======================================================================
      1. Vocabularies
      ====================================================================== */
@@ -1667,6 +1678,10 @@ window.PV.domain = (function () {
      5. Public API
      ====================================================================== */
   return {
+    /* the compliance engine (js/compliance.js) — the same single object the
+       namespace carries, exposed here so the domain surface is complete */
+    compliance: Cm,
+
     /* vocabularies */
     LISTING_TYPES, LISTING_STATUS, AVAILABILITY, PRICE_TYPES, OFFER_KINDS, OFFER_STATUS,
     SELLER_TYPES, SELLER_STATUS, VERIFICATION_STATUS, LOCATION_FORMATS, GUIDE_STATUS,

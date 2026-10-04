@@ -849,6 +849,31 @@ window.PV = Object.assign(window.PV || {}, (function () {
     el.textContent = el.textContent === message ? message + '\u200B' : message;
   }
 
+  /* ------------------------------------------------- associates disclosure */
+  /** Phase 1: site-wide disclosure SUPPORT, never a site-wide display. Pages
+   * hand this an offer (or an already-resolved compliance profile) and get
+   * the programme disclosure markup back only when that profile's disclosure
+   * vocabulary requires it — an offer with no profile, or one whose
+   * disclosure is not "associates", produces nothing at all. The decision is
+   * made by PV.compliance alone (this is a consumer of it, not a second
+   * implementation): no URL, hostname, merchant name or marketplace is ever
+   * inspected, no data is fetched — profiles arrive through the
+   * store → domain → compliance flow with the page's own data — and the
+   * returned markup follows the same panel-note pattern the detail page
+   * renders inline. */
+  const ASSOCIATES_DISCLOSURE_TEXT = 'As an Amazon Associate I earn from qualifying purchases.';
+  function associatesDisclosure(offerOrProfile) {
+    const C = window.PV.compliance;
+    if (!C || typeof C.forOffer !== 'function') return '';
+    const source = offerOrProfile && typeof offerOrProfile === 'object' && 'disclosure' in offerOrProfile
+      ? { compliance: offerOrProfile }
+      : offerOrProfile;
+    const profile = C.forOffer(source);
+    return profile && profile.disclosure === 'associates'
+      ? '<p class="panel-note">' + ASSOCIATES_DISCLOSURE_TEXT + '</p>'
+      : '';
+  }
+
   /**
    * The compare tray: a compact, dismissible bar that shows how many options
    * are selected, lets each one be removed, and links into the Compare view.
@@ -1782,6 +1807,7 @@ window.PV = Object.assign(window.PV || {}, (function () {
     onRecentChange,
     ui: {
       toast, announce, mountChrome, bindSearch, renderFilters, renderSort, bindFiltersDrawer,
+      associatesDisclosure,
       syncCompareButtons, renderTray, toggleTray, headerMarkup, footerMarkup, bindMediaFallback
     },
     hrefDetail

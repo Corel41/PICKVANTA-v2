@@ -48,6 +48,10 @@
        which merges its public values. Never contains a secret. -->
   <script src="js/config.local.js"></script>
   <script src="js/config.js"></script>
+  <!-- Compliance profiles: the display rules an offer's source records. The
+       domain and detail layers both require this module at load time, so it
+       sits ahead of them; the store delivers profiles with an offer's data. -->
+  <script src="js/compliance.js"></script>
   <script src="js/domain.js"></script>
   <!-- Data-access layer: the only module that talks to the catalogue source
        (the bundled demonstration data, or the read-only Supabase API) -->

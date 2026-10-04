@@ -738,7 +738,7 @@ window.PV.store = (function () {
        revocation) of an offer's tracked destination. The reviewed conversion
        deliberately writes no affiliate URL; this is the one transition that
        attaches one, after the offer and its evidence have been inspected. */
-    function postRpc(path, body) {
+    function postRpc(path, body, options) {
       if (!configured()) {
         return Promise.reject(StoreError(FRIENDLY, 'api-not-configured',
           'mode is "api" but js/config.js has no Supabase url/anonKey.'));
@@ -755,7 +755,8 @@ window.PV.store = (function () {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(body || {}),
-        cache: 'no-store'
+        cache: 'no-store',
+        keepalive: !!(options && options.keepalive === true)
       }).then((response) => {
         if (!response.ok) {
           return response.text().then((text) => {
@@ -785,6 +786,22 @@ window.PV.store = (function () {
         },
         () => ({ tracked: false, destination: fallbackUrl || '', reason: 'not-recorded' })
       );
+    }
+
+    /* Phase 1: fire-and-forget telemetry for the direct-link pathway. The
+       buyer's browser is already navigating natively; this records the click
+       through the SAME public rpc the tracked pathway uses and is never
+       awaited, never retried and never surfaced into the click handler — a
+       failed recording must never disturb a purchase. The established rpc
+       contract carries the offer's id only (the database resolves the
+       destination from the stored offer); keepalive lets the request outlive
+       the page that is navigating away. Nothing here touches the URL. */
+    function affiliateClickTelemetry(offer) {
+      const raw = offer && typeof offer === 'object' ? offer.id : null;
+      const id = typeof raw === 'string' ? Dm.trim(raw) : '';
+      if (!id) return;
+      postRpc('rpc/affiliate_click_track', { p_offer_id: id }, { keepalive: true })
+        .then(function () {}, function () {});
     }
 
     function affiliateApprove(session, offerId, url) {
@@ -1563,6 +1580,7 @@ window.PV.store = (function () {
       dealEngineImportedDealEvents: dealEngineImportedDealEvents,
       importedDealConvert: importedDealConvert,
       affiliateClick: affiliateClick,
+      affiliateClickTelemetry: affiliateClickTelemetry,
       affiliateApprove: affiliateApprove,
       dealSourceSave: dealSourceSave,
       referenceCategoryOptions: referenceCategoryOptions,
@@ -1713,7 +1731,28 @@ window.PV.store = (function () {
                   o.media = mediaByOffer.get(o.id) || [];
                   o.merchant = merchantsById.get(o.merchantId) || null;
                 });
-                return { product: product, variants: variants, offers: offers };
+                /* Phase 1: the compliance transport. ONE sanitized, read-only
+                   RPC for the whole product — the database has already
+                   whitelisted every field allowed to cross — answered as one
+                   map keyed by offer id. This must never be a reason a
+                   product fails to load: a rejection, an unexpected
+                   resolution or a non-object answer collapses to an empty
+                   map, and every offer then wears `null` (the historical
+                   behaviour) instead of a profile. The profile on an offer is
+                   server-sanitized data, not merged source/config state; the
+                   demo adapter never runs this path. */
+                const complianceGet = postRpc('rpc/merchant_offer_compliance', { p_product_id: product.id })
+                  .then((result) => {
+                    const map = result && result.body;
+                    return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+                  })
+                  .catch(() => ({}));
+                return complianceGet.then((map) => {
+                  offers.forEach((o) => {
+                    o.compliance = (map && map[o.id]) || null;
+                  });
+                  return { product: product, variants: variants, offers: offers };
+                });
               });
             });
           });
@@ -2336,6 +2375,22 @@ window.PV.store = (function () {
         return Promise.resolve({ tracked: false, destination: destination || '', reason: 'no-pathway' });
       }
       return fromSource('affiliateClick', (adapter) => adapter.affiliateClick(id, destination));
+    },
+
+    /* The direct-link pathway's fire-and-forget telemetry. The page never
+       awaits this and the click never depends on it: the call is issued and
+       every outcome — rejection, unsupported adapter, absent method — is
+       absorbed here. Offers without a usable id record nothing. */
+    affiliateClickTelemetry: function (offer) {
+      const raw = offer && typeof offer === 'object' ? offer.id : null;
+      const id = typeof raw === 'string' ? Dm.trim(raw) : '';
+      if (!id) return;
+      try {
+        fromSource('affiliateClickTelemetry', (adapter) => adapter.affiliateClickTelemetry(offer))
+          .catch(function () {});
+      } catch (err) {
+        /* telemetry must never surface into the click handler */
+      }
     },
 
     /* An administrator approves (or, with an empty url, revokes) an offer's
